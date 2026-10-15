@@ -41,7 +41,7 @@ p256 = { version = "0.13", features = ["ecdsa"] }
 # OsRng for nonce generation — much lighter than the full rand crate (no algorithms needed).
 rand_core = { version = "0.6", features = ["getrandom"] }
 # Shared TTL nonce store for horizontal scale-out (Redis protocol; works with Dragonfly).
-redis = { version = "0.27", default-features = false, features = ["tokio-comp", "connection-manager", "script"] }
+redis = { version = "1.7", default-features = false, features = ["tokio-comp", "connection-manager", "script"] }
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
