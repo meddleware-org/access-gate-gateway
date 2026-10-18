@@ -2091,6 +2091,16 @@ PROXY lens:
   round trip in CI. Not verified by me: the cosign signature, the SBOM content and the provenance (no `cosign`
   here). The Section D image box stays unticked (private mirror unsigned, F29/OQ8). Incidental: the `Rust CI` runs of the Dependabot
   PRs of 2026-10-15 failed in Clippy and MSRV; not investigated.
+- **2026-10-18 (later) — `cargo deny` caught new advisories; fixed.** After the audits were pushed, `Rust CI` on `main` went red:
+  RUSTSEC-2026-0346 (`Debug` impls for client session values expose TLS secrets), RUSTSEC-2026-0347 (buffered application data
+  sent to the outer server after ECH rejection) and a Brotli-certificate-decompression advisory (up to 1 GiB allocated before
+  authentication), all against `rustls` 0.23.45 (via `hyper-rustls`/`tokio-rustls` for the gRPC-web client). All were published
+  after the 0.0.22 release. Fixed by `cargo update -p rustls` to **0.23.46** (lockfile only; commit `Cargo.lock` on `main`,
+  2026-10-18): `cargo test --locked` 114 passed, `clippy -D warnings` clean, `Rust CI` and `Node CI` green. The
+  published 0.0.22 crate/image carry the old lock (the gateway is undeployed, so nothing was exposed); the next release picks up
+  the fix, and the Trivy image scan before signing would block a release that still carried it. This is the supply-chain gate
+  (B.2, F28) working as designed. Incidental: the 2026-10-15 Dependabot PRs (axum 0.7→0.8, redis 0.27→1.7, base64 0.22→0.23)
+  are majors and fail Clippy/MSRV as expected; they are triage items, not defects.
 
 ## Pre-save consistency checklist (this pass)
 
