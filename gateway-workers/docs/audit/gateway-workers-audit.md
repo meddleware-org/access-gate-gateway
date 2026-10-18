@@ -17,9 +17,18 @@
   `Deploy Workers` run of 2026-10-09T17:49Z on `367e673` succeeded (the run of 14:13Z on `574fe70`, the
   config change below, also succeeded). The deployed version itself cannot be read from the repo;
   `deploy-workers.yml` tags each version `<tag>-code`.
-- npm `@meddleware/nft-gate-gateway` 0.0.21 (tag `v0.0.21` = `83349b8`), published 2026-10-08T08:19Z.
-  `main` carries later commits (the config change `574fe70` and Dependabot merges) that are deployed
-  but not in a tag.
+- **Redeployed from `main` on 2026-10-10** with the 0.0.22 fix wave: `Deploy Workers` run 38077732841
+  (`workflow_dispatch`, 2026-10-10T18:55Z, success) on `3189969` = tag `v0.0.22`. Verified live afterwards: a
+  canonical proof token decodes; an unpadded token and a whitespace-split token are refused as `malformed
+  access proof` (the strict decoder of nft-gate-client 0.0.17, F47). The `Origin lock` workflow (F32) ran green
+  from its first dispatch (run 38077866216, 2026-10-10T18:57Z) and on every daily schedule since (2026-10-11 to
+  2026-10-18). The deployed version itself still cannot be read from the repo; `deploy-workers.yml` tags each
+  version `<tag>-code`.
+- npm `@meddleware/nft-gate-gateway` **0.0.22** (tag `v0.0.22` = `3189969`; published 2026-10-10T18:49Z, SLSA v1
+  provenance attestation present, checked 2026-10-18; the same version is the crate `nft-gate-gateway` 0.0.22 on
+  crates.io and the `gateway-rust` image, whose `docker-publish` run succeeded). 0.0.21 (tag `v0.0.21` =
+  `83349b8`, published 2026-10-08T08:19Z) was the version of the 2026-10-09 pass; the Worker of 2026-10-09
+  carried `main` commits after that tag (the config change `574fe70` and Dependabot merges).
 - `SINGLE_USE=true` against the access_gate republished on 2026-10-09,
   `0xd7ddaa94…388c9` (v1), and its relay gate `0x316f1bf9…faddc`. The gate was read live on
   2026-10-09: type `0xd7ddaa94…::access_gate::Gate`, `default_uses` 10, `paused` false,
@@ -29,14 +38,15 @@
   consumed, `nft-gate:access:v2` proof, upload through this Worker; the indexer shows minted=1
   consumed=1.
 
-**Review date:** 2026-10-03 (re-verified 2026-10-09)
+**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release and deployment status 2026-10-18)
 **Reviewer:** Internal review
 **Severity ceiling:** High — the gateway is the only paywall in front of the operator's Walrus relay.
   A verification bypass gives unpaid uploads at the operator's cost, and a redemption flaw lets one
   paid consume buy many uploads. It holds no user funds and signs nothing on-chain, so nothing reaches
   Critical.
 **Status:** re-verified 2026-10-09 — 40 findings dispositioned (23 RESOLVED, 5 MITIGATED, 5 ADJUDICATED,
-  5 ACCEPTED-RISK, 2 DEFERRED) plus 6 Positive; F42–F46 added in this pass
+  5 ACCEPTED-RISK, 2 DEFERRED) plus 6 Positive; F42–F46 added in this pass. Fix wave 2026-10-10 (47 findings; the
+  final counts are in the log): released as 0.0.22 and deployed to the live Worker the same day.
 
 **Wrangler / compatibility:** wrangler `^4.143.0` (lockfile 4.147.0, workerd 1.20260815.1);
   `compatibility_date = "2026-06-01"`; `compatibility_flags = ["nodejs_compat"]`; `workers_dev = false`,
@@ -144,7 +154,7 @@ against `main` (`367e673`).
 **What remains.** Nothing above Info/Low is unresolved in code. The one DEFERRED item is
 maintainer-owned: the **Cloudflare plan** and body/CPU sizing (F11, OQ3). Three items are MITIGATED with
 a stated residual: deploy-environment reviewers and API-token scopes (F16, F31, OQ4) and the `unknown`
-IP bucket (F29). Fixed after the first re-verification (2026-10-10, unreleased, commit `ec91935`): the
+IP bucket (F29). Fixed after the first re-verification (2026-10-10, commit `ec91935`; released as 0.0.22 and deployed to the Worker the same day): the
 **scheduled negative origin-lock check** (F32: `origin-lock.yml`), the cosmetic stale comments (F21),
 the residual test gaps (F30) and the base64/UTF-8/JSON layers of proof decoding (F47,
 nft-gate-client 0.0.17).
@@ -842,7 +852,7 @@ and releases the lease", "a holder whose lease lapsed before commit is told 502�
 ### F21 — Stale and misleading comments, and dead code
 
 **Severity:** Info   **Disposition:** RESOLVED (binding-model statements 0.0.19; the remaining cosmetic items
-2026-10-10, unreleased, commit `ec91935`)
+2026-10-10, commit `ec91935`; released in 0.0.22 and deployed 2026-10-10)
 **Where:**
 
 - `src/chain.ts:9-12` (module doc: "bound to the challenge nonce + sender + gate") contradicts
@@ -864,7 +874,7 @@ model in exactly the area where F1/F23 matter.
   nonce"); `nonceMatches` (`chain.ts:320`) is exported, unused and no longer tested; `cors.ts:4-5`;
   `wrangler.toml:3`; the `proxy.ts` `@ts-expect-error` comment; and `CLAUDE.md`'s "Fallback: Workers KV"
   bullet that calls the single-use bind "unaffected" (contradicts F2's fix).
-- 2026-10-10 (unreleased, commit `ec91935`): the `chain.ts` module doc now says the event is not
+- 2026-10-10 (commit `ec91935`; released in 0.0.22): the `chain.ts` module doc now says the event is not
   nonce-bound (F23); `nonceMatches` and its import are deleted (no caller, no test); `cors.ts` no longer
   names `sui.meddleware.co.uk`; `wrangler.toml` points at `../gateway-rust`; the `proxy.ts`
   `@ts-expect-error` note says what is missing from the type; `CLAUDE.md`'s KV bullet now says
@@ -1007,7 +1017,7 @@ falls back to `'unknown'`).
 ### F30 — Coverage gaps against the WORKERS and TS lens requirements
 
 **Severity:** Info   **Disposition:** RESOLVED (most gaps closed in 0.0.19; the residual tests 2026-10-10,
-unreleased, commit `ec91935`)
+commit `ec91935`, released in 0.0.22)
 **Where:** `test/**`.
 
 **Issue:** The following required tests are missing:
@@ -1078,8 +1088,8 @@ No coverage tool or figure is configured.
 
 ### F32 — Origin lock is verified positively, not negatively
 
-**Severity:** Low   **Disposition:** RESOLVED (2026-10-10, unreleased, commit `ec91935`; first GitHub run
-to be confirmed after the push)
+**Severity:** Low   **Disposition:** RESOLVED (2026-10-10, commit `ec91935`, released in 0.0.22; first GitHub run
+confirmed green 2026-10-10: `Origin lock` run 38077866216, then daily green through 2026-10-18)
 **Where:** `scripts/check-upstream-auth.mjs` (asserts the origin **accepts** the token, with
 `redirect: 'manual'`), `deploy-workers.yml` (`UPSTREAM_CHECK_URL`), `README.md:96-125`.
 
@@ -1110,6 +1120,9 @@ this gateway is moot, and nothing would notice.
 - Not changed: `check-upstream-auth.mjs` stays the positive deploy check (it needs the secret); the
   negative check is kept out of the deploy job so a lock problem cannot block a code fix. GitHub
   pauses scheduled workflows after 60 days without repository activity (noted in the workflow).
+- **First runs on GitHub (confirmed 2026-10-18):** `workflow_dispatch` run 38077866216 (2026-10-10T18:57Z, two
+  minutes after the 0.0.22 deployment) succeeded; the scheduled runs of 2026-10-11, 12, 13, 14, 15, 16, 17 and 18
+  all succeeded, so the schedule is alive and the lock holds.
 
 ### F33 — `@mysten/sui` uses a tilde range one minor behind; TS shared-dependency matrix row
 
@@ -1126,8 +1139,8 @@ this gateway is moot, and nothing would notice.
 
 **Remediation / evidence:** `@mysten/sui` is `^2.33.1` (0.0.18 CHANGELOG), the ADR-0001 baseline
 (`^2.33.1`, one copy per bundle); the lockfile resolves 2.35.0 and `npm ls @mysten/sui` shows a single
-deduped copy shared with access-gate-client. First-party ranges are `^0.0.6` and `^0.0.16` (`^0.0.17` since 2026-10-10, F47), the latest
-published. The `@noble/*` `~2.4.0` pins stay (same family as `@mysten/sui`, on the verification path).
+deduped copy shared with access-gate-client. First-party ranges are `^0.0.6` (access-gate-client; the latest is 0.0.9, so this one is behind, a gateway-repo
+item) and `^0.0.16` (`^0.0.17` since 2026-10-10, F47, the latest published; both lockfile entries re-checked 2026-10-18). The `@noble/*` `~2.4.0` pins stay (same family as `@mysten/sui`, on the verification path).
 
 ### F34 — KV backend has a documented cross-region nonce replay window (ownership mode)
 
@@ -1333,7 +1346,7 @@ created for mainnet should set `pause_blocks_access` deliberately.
 
 ### F47 — Proof-token base64, UTF-8 and JSON layers were lenient in the client decoder (parity with `gateway-rust`)
 
-**Severity:** Low   **Disposition:** RESOLVED (nft-gate-client 0.0.17 adopted 2026-10-10, unreleased, commit `ec91935`). Not the same finding as `gateway-rust` F47. Origin: nft-gate-client audit F24.
+**Severity:** Low   **Disposition:** RESOLVED (nft-gate-client 0.0.17 adopted 2026-10-10, commit `ec91935`, released in 0.0.22 and live in the Worker from 2026-10-10). Not the same finding as `gateway-rust` F47. Origin: nft-gate-client audit F24.
 **Where:** `decodeAccessProof` in `@meddleware/nft-gate-client` (imported by `src/wire.ts`), through
 `atob` / `TextDecoder` / `JSON.parse`.
 
@@ -1705,7 +1718,8 @@ PROXY lens §C:
   `Record<string, Json>` and then field-checked; `@ts-expect-error` on `duplex` (comment stale, F21)
 - [x] the negative origin check runs on a schedule — F32 / OQ10 (`origin-lock.yml`, daily; the
   repository variable `UPSTREAM_CHECK_URL` already exists; run locally against the live origin
-  2026-10-10, first GitHub run to confirm after the release; commit `ec91935`)
+  2026-10-10; commit `ec91935`; first GitHub run green 2026-10-10 (run 38077866216) and daily green since,
+  checked 2026-10-18)
 - [ ] mainnet `access_gate` published and `NFT_TYPE`/`GATE_ID`/`NETWORK`/`GATEWAY_ORIGIN` populated from
   the canonical record — not yet (mainnet publication is a maintainer step, `OPERATOR_TASKS.md`
   "Mainnet release custody")
@@ -1991,6 +2005,15 @@ PROXY lens:
   - Live, read-only: `check-origin-locked.mjs` against the relay origin: three probes, all 401 from
     Access. Not run: the GitHub workflow itself (nothing is pushed); the Worker is not deployed.
   - OQ10 scheduling decided (daily, separate workflow). OQ3 and OQ4 stay open.
+- 2026-10-18 — released (0.0.22), deployed, consumers bumped (the Worker's own `@meddleware/nft-gate-client` is `^0.0.17`;
+  `@meddleware/access-gate-client` stays `^0.0.6`, lockfile 0.0.6). `npm view @meddleware/nft-gate-gateway` shows 0.0.22 as `latest`,
+  published 2026-10-10T18:49Z, with SLSA v1 provenance (`dist.attestations`); tag `v0.0.22` = `3189969`; the crate (crates.io
+  default version 0.0.22) and the `gateway-rust` image were published by the same tag. The Worker was deployed from `3189969`
+  on 2026-10-10 (`Deploy Workers` run 38077732841, success) and checked live: a canonical token decodes; unpadded and whitespace
+  tokens are refused as `malformed access proof`. The `Origin lock` workflow (F32) ran green on its first dispatch (run
+  38077866216) and daily since. The "Not run" items of the 2026-10-10 entry (the workflow run, the deployment) are done. Section
+  D: the F32 box was already ticked and now cites the runs; the two unticked boxes (mainnet `access_gate`, external review)
+  are unchanged.
 
 ## Pre-save consistency checklist (this pass)
 
