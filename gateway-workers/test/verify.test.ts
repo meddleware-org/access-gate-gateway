@@ -120,6 +120,7 @@ function cfg(singleUse: boolean): Config {
     nonceShard: 'global',
     nonceMaxEntries: 10000,
     quotaGuardEnabled: false,
+    workersPlan: 'free',
     upstreamAuthHeaders: [],
     allowedOrigins: ['https://example.com'],
   }

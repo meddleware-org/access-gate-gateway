@@ -2,6 +2,18 @@
 
 All notable changes to `@meddleware/nft-gate-gateway` are documented here.
 
+## [0.0.25] - 2026-10-19
+
+### Added
+
+- `WORKERS_PLAN` (`free` default | `paid`, strict like every other var): the quota guard measures against the plan's published allowances. Free: daily (00:00 UTC) 100,000 Worker requests, 100,000 Durable Object requests and 13,000 DO GB-s; Paid: monthly 10M requests, 30M CPU-ms, 1M DO requests and 400,000 DO GB-s (Cloudflare docs, checked 2026-10-19). Worker and DO requests are separate meters (they were summed against a stale 3M/month figure), DO duration is active seconds × 0.128 GB, Worker CPU is read on Paid. On Paid the guard only warns (overage is billed, nothing fails) and never sets the degrade flag; single-use still ignores the flag. A GraphQL error is now a failed check instead of reading as zero usage. Tests: `test/quota.test.ts` (both modes), `test/config.test.ts`.
+- CPU micro-benchmark of signature verification per scheme (audit F11): `test/cpu-bench.test.ts` in workerd (wall time; workerd exposes no CPU clock) and `test/cpu-bench.node.test.ts` (process CPU time), both on the shared vectors and asserting a warm verification stays under the Free 10 ms per-request limit.
+- `wrangler.toml`: a commented `[limits] cpu_ms = 50` block (the denial-of-wallet ceiling for Workers Paid) and `WORKERS_PLAN = "free"`; README "Switch to Workers Paid" runbook and "CPU budget on Free".
+
+### Changed
+
+- `MAX_BODY_BYTES` in `wrangler.toml` is `100000000` (10⁸ B, the Free/Pro zone limit, which is decimal), so an oversized upload gets the gateway's own JSON `413` instead of Cloudflare's (it was `104857600`).
+
 ## [0.0.24] - 2026-10-19
 
 ### Added

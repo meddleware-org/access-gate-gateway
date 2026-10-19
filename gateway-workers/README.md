@@ -173,11 +173,13 @@ Then set `NONCE_BACKEND = "kv"` in `[vars]`.
 The **effective limit is the lower of `MAX_BODY_BYTES` and the zone's Cloudflare plan limit** on
 request bodies (Free/Pro 100 MB, Business 200 MB, Enterprise configurable up to 5 GB — see
 [Workers limits](https://developers.cloudflare.com/workers/platform/limits/#request-and-response-limits)).
-The deployed value, `104857600` (100 MiB), is at the Free/Pro plan limit, so the edge may reject an
-oversized upload first — with Cloudflare's own `413`, not the gateway's JSON body. Raising
-`MAX_BODY_BYTES` has no effect beyond the plan limit. Keep the relay origin's own cap
-(e.g. `nginx.org/client-max-body-size` on its ingress) at least as large, so the gateway, not the origin, is the
-binding limit.
+The deployed value is `100000000` (10⁸ B, the Free/Pro "100 MB", which is decimal), so a too-large
+upload gets the gateway's own JSON `413` with CORS headers rather than Cloudflare's page (through 0.0.24 it
+was `104857600`, 100 MiB, so bodies between 10⁸ and 1.048 × 10⁸ B got the platform's `413` first).
+The body limit follows the **zone's** plan and does not change when the account moves from Workers Free
+to Workers Paid. Raising `MAX_BODY_BYTES` has no effect beyond the zone limit. Keep the relay origin's own
+cap (e.g. `nginx.org/client-max-body-size` on its ingress) at least as large, so the gateway, not the
+origin, is the binding limit.
 
 The Rust gateway enforces the same cap with the same status codes (see
 [`gateway-rust`](../gateway-rust/README.md)).
@@ -195,7 +197,7 @@ The Rust gateway enforces the same cap with the same status codes (see
 | `SINGLE_USE` | | `false` | Require a `consumeDigest` naming a successful `access_gate::consume` by the proof address on `GATE_ID`; each digest is redeemable once |
 | `PUBLIC_PATHS` | | `/v1/tip-config` | Comma-separated paths served without authentication |
 | `RATE_LIMIT_PER_MIN` | | `30` | Requests per verified address per 60s window (`0` disables) |
-| `MAX_BODY_BYTES` | | `262144` | Request body cap (256 KiB); `wrangler.toml` sets `104857600` (100 MiB) for Walrus uploads. See [Request body limit](#request-body-limit) |
+| `MAX_BODY_BYTES` | | `262144` | Request body cap (256 KiB); `wrangler.toml` sets `100000000` (10⁸ B, the Free/Pro zone limit) for Walrus uploads. See [Request body limit](#request-body-limit) |
 | `CHALLENGE_TTL_SECS` | | `300` | Nonce lifetime in seconds |
 | `OWNERSHIP_CACHE_TTL_MS` | | `0` | Ownership-check cache TTL (`0` = live check on every request) |
 | `NONCE_BACKEND` | | `durable-object` | `durable-object` or `kv` |
@@ -204,7 +206,8 @@ The Rust gateway enforces the same cap with the same status codes (see
 | `UPSTREAM_AUTH_HEADERS` | | — | JSON array `[{"name":…,"value":…}]` of headers injected on every upstream request (secret); invalid JSON fails closed |
 | `CHALLENGE_RATE_LIMIT_PER_MIN` | | `30` | Per-client-IP budget for `GET /v1/challenge` (0 disables) |
 | `SUI_RPC_AUTH_HEADER` | | — | `Name: value` header added to Sui RPC calls (secret, for authenticated nodes) |
-| `QUOTA_GUARD_ENABLED` | | `false` | Enable the scheduled free-tier quota guard (never moves single-use redemptions off the Durable Object) |
+| `QUOTA_GUARD_ENABLED` | | `false` | Enable the scheduled quota guard (never moves single-use redemptions off the Durable Object) |
+| `WORKERS_PLAN` | | `free` | The account's Workers plan, `free` or `paid`: selects the quota guard's allowances. See [Switch to Workers Paid](#switch-to-workers-paid) |
 | `ALLOWED_ORIGINS` | | none | Comma-separated canonical browser origins granted CORS (`wrangler.toml` lists Meddleware's apps; an unset value grants none) |
 | `UPSTREAM_TIMEOUT_SECS` | | `600` | Total deadline for one upstream exchange (request body and response); `504` past it |
 | `RPC_TIMEOUT_SECS` | | `15` | Deadline for each Sui RPC read |
@@ -230,24 +233,77 @@ npm run type-check   # tsc --noEmit
 
 ## Optional: quota guard
 
-Setting `QUOTA_GUARD_ENABLED=true` and adding a cron trigger activates `src/quota.ts`. It reads
-your account's Workers usage via the Cloudflare GraphQL Analytics API and logs a warning when
-approaching the free-tier request or CPU-time limits. It can set a `quota:degrade` flag in KV to
-prefer the lighter KV backend during high-load periods.
+Off by default (`QUOTA_GUARD_ENABLED = "false"`). When enabled with a cron trigger, `src/quota.ts`
+reads the account's usage from the Cloudflare GraphQL Analytics API and compares it with the
+allowances of the plan named by `WORKERS_PLAN` (Cloudflare docs, checked 2026-10-19):
 
-Uncomment in `wrangler.toml`:
+| `WORKERS_PLAN` | Window | Worker requests | Worker CPU | DO requests | DO duration | Past the allowance |
+| --- | --- | --- | --- | --- | --- | --- |
+| `free` (default) | day (00:00 UTC) | 100,000 | 10 ms per request (no account allowance) | 100,000 | 13,000 GB-s | requests fail (Worker error 1027, DO calls throw) |
+| `paid` | UTC calendar month | 10,000,000 | 30,000,000 ms | 1,000,000 | 400,000 GB-s | billed as overage |
 
-```toml
-[triggers]
-crons = ["*/15 * * * *"]
-```
+DO duration is computed as active seconds × 0.128 GB (128 MB per object, as in Cloudflare's billing
+examples). The guard logs a warning at 80% of any allowance. On `free` it also sets a KV `quota:degrade`
+flag at 95%, which only an ownership-mode deployment honours (it then prefers the KV nonce backend);
+`SINGLE_USE=true` ignores the flag, so redemptions never leave the Durable Object. On `paid` it only
+warns and clears any flag left from Free. A GraphQL error is logged as a failed check, never read as zero
+usage. The live deployment is single-use, so for it the guard is a log-only early warning.
 
-Set the required secrets:
+To enable it (operator steps; none of them is in the repository):
 
-```bash
-wrangler secret put CF_ANALYTICS_TOKEN   # read-only Analytics API token
-wrangler secret put CF_ACCOUNT_ID        # your Cloudflare account ID
-```
+1. Create a Cloudflare API token with **Account Analytics: Read** only, for the one account, with an
+   expiry; `wrangler secret put CF_ANALYTICS_TOKEN` and `wrangler secret put CF_ACCOUNT_ID`.
+2. Optional, ownership mode only: `wrangler kv namespace create NONCE_KV` and uncomment the
+   `[[kv_namespaces]]` block with the returned id (single-use never reads the flag).
+3. Uncomment the cron trigger in `wrangler.toml` and set `QUOTA_GUARD_ENABLED = "true"`:
+
+   ```toml
+   [triggers]
+   crons = ["*/15 * * * *"]
+   ```
+
+4. Deploy, then read the `quota-guard:` lines in the Worker's logs after the first trigger.
+
+Cloudflare's own usage notifications and budget alerts (dashboard → Notifications) cover the same ground
+without a token in the Worker; prefer them where they suffice.
+
+## Switch to Workers Paid
+
+Mainnet launches on **Workers Free**. Switch to **Workers Paid** on funding, or when trailing platform
+revenue covers Paid for two consecutive months (the trigger in the infrastructure workspace's
+`docs/economics/COST_MODEL.md` §5, tracked in its `OPERATOR_TASKS.md`). Nothing in the code depends on the
+plan; the switch is configuration only:
+
+1. **Before:** read the gateway's CPU time from Workers analytics (dashboard → the Worker → Metrics →
+   CPU time, or `workersInvocationsAdaptive` `quantiles { cpuTimeP50 cpuTimeP99 }` filtered by
+   `scriptName`) and the count of `exceededCpu` outcomes. Note p99.
+2. **Dashboard:** Workers & Pages → Plans → purchase Workers Paid (US$5/month minimum) for the account.
+   Confirm the Worker route still uses **Fail closed** (Workers Routes), so a limit refusal never bypasses
+   the Worker.
+3. **`wrangler.toml`:** set `WORKERS_PLAN = "paid"` and uncomment the `[limits]` block
+   (`cpu_ms = 50`, the denial-of-wallet ceiling; raise it only if step 1's p99 is close to it).
+   `MAX_BODY_BYTES` stays `100000000`: the body limit follows the zone plan, not the Workers plan.
+4. **Deploy:** commit, then run the `Deploy Workers` workflow (`production` environment).
+5. **Verify:** `GET /v1/challenge` and `GET /v1/tip-config` answer 200; a gated upload succeeds; after a
+   day, Workers analytics shows no `exceededCpu` outcomes and CPU p99 well under `cpu_ms`; the
+   dashboard's billing page shows the Paid subscription. If the quota guard is enabled, its next log line
+   names the Paid monthly allowances.
+
+To go back to Free: reverse steps 2–3 (set `WORKERS_PLAN = "free"` and comment `[limits]` out again;
+custom CPU limits are a Paid-plan setting).
+
+### CPU budget on Free
+
+Free allows 10 ms CPU per request. A gated request does one signature verification plus JSON and stream
+handling. `test/cpu-bench.test.ts` (workerd) and `test/cpu-bench.node.test.ts` (Node) time
+`verifyPersonalMessageSignature` on the shared vectors; on the maintainer's machine (Intel i5-7400,
+2026-10-19) a warm verification took about 1.1–1.4 ms (ed25519, secp256k1) and 2.1 ms (secp256r1) of
+wall time in local workerd, and the first verification in a fresh isolate (curve set-up and JIT) up to
+~36 ms. workerd exposes no CPU clock, so these are wall times of a synchronous loop, not the edge's CPU
+accounting; Node's process CPU time for the same code is higher (2.1–4.2 ms warm) because it counts every
+thread of the test process. Cloudflare tolerates an occasional request over the limit, so the cold first
+verification is a risk to watch, not a measured failure: after each deploy, read CPU p99 and
+`exceededCpu` in Workers analytics. A p99 near 10 ms on Free is a launch blocker until the switch above.
 
 ## Module layout
 
@@ -260,4 +316,4 @@ wrangler secret put CF_ACCOUNT_ID        # your Cloudflare account ID
 | `src/chain.ts` | `sui_rpc.rs` | Sui gRPC ownership and consume-event queries |
 | `src/proxy.ts` | `proxy.rs` | Body-capped reverse proxy; strips `Host`/`Authorization` |
 | `src/state/` | `challenge.rs` + `ratelimit.rs` | Pluggable nonce store and rate limiter |
-| `src/quota.ts` | — | Optional free-tier quota guard (scheduled cron) |
+| `src/quota.ts` | — | Optional plan-aware quota guard (scheduled cron; `WORKERS_PLAN`) |

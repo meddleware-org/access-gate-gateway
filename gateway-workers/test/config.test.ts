@@ -96,6 +96,15 @@ describe('loadConfig — strict values (a typo must not select a weaker mode)', 
     expect(() => loadConfig({ ...baseEnv, QUOTA_GUARD_ENABLED: 'on' })).toThrow(/QUOTA_GUARD_ENABLED/)
   })
 
+  it('WORKERS_PLAN is free (default) or paid, nothing else', () => {
+    expect(loadConfig(baseEnv).workersPlan).toBe('free')
+    expect(loadConfig({ ...baseEnv, WORKERS_PLAN: 'free' }).workersPlan).toBe('free')
+    expect(loadConfig({ ...baseEnv, WORKERS_PLAN: 'paid' }).workersPlan).toBe('paid')
+    for (const bad of ['Paid', 'pro', 'standard', '']) {
+      expect(() => loadConfig({ ...baseEnv, WORKERS_PLAN: bad })).toThrow(/WORKERS_PLAN/)
+    }
+  })
+
   it('numbers are integers within bounds', () => {
     for (const [key, bad] of [
       ['MAX_BODY_BYTES', '0'],

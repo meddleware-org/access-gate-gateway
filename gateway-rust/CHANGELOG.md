@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.25] - 2026-10-19
+
+Released with the Workers gateway 0.0.25 (one version for every artifact). No change to the Rust gateway's code.
+
+### Changed
+
+- Docs: the deployment decision (OQ9, 2026-10-19) — the gateway stays undeployed as the self-host / white-label artefact, with the revisit triggers — in the README and CLAUDE.md.
+
 ## [0.0.24] - 2026-10-19
 
 Released with the Workers gateway 0.0.24 (one version for every artifact). Still undeployed.

@@ -14,7 +14,7 @@
 | `src/chain.ts` | `SuiRpc` — production `ChainQuery` over Sui JSON-RPC |
 | `src/crypto.ts` | Hash + encoding helpers (`blake2b256`, `base64ToBytes`, etc.) |
 | `src/proxy.ts` | `forward` — reverse proxy to upstream |
-| `src/quota.ts` | `runQuotaGuard` — optional free-tier quota check (cron) |
+| `src/quota.ts` | `runQuotaGuard` — optional plan-aware quota check (cron; `WORKERS_PLAN` free/paid) |
 | `src/wire.ts` | Re-exports from `@meddleware/nft-gate-client` |
 | `src/state/types.ts` | `NonceBackend` interface; `shardOfNonce`; `randomHex24` |
 | `src/state/select.ts` | `makeBackend` — picks DO or KV backend |

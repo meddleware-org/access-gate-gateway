@@ -63,7 +63,10 @@ CHALLENGE_RATE_LIMIT_PER_MIN = "30"
 # request ceiling (cheap GETs) plus an edge cache so floods are absorbed before reaching the relay.
 PUBLIC_RATE_LIMIT_PER_MIN = "120"
 PUBLIC_CACHE_TTL_SECS = "60"
-MAX_BODY_BYTES = "104857600"
+# 10^8 B: the zone's request-body limit on the Cloudflare Free and Pro plans is "100 MB" (decimal), set by
+# the zone plan, not the Workers plan. Matching it exactly means a too-large upload gets the gateway's own
+# JSON 413 (with CORS) instead of the platform's. See README "Request body limit".
+MAX_BODY_BYTES = "100000000"
 # Total deadline for one upstream exchange (body in, response out). The redemption lease below must
 # outlive it (checked at startup), so a lease cannot lapse mid-upload.
 UPSTREAM_TIMEOUT_SECS = "600"
@@ -86,9 +89,24 @@ NONCE_BACKEND = "durable-object" # "durable-object" (default) | "kv"
 NONCE_SHARD = "region"           # "region" (default) | "global"
 NONCE_MAX_ENTRIES = "1000000"
 QUOTA_GUARD_ENABLED = "false"
+# The account's Workers plan: "free" (launch) | "paid". Selects the quota guard's allowances (Free daily
+# limits vs Paid monthly included amounts). Change it in the same deploy as the plan switch
+# (README "Switch to Workers Paid").
+WORKERS_PLAN = "free"
 # Comma-separated list of browser origins allowed to make cross-origin requests.
 # Only these origins receive Access-Control-Allow-Origin in responses.
 ALLOWED_ORIGINS = "https://sui-walrus.meddleware.co.uk,https://dash.meddleware.co.uk,https://sui-token-deployer.meddleware.co.uk"
+
+# ── CPU ceiling (Workers Paid only; denial-of-wallet guard) ────────────────────────────────────
+# On Workers Free every request is capped at 10 ms CPU by the platform and this block must stay
+# commented out. On Workers Paid the default cap is 30 s per request and CPU beyond the 30M ms included
+# a month is billed, so a pathological input could run up a bill. A gated request is one signature
+# verification plus JSON/stream handling (test/cpu-bench*.test.ts: ~1–2 ms per warm verification in
+# local workerd, up to ~36 ms for the first one in a fresh isolate); 50 ms covers both and is far below
+# the default. Uncomment when switching to Paid (README "Switch to
+# Workers Paid"), after reading the CPU-time p99 in Workers analytics.
+# [limits]
+# cpu_ms = 50
 
 # ── nonce store + rate limiter: region-sharded, SQLite-backed Durable Objects (free-tier) ────
 [[durable_objects.bindings]]

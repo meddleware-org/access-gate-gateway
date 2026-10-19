@@ -12,6 +12,8 @@ NFT — an upload relay, a website, a game API, anything.
 Wire-identical to the [Cloudflare Workers gateway](../gateway-workers/): same routes, status codes,
 proof format, Sui RPC calls, and env-var names. Switch between implementations transparently.
 
+> **Deployment status.** Meddleware's own deployment decision (audit OQ9, 2026-10-19): the Rust gateway **stays undeployed**. No Meddleware small-body upstream exists; the Workers gateway on Workers Free costs nothing, while self-hosting the relay path would need streaming bodies (audit F6) and a persistent, highly available Redis for the 30-day redemption records, which is more operations for a sole maintainer and weaker consistency than Durable Objects. It stays CI-green at parity as the self-host / white-label artefact. Revisit when a small-body upstream appears, a white-label customer must self-host, or Workers Free proves insufficient while Workers Paid is unaffordable (then streaming, F6, comes first).
+
 ## Prerequisites
 
 | Tool | Notes |

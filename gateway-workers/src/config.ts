@@ -6,7 +6,7 @@
  * Omitted vs. Rust (runtime-specific): `BIND_ADDR` (Workers has no listen socket);
  * `REDIS_URL` / `NONCE_MAX_ENTRIES` (the in-memory cap lives in the DO) /
  * `NONCE_PRUNE_INTERVAL_SECS` (the DO prunes on access) are superseded by the DO/KV backend.
- * Workers-specific: `NONCE_BACKEND`, `NONCE_SHARD`, `QUOTA_GUARD_ENABLED`. `SUI_RPC_AUTH_HEADER`
+ * Workers-specific: `NONCE_BACKEND`, `NONCE_SHARD`, `QUOTA_GUARD_ENABLED`, `WORKERS_PLAN`. `SUI_RPC_AUTH_HEADER`
  * and `UPSTREAM_AUTH_HEADERS` are shared with the Rust gateway in the same formats.
  */
 
@@ -72,6 +72,11 @@ export interface Env {
   /** `true` enables the scheduled quota guard. */
   QUOTA_GUARD_ENABLED?: string
   /**
+   * The account's Cloudflare Workers plan, `free` (default) | `paid`. Selects the quota guard's limits:
+   * Free daily limits (hard errors when exceeded) or Paid monthly included amounts (overage is billed).
+   */
+  WORKERS_PLAN?: string
+  /**
    * Comma-separated list of browser origins allowed to make cross-origin requests.
    * Only origins in this list receive an `Access-Control-Allow-Origin` header.
    * Defaults to NONE (no cross-origin access). Each entry must be a canonical origin.
@@ -90,6 +95,9 @@ export interface Env {
 export type NonceBackendKind = 'durable-object' | 'kv'
 /** Nonce shard placement: one shard per region (near users) or a single global shard. */
 export type NonceShardMode = 'region' | 'global'
+/** The account's Cloudflare Workers plan (`WORKERS_PLAN`). */
+export const WORKERS_PLANS = ['free', 'paid'] as const
+export type WorkersPlan = (typeof WORKERS_PLANS)[number]
 
 /** Fully-resolved gateway configuration derived from {@link Env} by {@link loadConfig}. */
 export interface Config {
@@ -132,6 +140,8 @@ export interface Config {
   nonceShard: NonceShardMode
   nonceMaxEntries: number
   quotaGuardEnabled: boolean
+  /** The Workers plan the quota guard measures against (`WORKERS_PLAN`, default `free`). */
+  workersPlan: WorkersPlan
   /** Allowed CORS origins — only these are reflected in Access-Control-Allow-Origin. */
   allowedOrigins: string[]
 }
@@ -361,6 +371,7 @@ export function loadConfig(env: Env): Config {
     nonceShard: oneOf<NonceShardMode>(env, 'NONCE_SHARD', 'region', ['region', 'global']),
     nonceMaxEntries: int(env, 'NONCE_MAX_ENTRIES', 1000000, 1, 100_000_000),
     quotaGuardEnabled: bool(env, 'QUOTA_GUARD_ENABLED', false),
+    workersPlan: oneOf<WorkersPlan>(env, 'WORKERS_PLAN', 'free', WORKERS_PLANS),
     allowedOrigins: parseAllowedOrigins(env.ALLOWED_ORIGINS),
   }
 }

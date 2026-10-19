@@ -14,7 +14,7 @@ nft-gate/
 │   │   ├── chain.ts            # Sui JSON-RPC ChainQuery implementation
 │   │   ├── crypto.ts           # Low-level hash + encoding helpers (@noble)
 │   │   ├── proxy.ts            # Reverse proxy to upstream
-│   │   ├── quota.ts            # Optional free-tier quota guard (cron)
+│   │   ├── quota.ts            # Optional plan-aware quota guard (cron)
 │   │   ├── wire.ts             # Re-exports from @meddleware/nft-gate-client
 │   │   └── state/
 │   │       ├── types.ts        # NonceBackend interface + helpers
@@ -109,7 +109,7 @@ UPSTREAM_URL=http://relay:8080 SUI_RPC_URL=https://... NFT_TYPE=0x... ./target/r
 | `RATE_LIMIT_PER_MIN` | No | `30` | Per-address request budget per minute |
 | `CHALLENGE_TTL_SECS` | No | `300` | Nonce lifetime in seconds |
 
-Workers-only extras: `NONCE_BACKEND`, `NONCE_KV` binding, `NONCE_STATE` binding, `QUOTA_GUARD_ENABLED`.  
+Workers-only extras: `NONCE_BACKEND`, `NONCE_KV` binding, `NONCE_STATE` binding, `QUOTA_GUARD_ENABLED`, `WORKERS_PLAN`.  
 Rust-only extras: `REDIS_URL`, `BIND_ADDR`, `MAX_BODY_BYTES`, `NONCE_MAX_ENTRIES`.
 
 ## CI

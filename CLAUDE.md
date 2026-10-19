@@ -86,7 +86,10 @@ for the on-chain side.
 
 Same endpoints, same env vars, identical verification decisions. Caveat: `gateway-rust/` buffers bodies
 (`MAX_BODY_BYTES` 256 KiB default), so it is scoped to small-body upstreams and is not a drop-in for the
-100 MiB relay (audit F6; it is not deployed).
+100 MiB relay (audit F6). It is not deployed, by decision (Rust audit OQ9, 2026-10-19): no small-body
+upstream exists, the Worker on Workers Free costs nothing, and self-hosting the relay path would need
+streaming bodies plus an HA Redis. Revisit on a small-body upstream, a white-label customer who must
+self-host, or Workers Free proving insufficient while Paid is unaffordable.
 
 > **Transport (2026-09):** both gateways query the chain over **gRPC** (public Sui fullnodes
 > deprecated JSON-RPC). `gateway-workers/` uses `@mysten/sui`'s `SuiGrpcClient`; `gateway-rust/`

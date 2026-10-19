@@ -29,6 +29,8 @@ export default defineConfig({
             'test/chain.test.ts',
             'test/redemption.test.ts',
             'test/origin-lock.test.ts',
+            'test/quota.test.ts',
+            'test/cpu-bench.node.test.ts',
             'test/integration/grpc-chain.integration.test.ts',
           ],
         },
@@ -58,7 +60,13 @@ export default defineConfig({
         ],
         test: {
           name: 'cloudflare-integration',
-          include: ['test/router.test.ts', 'test/state.test.ts', 'test/proxy.test.ts', 'test/gateway-state.test.ts'],
+          include: [
+            'test/router.test.ts',
+            'test/state.test.ts',
+            'test/proxy.test.ts',
+            'test/gateway-state.test.ts',
+            'test/cpu-bench.test.ts',
+          ],
         },
       },
     ],

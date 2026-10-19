@@ -121,6 +121,8 @@ node scripts/sync-vectors.mjs --check  # CI: fail if the copy differs
 
 Both expose the same endpoints, accept the same environment variables, and produce identical verification decisions for any given proof token. The Rust gateway buffers request bodies, so it is scoped to small-body upstreams (see its README, "Request body limit"); it is not a drop-in for a 100 MiB upload relay.
 
+Meddleware's own deployment decision (audit OQ9, 2026-10-19): the Rust gateway **stays undeployed**. No Meddleware small-body upstream exists; the Workers gateway on Workers Free costs nothing, while self-hosting the relay path would need streaming bodies (audit F6) and a persistent, highly available Redis for the 30-day redemption records, which is more operations for a sole maintainer and weaker consistency than Durable Objects. It stays CI-green at parity as the self-host / white-label artefact. Revisit when a small-body upstream appears, a white-label customer must self-host, or Workers Free proves insufficient while Workers Paid is unaffordable (then streaming, F6, comes first).
+
 ## License
 
 [0BSD](LICENSE)

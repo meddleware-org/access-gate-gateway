@@ -81,8 +81,8 @@ unset the workflow runs plain `wrangler deploy`, keeping the secrets stored in C
 - `SINGLE_USE=true` refuses this backend: redemptions need the Durable Object's atomic per-key state.
 - Use the DO backend when cross-region replay atomicity matters.
 
-**Quota-degrade flag:** When the DO free-tier usage approaches a limit, the quota guard (cron)
-sets a KV key `quota:degrade`. The per-isolate state bootstrap checks this flag once and
+**Quota-degrade flag:** When the DO usage approaches a Workers Free daily limit (`WORKERS_PLAN=free`),
+the quota guard (cron, off by default) sets a KV key `quota:degrade`; on `WORKERS_PLAN=paid` it only warns. The per-isolate state bootstrap checks this flag once and
 may switch to the KV backend for that isolate's lifetime.
 
 ## Single-use flow (SINGLE_USE=true)

@@ -106,6 +106,7 @@ compile-time dep chain (~10 min on GHA). All URLs are operator-configured ASCII 
   (signed, with an SBOM attestation) by `docker-publish.yml` on a `v*` tag.
 - **Kubernetes:** no manifests live in this repo, and the gateway is not deployed (the paywall runs on
   `gateway-workers/`; audit F32, OQ9). Deploy by image digest with a non-root, read-only-root pod.
+- **Decision (OQ9, 2026-10-19): stay undeployed.** No Meddleware small-body upstream exists; the Workers gateway on Workers Free costs nothing, while self-hosting the relay path would need streaming bodies (audit F6) and a persistent, highly available Redis for the 30-day redemption records, which is more operations for a sole maintainer and weaker consistency than Durable Objects. It stays CI-green at parity as the self-host / white-label artefact. Revisit when a small-body upstream appears, a white-label customer must self-host, or Workers Free proves insufficient while Workers Paid is unaffordable (then streaming, F6, comes first).
 - **Bare metal / VM:** `cargo install nft-gate-gateway` or `cargo build --release`.
 
 ## Ownership cache
