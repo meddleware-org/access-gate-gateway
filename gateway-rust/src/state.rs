@@ -70,8 +70,8 @@ impl StateStore for NativeState<'_> {
         self.store.take_if_valid(nonce).await
     }
 
-    async fn rate_check(&self, scope: RateScope, key: &str) -> bool {
-        self.rates.check(scope, key)
+    async fn rate_check(&self, scope: RateScope, key: &str) -> anyhow::Result<bool> {
+        Ok(self.rates.check(scope, key))
     }
 
     async fn try_lease_redemption(&self, key: &str, lease_ttl_secs: u64) -> anyhow::Result<Lease> {

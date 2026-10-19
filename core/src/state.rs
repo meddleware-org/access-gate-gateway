@@ -53,9 +53,10 @@ pub enum RateScope {
 /// Everything the orchestration needs from the platform's state.
 ///
 /// Every fallible method fails **closed**: an `Err` is answered `503` by the orchestration (never a
-/// conflict, never an implicit success). [`StateStore::release_redemption`] and
-/// [`StateStore::rate_check`] cannot fail: a release that does not happen leaves a lease that
-/// self-expires, and a limiter that cannot answer is the platform's call (the native one is in memory).
+/// conflict, never an implicit success). [`StateStore::release_redemption`] cannot fail: a release
+/// that does not happen leaves a lease that self-expires. A rate check against a remote store (the
+/// Worker's Durable Object) can fail, and then the request is refused with 503 rather than waved
+/// through unmetered; the in-memory limiter never errs.
 #[allow(async_fn_in_trait)]
 pub trait StateStore {
     /// Issue a fresh single-use nonce. Returns `(nonce, expires_at_unix_ms)`; an `Err` when the
@@ -63,8 +64,9 @@ pub trait StateStore {
     async fn issue_nonce(&self) -> anyhow::Result<(String, u64)>;
     /// Consume `nonce` exactly once; `Ok(true)` iff it was issued, unexpired and unused.
     async fn take_nonce(&self, nonce: &str) -> anyhow::Result<bool>;
-    /// Charge one request to `key` under `scope`; `false` when the budget for the minute is spent.
-    async fn rate_check(&self, scope: RateScope, key: &str) -> bool;
+    /// Charge one request to `key` under `scope`; `Ok(false)` when the budget for the minute is spent,
+    /// `Err` when the backend cannot answer (→ 503).
+    async fn rate_check(&self, scope: RateScope, key: &str) -> anyhow::Result<bool>;
     /// Claim the consume digest `key` for an in-flight upload (see [`RedemptionTable::try_lease`]).
     async fn try_lease_redemption(&self, key: &str, lease_ttl_secs: u64) -> anyhow::Result<Lease>;
     /// Mark `key` spent (retained `retention_secs`) iff `token` still owns an unexpired lease.
@@ -228,8 +230,8 @@ impl<C: Clock + Clone, R: Rng> StateStore for MemoryState<C, R> {
         Ok(self.store.take_nonce(nonce))
     }
 
-    async fn rate_check(&self, scope: RateScope, key: &str) -> bool {
-        self.rates.check(scope, key)
+    async fn rate_check(&self, scope: RateScope, key: &str) -> anyhow::Result<bool> {
+        Ok(self.rates.check(scope, key))
     }
 
     async fn try_lease_redemption(&self, key: &str, lease_ttl_secs: u64) -> anyhow::Result<Lease> {
@@ -421,7 +423,7 @@ mod tests {
             let (nonce, _) = state.issue_nonce().await.unwrap();
             assert!(state.take_nonce(&nonce).await.unwrap());
             assert!(!state.take_nonce(&nonce).await.unwrap());
-            assert!(state.rate_check(RateScope::Address, "k").await);
+            assert!(state.rate_check(RateScope::Address, "k").await.unwrap());
         });
     }
 }

@@ -153,6 +153,16 @@ fn unavailable(what: &str, e: &anyhow::Error) -> JsonReply {
 }
 
 impl<S: StateStore, C: ChainQuery, U: Upstream> Gateway<'_, S, C, U> {
+    /// Charge one request to a rate budget: 429 when the budget is spent, 503 when the store cannot
+    /// answer (a request is never waved through unmetered).
+    async fn charge(&self, scope: RateScope, key: &str) -> Result<(), JsonReply> {
+        match self.state.rate_check(scope, key).await {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(rate_limited()),
+            Err(e) => Err(unavailable("rate check failed", &e)),
+        }
+    }
+
     /// Handle one request. See the module docs for the order of work.
     pub async fn handle(&self, head: &RequestHead, req: U::Request) -> Reply<U::Response> {
         let cfg = self.cfg;
@@ -166,12 +176,8 @@ impl<S: StateStore, C: ChainQuery, U: Upstream> Gateway<'_, S, C, U> {
         }
 
         if head.method == "GET" && head.path == "/v1/challenge" {
-            if !self
-                .state
-                .rate_check(RateScope::Challenge, &head.client_ip)
-                .await
-            {
-                return json(rate_limited());
+            if let Err(r) = self.charge(RateScope::Challenge, &head.client_ip).await {
+                return json(r);
             }
             return json(match self.state.issue_nonce().await {
                 Ok((nonce, expires_at)) => {
@@ -189,12 +195,8 @@ impl<S: StateStore, C: ChainQuery, U: Upstream> Gateway<'_, S, C, U> {
                 r.allow = Some("GET, HEAD");
                 return json(r);
             }
-            if !self
-                .state
-                .rate_check(RateScope::Public, &head.client_ip)
-                .await
-            {
-                return json(rate_limited());
+            if let Err(r) = self.charge(RateScope::Public, &head.client_ip).await {
+                return json(r);
             }
             return Reply::Upstream(self.upstream.forward(req, ForwardKind::Public).await);
         }
@@ -211,12 +213,8 @@ impl<S: StateStore, C: ChainQuery, U: Upstream> Gateway<'_, S, C, U> {
         };
 
         // Verification costs CPU and a store call per request, so bound it per client first.
-        if !self
-            .state
-            .rate_check(RateScope::GatedPreauth, &head.client_ip)
-            .await
-        {
-            return json(rate_limited());
+        if let Err(r) = self.charge(RateScope::GatedPreauth, &head.client_ip).await {
+            return json(r);
         }
 
         let verified =
@@ -226,12 +224,8 @@ impl<S: StateStore, C: ChainQuery, U: Upstream> Gateway<'_, S, C, U> {
                 Ok(v) => v,
                 Err(d) => return json(denied_reply(&d)),
             };
-        if !self
-            .state
-            .rate_check(RateScope::Address, &verified.address)
-            .await
-        {
-            return json(rate_limited());
+        if let Err(r) = self.charge(RateScope::Address, &verified.address).await {
+            return json(r);
         }
         match verified.redemption_key {
             Some(key) => self.redeem_and_forward(&key, req).await,
@@ -350,6 +344,7 @@ mod tests {
         commit: Mutex<Option<anyhow::Result<Commit>>>,
         deny_scope: Mutex<Option<RateScope>>,
         fail_nonce: bool,
+        fail_rate: bool,
     }
 
     impl Fake {
@@ -381,9 +376,12 @@ mod tests {
             }
             Ok(std::mem::take(&mut *self.nonce_valid.lock().unwrap()))
         }
-        async fn rate_check(&self, scope: RateScope, key: &str) -> bool {
+        async fn rate_check(&self, scope: RateScope, key: &str) -> anyhow::Result<bool> {
             self.log(format!("rate:{scope:?}:{key}"));
-            *self.deny_scope.lock().unwrap() != Some(scope)
+            if self.fail_rate {
+                anyhow::bail!("store down");
+            }
+            Ok(*self.deny_scope.lock().unwrap() != Some(scope))
         }
         async fn try_lease_redemption(&self, key: &str, ttl: u64) -> anyhow::Result<Lease> {
             self.log(format!("lease:{key}:{ttl}"));
@@ -613,6 +611,30 @@ mod tests {
         );
         assert!(j.diag.unwrap().contains("store down"));
         assert!(!j.body.to_string().contains("store down")); // never in the client body
+    }
+
+    #[test]
+    fn a_rate_store_that_cannot_answer_is_a_503_never_an_unmetered_pass() {
+        let cfg = cfg(false);
+        let state = Fake {
+            fail_rate: true,
+            ..Fake::new()
+        };
+        let up = Up::new(200);
+        for (m, p) in [
+            ("GET", "/v1/challenge"),
+            ("GET", "/v1/tip-config"),
+            ("POST", "/v1/upload"),
+        ] {
+            let h = with_token(head(m, p), "x");
+            let j = assert_error(
+                run(&cfg, &state, &Chain::ok(), &up, &h),
+                503,
+                "gateway state unavailable",
+            );
+            assert!(j.diag.unwrap().contains("rate check failed: store down"));
+        }
+        assert!(up.seen().is_empty()); // nothing was forwarded
     }
 
     #[test]

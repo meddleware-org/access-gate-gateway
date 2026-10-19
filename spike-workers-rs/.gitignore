@@ -1,5 +1,0 @@
-target/
-build/
-build-bench/
-.wrangler/
-node_modules/
