@@ -101,6 +101,15 @@ This Worker runs at Cloudflare's **edge**, so `UPSTREAM_URL` must be **publicly 
 **Recommended pattern**: expose your upstream via a dedicated `cloudflared` public hostname
 locked to this Worker via Cloudflare Access, then point `UPSTREAM_URL` at it.
 
+Every upstream request carries `Via: 1.1 nft-gate` (any `Via` the client sent is dropped). A request
+that arrives already carrying it has looped back to the gateway (the upstream hostname resolves to
+this route) and gets `508 {"error":"loop detected"}` before any work; other `Via` values, such as a
+CDN's `1.1 google`, pass.
+
+**Single-use failure outcomes.** If the upstream answers 2xx but the redemption commit then fails,
+the client gets `502` and the consume is released, so it can be redeemed again: the user may upload
+twice (bounded by the lease TTL and the per-upload limits) but never loses a paid use.
+
 ### Locking the origin with a Cloudflare Access service token
 
 1. Cloudflare Zero Trust → Access → Service Tokens → **Create Service Token**.

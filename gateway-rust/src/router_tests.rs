@@ -501,3 +501,62 @@ fn futures_stalled() -> impl futures_util::Stream<Item = Result<bytes::Bytes, st
     futures_util::stream::iter([Ok(bytes::Bytes::from_static(b"x"))])
         .chain(futures_util::stream::pending())
 }
+
+#[tokio::test]
+async fn the_upstream_sees_the_via_marker_and_a_looped_request_is_a_508_before_any_work() {
+    let upstream = Stub::spawn(ok_upstream()).await;
+    let (rig, _node) = owner_rig(&upstream, |_| {}).await;
+
+    // A foreign Via (a CDN hop) passes; the upstream sees only the gateway's own marker.
+    let nonce = rig.nonce().await;
+    let token = proof_token(&rig.sk, &rig.address, &nonce, None);
+    let req = axum::http::Request::post("/v1/blob-upload-relay")
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .header(header::VIA, "1.1 google")
+        .body(Body::from("payload"))
+        .unwrap();
+    let (status, _, _) = rig.send(req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(upstream.seen()[0].header("via"), Some("1.1 nft-gate"));
+
+    // The marker the gateway adds is refused on the way back in: 508, JSON, CORS still applied,
+    // for the challenge, a public path and a gated path alike, and nothing reaches the upstream.
+    let before = upstream.seen().len();
+    for (method, path) in [
+        (Method::GET, "/v1/challenge"),
+        (Method::GET, "/v1/tip-config"),
+        (Method::POST, "/v1/blob-upload-relay"),
+    ] {
+        let req = axum::http::Request::builder()
+            .method(method)
+            .uri(path)
+            .header(header::VIA, "1.1 google, 1.1 nft-gate")
+            .header(header::ORIGIN, "https://app.example")
+            .body(Body::empty())
+            .unwrap();
+        let (status, headers, body) = rig.send(req).await;
+        assert_eq!(status, StatusCode::LOOP_DETECTED, "{path}");
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            serde_json::json!({ "error": "loop detected" })
+        );
+        assert_eq!(headers["vary"], "Origin");
+        assert_eq!(
+            headers[header::ACCESS_CONTROL_ALLOW_ORIGIN],
+            "https://app.example"
+        );
+    }
+    assert_eq!(upstream.seen().len(), before);
+
+    // Probes and preflights are answered before the check.
+    let health = axum::http::Request::get("/healthz")
+        .header(header::VIA, "1.1 nft-gate")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(rig.send(health).await.0, StatusCode::OK);
+    let preflight = axum::http::Request::options("/v1/challenge")
+        .header(header::VIA, "1.1 nft-gate")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(rig.send(preflight).await.0, StatusCode::NO_CONTENT);
+}

@@ -130,6 +130,16 @@ can't be transferred), and each digest is redeemable exactly once. The lease sel
 is at most one extra upload if a worker dies between upstream success and commit. `gateway-rust`
 implements the same lease/commit/release redemption (`NonceStore`, orchestrated in `main.rs`).
 
+Commit failure after a 2xx upstream (decided 2026-10-19, OQ6): `502 redemption commit failed`, lease
+released (token-bound). The user may upload twice (bounded by the lease TTL and the per-upload
+limits) but never loses a paid use; the alternative of keeping the lease and retrying the commit in
+the background could lose it. Same in `gateway-rust`.
+
+Loop marker (F43): `upstreamRequestHeaders` sets `Via: 1.1 nft-gate` after dropping the client's;
+`handle` answers `508 loop detected` to a request whose `Via` already names `nft-gate` (after
+`/healthz` and the CORS preflight, before any state work). Foreign values pass. Parity table:
+`VIA_TABLE` in `test/proxy.test.ts` = `via_loop_table` in `gateway-rust/src/headers.rs`.
+
 ## Conformance test workflow
 
 ```bash

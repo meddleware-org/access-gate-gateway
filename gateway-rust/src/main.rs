@@ -165,6 +165,13 @@ async fn handle(State(app): State<Arc<AppState>>, req: Request) -> Response {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
 
+    // A request that already carries this gateway's own `Via` entry has looped back through it (the
+    // upstream resolves to this gateway): refuse it before any nonce, rate-limit or redemption work.
+    // `/healthz` and CORS preflights are answered before this point.
+    if headers::is_looped(req.headers()) {
+        return deny(StatusCode::LOOP_DETECTED, "loop detected");
+    }
+
     if method == Method::GET && path == "/v1/challenge" {
         let ip = extract_client_ip(&req, app.cfg.trusted_proxy_hops);
         if !app.ip_limiter.check(&ip) {

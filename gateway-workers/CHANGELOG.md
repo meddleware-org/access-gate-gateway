@@ -2,6 +2,16 @@
 
 All notable changes to `@meddleware/nft-gate-gateway` are documented here.
 
+## [0.0.24] - 2026-10-19
+
+### Added
+
+- Loop detection (audit F43, both gateways at once): every upstream request carries `Via: 1.1 nft-gate` (a client-supplied `Via` is still dropped), and a request that arrives already naming `nft-gate` as a received-by hop is refused `508 {"error":"loop detected"}` after `/healthz` and the CORS preflight and before any nonce, rate-limit or redemption work. Only our own token matches; foreign values such as a CDN's `1.1 google` pass. Tests: `VIA_TABLE` in `test/proxy.test.ts` (identical table in the Rust gateway), the marker on the upstream request, and the 508/foreign-Via cases in the workerd router suite.
+
+### Changed
+
+- Docs: the commit-failure outcome (`502` + release, the use is kept) is documented as a decision (OQ6) in the READMEs and CLAUDE.md files.
+
 ## [0.0.23] - 2026-10-19
 
 ### Changed

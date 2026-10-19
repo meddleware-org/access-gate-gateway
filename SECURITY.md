@@ -39,7 +39,8 @@ input — is in scope and treated as high severity:
    overwrite a newer holder's. The lease outlives the upstream deadline (checked at startup), the
    store must be durable (`SINGLE_USE=true` is refused with Workers KV, and in Rust without Redis),
    a store failure is `503` and never a conflict, and a consume older than `CONSUME_MAX_AGE_SECS`
-   is refused so none can outlive its redemption record.
+   is refused so none can outlive its redemption record. If the commit fails after a 2xx upstream,
+   the answer is `502` and the lease is released (the use is kept; the user may upload twice).
 5. **Proofs are bound to one audience.** The signed message (`nft-gate:access:v2`) carries the
    gateway's origin, the gate id, the network and (single-use) the consume digest, and the gateway
    rebuilds it from its own configuration, never from the token: a signature made for another

@@ -39,6 +39,14 @@ while a duplicate can't double-spend it. Redis keys use the `nftgate:redeem:` pr
 store mirrors the semantics (and `SINGLE_USE=true` requires Redis unless `ALLOW_VOLATILE_REDEMPTIONS`).
 `REDEMPTION_LEASE_TTL_SECS` (900, above `UPSTREAM_TIMEOUT_SECS`) / `REDEMPTION_RETENTION_SECS` (30d)
 tune the lease/retention windows. `redeemed`/`leased` → `409` with a machine-readable `code`; a store error → `503`; a lost lease → `502`.
+A commit failure after a 2xx upstream is `502 redemption commit failed` with the lease released
+(decided 2026-10-19, OQ6): the user may upload twice (bounded by the lease TTL and per-upload limits)
+but never loses a paid use. Same in `gateway-workers`.
+
+Loop marker (F43): `headers::upstream_request_headers` sets `Via: 1.1 nft-gate` after dropping the
+client's; `handle` answers `508 loop detected` to a request whose `Via` already names `nft-gate`
+(after `/healthz` and the CORS preflight, before any state work). Foreign values pass. Parity table:
+`via_loop_table` in `src/headers.rs` = `VIA_TABLE` in `gateway-workers/test/proxy.test.ts`.
 
 ## Hardening invariants
 

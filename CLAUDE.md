@@ -20,6 +20,15 @@ of an on-chain Meddleware access NFT. Two wire-identical implementations are pro
   return false — the same posture in both impls.
 - **Public paths bypass auth.** Configured in `PUBLIC_PATHS` (Workers) / the same env var (Rust).
   The default is `/v1/tip-config` so relay tip-config endpoints are publicly readable.
+- **Loop marker.** Every upstream request carries `Via: 1.1 nft-gate` (the client's own `Via` is
+  dropped); a request that arrives already carrying that received-by name is refused `508 loop
+  detected` before any nonce, rate-limit or redemption work. Foreign `Via` values (a CDN hop) pass.
+  `/healthz` and CORS preflights are answered first. Identical in both impls (audit F43).
+- **A paid use is never lost to a commit failure.** If the upstream answered 2xx but the redemption
+  commit fails (or the lease was lost), the client gets `502` and the lease is released, so the same
+  consume can be retried. The cost is at most one extra upload, bounded by the lease TTL and the
+  per-upload limits; the alternative (keep the lease, retry the commit later) could lose the use.
+  Decided 2026-10-19 (OQ6), identical in both impls.
 
 ## Versioning
 

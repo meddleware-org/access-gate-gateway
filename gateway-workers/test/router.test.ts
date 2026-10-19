@@ -124,6 +124,28 @@ describe('router hardening', () => {
     expect((await call('GET', '/v1/challenge', { 'CF-Connecting-IP': '203.0.113.8' })).status).toBe(200)
   })
 
+  it('refuses a request that already carries the gateway Via marker with 508, with CORS, on every path class', async () => {
+    const looped = { via: '1.1 nft-gate', origin: ALLOWED_ORIGIN, 'CF-Connecting-IP': '203.0.113.20' }
+    for (const [method, path] of [
+      ['GET', '/v1/challenge'],
+      ['GET', '/v1/tip-config'],
+      ['POST', '/v1/blob-upload'],
+    ] as const) {
+      const res = await call(method, path, looped)
+      expect(res.status, path).toBe(508)
+      expect(await res.json()).toEqual({ error: 'loop detected' })
+      expect(corsOrigin(res)).toBe(ALLOWED_ORIGIN)
+    }
+    // /healthz and a CORS preflight are answered before the check (probes stay truthful).
+    expect((await call('GET', '/healthz', looped)).status).toBe(200)
+    expect((await call('OPTIONS', '/v1/challenge', looped)).status).toBe(204)
+  })
+
+  it('lets a foreign Via value (a CDN hop) through untouched', async () => {
+    const res = await call('GET', '/v1/challenge', { via: '1.1 google', 'CF-Connecting-IP': '203.0.113.21' })
+    expect(res.status).toBe(200)
+  })
+
   it('every response varies on Origin', async () => {
     for (const res of [
       await call('GET', '/v1/challenge', { origin: ALLOWED_ORIGIN }),

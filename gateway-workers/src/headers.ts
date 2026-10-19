@@ -18,6 +18,23 @@ const HOP_BY_HOP = [
   'upgrade',
 ]
 
+/**
+ * The `Via` entry (RFC 9110 §7.6.3) this gateway adds to every upstream request. A request that
+ * arrives already carrying it has looped back to the gateway (F43), whichever hostname it took.
+ */
+export const VIA_TOKEN = '1.1 nft-gate'
+
+/**
+ * True if `headers` already carry this gateway's own `Via` entry. Only the received-by name
+ * `nft-gate` matches: any other value (e.g. a CDN's `1.1 google`) is foreign and passes. Each
+ * comma-separated entry is `protocol received-by [comment]`; a comment is not examined.
+ */
+export function isLooped(headers: Headers): boolean {
+  const via = headers.get('via')
+  if (!via) return false
+  return via.split(',').some((entry) => entry.trim().split(/\s+/)[1]?.toLowerCase() === 'nft-gate')
+}
+
 /** Client-supplied fields the gateway never forwards: credentials for the gate, spoofable forwarding data, cookies. */
 const REQUEST_STRIP = [
   'host',
@@ -54,6 +71,8 @@ export function upstreamRequestHeaders(incoming: Headers, injected: Array<{ name
   // that namespace before setting the configured ones.
   for (const name of [...headers.keys()]) if (name.startsWith('cf-access-')) headers.delete(name)
   for (const { name, value } of injected) headers.set(name, value)
+  // The gateway's own hop marker, set after the client's `via` was dropped (F43).
+  headers.set('via', VIA_TOKEN)
   return headers
 }
 

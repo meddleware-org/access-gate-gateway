@@ -15,6 +15,7 @@ import { makeBackends } from './state/select.js'
 import { SuiGrpc } from './chain.js'
 import { verifyAccessRequest, deniedReason } from './verify.js'
 import { forward, FORWARDED_METHODS } from './proxy.js'
+import { isLooped } from './headers.js'
 import { runQuotaGuard } from './quota.js'
 import { redeemAndForward } from './redemption.js'
 import { withCors, corsPreflightResponse, resolveAllowedOrigin } from './cors.js'
@@ -236,6 +237,10 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
   // non-simple cross-origin requests (e.g. PUT/POST with Authorization); responding
   // here avoids the auth path returning 401 and causing the browser to abort.
   if (request.method === 'OPTIONS') return corsPreflightResponse()
+
+  // A request that already carries this gateway's own `Via` entry has looped back through it (the
+  // upstream resolves to this route): refuse it before any nonce, rate-limit or redemption work.
+  if (isLooped(request.headers)) return deny(508, 'loop detected')
 
   let state: GatewayState
   try {

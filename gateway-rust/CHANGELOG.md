@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.24] - 2026-10-19
+
+Released with the Workers gateway 0.0.24 (one version for every artifact). Still undeployed.
+
+### Added
+
+- Loop detection (audit F43, both gateways at once): every upstream request carries `Via: 1.1 nft-gate` (a client-supplied `Via` is still dropped), and a request that arrives already naming `nft-gate` as a received-by hop is refused `508 {"error":"loop detected"}` after `/healthz` and the CORS preflight and before any nonce, rate-limit or redemption work. Only our own token matches; foreign values pass. Tests: `via_loop_table` in `src/headers.rs` (identical table in the Workers gateway) and `the_upstream_sees_the_via_marker_and_a_looped_request_is_a_508_before_any_work` in `src/router_tests.rs`.
+
+### Changed
+
+- Docs: the commit-failure outcome (`502` + release, the use is kept) is documented as a decision (OQ6).
+
 ## [0.0.23] - 2026-10-19
 
 Released with the Workers gateway 0.0.23 (one version for every artifact). Still undeployed.
