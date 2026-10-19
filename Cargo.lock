@@ -454,7 +454,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
  "const-oid",
- "pem-rfc7468",
  "zeroize",
 ]
 
@@ -576,7 +575,6 @@ dependencies = [
  "ff",
  "generic-array",
  "group",
- "pem-rfc7468",
  "pkcs8",
  "rand_core 0.6.4",
  "sec1",
@@ -1079,7 +1077,6 @@ dependencies = [
  "elliptic-curve",
  "once_cell",
  "sha2 0.10.9",
- "signature 2.2.0",
 ]
 
 [[package]]
@@ -1158,6 +1155,7 @@ dependencies = [
  "base64",
  "blake2",
  "ed25519-consensus",
+ "ed25519-dalek",
  "getrandom 0.2.17",
  "hex",
  "k256",
@@ -1174,23 +1172,16 @@ dependencies = [
  "anyhow",
  "axum",
  "base64",
- "blake2",
  "bytes",
- "ed25519-consensus",
  "ed25519-dalek",
  "futures-util",
- "hex",
  "http-body-util",
  "hyper",
  "hyper-rustls",
  "hyper-util",
- "k256",
  "nft-gate-core",
- "p256",
- "proptest",
  "rand_core 0.6.4",
  "redis",
- "serde",
  "serde_json",
  "tokio",
  "tower",
@@ -1263,15 +1254,6 @@ dependencies = [
  "elliptic-curve",
  "primeorder",
  "sha2 0.10.9",
-]
-
-[[package]]
-name = "pem-rfc7468"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88b39c9bfcfc231068454382784bb460aae594343fb030d46e9f50a645418412"
-dependencies = [
- "base64ct",
 ]
 
 [[package]]

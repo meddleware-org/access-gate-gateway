@@ -4,8 +4,6 @@
 //! `127.0.0.1`.
 
 use crate::grpc::{frame, ProtoWriter};
-use crate::proof::{personal_message, MessageContext};
-use crate::verify::{derive_address, normalize_address, signing_digest, FLAG_ED25519};
 use base64::prelude::*;
 use bytes::Bytes;
 use ed25519_dalek::{Signer, SigningKey};
@@ -14,6 +12,8 @@ use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
+use nft_gate_core::proof::{personal_message, MessageContext};
+use nft_gate_core::sig::{derive_address, normalize_address, signing_digest, FLAG_ED25519};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -327,9 +327,9 @@ pub fn test_signer() -> (SigningKey, String) {
 pub fn proof_token(sk: &SigningKey, address: &str, nonce: &str, consume: Option<&str>) -> String {
     let cfg = crate::tests_support::test_cfg();
     let message = personal_message(&MessageContext {
-        origin: &cfg.gateway_origin,
-        gate_id: &normalize_address(&cfg.gate_id),
-        network: &cfg.network,
+        origin: &cfg.gateway.gateway_origin,
+        gate_id: &normalize_address(&cfg.gateway.gate_id),
+        network: &cfg.gateway.network,
         nonce,
         consume_digest: consume,
     })

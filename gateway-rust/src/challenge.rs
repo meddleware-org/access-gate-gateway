@@ -2,9 +2,9 @@
 //! consumed exactly once (replay protection).
 //!
 //! Two backends behind one async [`NonceStore`] enum:
-//! - [`InMemoryNonceStore`] — process-local `Mutex<HashMap>`, hardened with a **hard entry
-//!   cap** (evict-oldest) and a **background prune** so growth is bounded independent of issue
-//!   cadence (gateway audit F3). Correct only at `replicas: 1` (F2).
+//! - [`InMemoryNonceStore`] — the shared `nft-gate-core` state machine in process memory, with a
+//!   **hard entry cap** (evict-oldest) and a **background prune** so growth is bounded independent
+//!   of issue cadence (gateway audit F3). Correct only at `replicas: 1` (F2).
 //! - [`RedisNonceStore`] — a shared TTL store (Redis protocol; works with **Dragonfly**) so
 //!   nonce consumption is fleet-wide and replay protection survives horizontal scale-out
 //!   (gateway audit F2). Single-use is atomic via `GETDEL`; expiry is the key TTL.
@@ -14,204 +14,25 @@
 //! token, and commit/release are compare-and-set on it, so a request whose lease lapsed can never
 //! clear or overwrite a newer holder's.
 
-use rand_core::{OsRng, RngCore};
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use crate::state::{wall_ms, OsRngSource, SystemClock};
+use nft_gate_core::state::{random_hex24, MemoryStore};
 
-/// Current Unix time in milliseconds. Used to compute nonce expiry timestamps.
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
-}
+pub use nft_gate_core::redemption::{Commit, Lease};
 
-/// Generate a cryptographically random 24-byte hex nonce (48 hex chars). Matches the Workers
-/// gateway's `randomHex24()` entropy. The nonce is **ASCII by contract** (hex only) — the client's
-/// `decodeAccessProof` enforces ASCII, so the proof-token base64 can never carry non-ASCII bytes.
+/// A fresh random 24-byte hex value (48 hex chars): a challenge nonce or a redemption owner token.
+/// Matches the Workers gateway's `randomHex24()` entropy. The nonce is **ASCII by contract** (hex only):
+/// the client's `decodeAccessProof` enforces ASCII, so the proof-token base64 can never carry
+/// non-ASCII bytes.
 fn random_nonce() -> String {
-    let mut buf = [0u8; 24];
-    OsRng.fill_bytes(&mut buf);
-    hex::encode(buf)
+    random_hex24(&OsRngSource)
 }
 
-/// Outcome of a redemption-lease attempt (single-use mode). The permanent on-chain `consumeDigest`
-/// is the one-time token: a use is spent only when an upload succeeds (`commit`); an interrupted
-/// upload `release`s the lease so the consume stays redeemable.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Lease {
-    /// The caller holds the lease (identified by this owner token) and must `commit`/`release` it.
-    Ok(String),
-    /// Another in-flight request holds an unexpired lease (concurrent duplicate).
-    Leased,
-    /// The digest was already committed — the use is spent.
-    Redeemed,
-}
-
-/// Outcome of a commit: `Ok` — recorded as spent by the lease holder; `Lost` — the lease had
-/// lapsed or belongs to another request, so nothing changed (the caller must not report success).
-#[derive(Debug, PartialEq, Eq)]
-pub enum Commit {
-    Ok,
-    Lost,
-}
-
-// ── In-memory backend ────────────────────────────────────────────────────────────
-
-/// A single tracked nonce in the in-memory store.
-struct Entry {
-    /// When this nonce expires (monotonic).
-    expiry: Instant,
-    /// True once the nonce has been consumed (single-use enforcement).
-    used: bool,
-}
-
-/// A tracked redemption (single-use mode): a leased (in-flight) or committed (spent) consume digest.
-struct Redemption {
-    /// True once committed (the use is spent); false while only leased for an in-flight upload.
-    committed: bool,
-    /// Lease deadline (leased) or retention deadline (committed), monotonic.
-    expiry: Instant,
-    /// Owner token of a lease (empty once committed).
-    token: String,
-}
-
-/// Process-local nonce store backed by a `Mutex<HashMap>`.
-pub struct InMemoryNonceStore {
-    /// Lifetime of each issued nonce.
-    ttl: Duration,
-    /// Hard cap on live entries; evicts the soonest-to-expire entry when full (audit F3).
-    max_entries: usize,
-    /// The live nonce map, protected by a mutex for multi-threaded access.
-    inner: Mutex<HashMap<String, Entry>>,
-    /// Single-use redemption state, keyed by `consumeDigest`.
-    redemptions: Mutex<HashMap<String, Redemption>>,
-}
-
-impl InMemoryNonceStore {
-    /// Create a new store with the given TTL and entry cap.
-    pub fn new(ttl_secs: u64, max_entries: usize) -> Self {
-        Self {
-            ttl: Duration::from_secs(ttl_secs),
-            max_entries: max_entries.max(1),
-            inner: Mutex::new(HashMap::new()),
-            redemptions: Mutex::new(HashMap::new()),
-        }
-    }
-
-    /// Atomically claim `key` for an in-flight upload. Single-threaded per lock, so a concurrent
-    /// duplicate sees `Leased` and a committed key sees `Redeemed`; an expired lease is reclaimable.
-    fn try_lease_redemption(&self, key: &str, lease_ttl_secs: u64) -> Lease {
-        let now = Instant::now();
-        let mut m = self.redemptions.lock().unwrap();
-        m.retain(|_, r| r.expiry > now); // bound growth: drop expired leases + lapsed commits
-        if let Some(r) = m.get(key) {
-            if r.committed {
-                return Lease::Redeemed;
-            }
-            if r.expiry > now {
-                return Lease::Leased;
-            }
-        }
-        if m.len() >= self.max_entries {
-            // Evict the soonest-to-expire LEASE (never a commit — that would allow re-redemption).
-            if let Some(oldest) = m
-                .iter()
-                .filter(|(_, r)| !r.committed)
-                .min_by_key(|(_, r)| r.expiry)
-                .map(|(k, _)| k.clone())
-            {
-                m.remove(&oldest);
-            }
-        }
-        let token = random_nonce();
-        m.insert(
-            key.to_string(),
-            Redemption {
-                committed: false,
-                expiry: now + Duration::from_secs(lease_ttl_secs),
-                token: token.clone(),
-            },
-        );
-        Lease::Ok(token)
-    }
-
-    /// Mark `key` redeemed (retained `retention_secs`) iff `token` still owns an unexpired lease.
-    fn commit_redemption(&self, key: &str, token: &str, retention_secs: u64) -> Commit {
-        let now = Instant::now();
-        let mut m = self.redemptions.lock().unwrap();
-        match m.get_mut(key) {
-            Some(r) if !r.committed && r.token == token && r.expiry > now => {
-                r.committed = true;
-                r.expiry = now + Duration::from_secs(retention_secs);
-                r.token.clear();
-                Commit::Ok
-            }
-            _ => Commit::Lost,
-        }
-    }
-
-    /// Release the lease on `key` iff `token` owns it (upload failed). Never clears a commit or a
-    /// newer holder's lease.
-    fn release_redemption(&self, key: &str, token: &str) {
-        let mut m = self.redemptions.lock().unwrap();
-        if m.get(key).is_some_and(|r| !r.committed && r.token == token) {
-            m.remove(key);
-        }
-    }
-
-    /// Insert `nonce` and return `(nonce, expires_at_unix_ms)`. Evicts expired entries and, if
-    /// still full, the soonest-to-expire live entry before inserting.
-    fn insert(&self, nonce: String) -> (String, u64) {
-        let now = Instant::now();
-        let expiry = now + self.ttl;
-        let mut m = self.inner.lock().unwrap();
-        m.retain(|_, e| e.expiry > now);
-        // Hard cap: if still full after pruning expired, evict the soonest-to-expire entry so
-        // memory is bounded regardless of issue rate (F3).
-        if m.len() >= self.max_entries {
-            if let Some(oldest) = m
-                .iter()
-                .min_by_key(|(_, e)| e.expiry)
-                .map(|(k, _)| k.clone())
-            {
-                m.remove(&oldest);
-            }
-        }
-        m.insert(
-            nonce.clone(),
-            Entry {
-                expiry,
-                used: false,
-            },
-        );
-        (nonce, now_ms() + self.ttl.as_millis() as u64)
-    }
-
-    /// Mark `nonce` as used. Returns `true` iff it was present, unexpired, and not yet used.
-    fn take_if_valid(&self, nonce: &str) -> bool {
-        let mut m = self.inner.lock().unwrap();
-        match m.get_mut(nonce) {
-            Some(e) if !e.used && e.expiry > Instant::now() => {
-                e.used = true;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Drop expired entries. Called periodically by the background prune task.
-    pub fn prune(&self) {
-        let now = Instant::now();
-        self.inner.lock().unwrap().retain(|_, e| e.expiry > now);
-    }
-
-    #[cfg(test)]
-    fn len(&self) -> usize {
-        self.inner.lock().unwrap().len()
-    }
-}
+/// The in-memory backend is the shared state machine of `nft-gate-core` (one implementation of the
+/// nonce, redemption and cap rules, also run by the Worker's Durable Object tests) on the system
+/// clock: process-local, with a **hard entry cap** (evict-soonest-to-expire) and a **background
+/// prune** so growth is bounded independent of issue cadence (gateway audit F3). Correct only at
+/// `replicas: 1` (F2).
+pub type InMemoryNonceStore = MemoryStore<SystemClock, OsRngSource>;
 
 // ── Redis / Dragonfly backend ───────────────────────────────────────────────────
 
@@ -363,7 +184,7 @@ impl RedisNonceStore {
             .query_async::<()>(&mut c)
             .await
             .map_err(|e| anyhow::anyhow!("redis nonce SET failed: {e}"))?;
-        Ok((nonce, now_ms() + self.ttl_ms))
+        Ok((nonce, wall_ms() + self.ttl_ms))
     }
 
     /// Atomically consume `nonce` via `GETDEL` (Redis ≥6.2 / Dragonfly). `Ok(false)` for a
@@ -398,7 +219,12 @@ pub enum NonceStore {
 impl NonceStore {
     /// Create an in-memory store with the given TTL and hard entry cap.
     pub fn in_memory(ttl_secs: u64, max_entries: usize) -> Self {
-        NonceStore::InMemory(InMemoryNonceStore::new(ttl_secs, max_entries))
+        NonceStore::InMemory(InMemoryNonceStore::new(
+            SystemClock::new(),
+            OsRngSource,
+            ttl_secs,
+            max_entries,
+        ))
     }
 
     /// Connect to a Redis-protocol nonce store. Async startup — returns an error if the
@@ -412,10 +238,9 @@ impl NonceStore {
     /// Issue a fresh random nonce. Returns `(nonce, expires_at_unix_ms)`, or an error when the
     /// shared store cannot record it.
     pub async fn issue(&self) -> anyhow::Result<(String, u64)> {
-        let nonce = random_nonce();
         match self {
-            NonceStore::InMemory(s) => Ok(s.insert(nonce)),
-            NonceStore::Redis(s) => s.insert(nonce).await,
+            NonceStore::InMemory(s) => Ok(s.issue_nonce()),
+            NonceStore::Redis(s) => s.insert(random_nonce()).await,
         }
     }
 
@@ -423,7 +248,7 @@ impl NonceStore {
     /// the shared store cannot answer.
     pub async fn take_if_valid(&self, nonce: &str) -> anyhow::Result<bool> {
         match self {
-            NonceStore::InMemory(s) => Ok(s.take_if_valid(nonce)),
+            NonceStore::InMemory(s) => Ok(s.take_nonce(nonce)),
             NonceStore::Redis(s) => s.take_if_valid(nonce).await,
         }
     }
@@ -465,15 +290,6 @@ impl NonceStore {
         match self {
             NonceStore::InMemory(s) => s.release_redemption(key, token),
             NonceStore::Redis(s) => s.release_redemption(key, token).await,
-        }
-    }
-
-    /// Insert a caller-chosen nonce (test helper). Not available in production builds.
-    #[cfg(test)]
-    pub async fn issue_specific(&self, nonce: &str) -> (String, u64) {
-        match self {
-            NonceStore::InMemory(s) => s.insert(nonce.to_string()),
-            NonceStore::Redis(s) => s.insert(nonce.to_string()).await.expect("redis insert"),
         }
     }
 }
@@ -520,7 +336,10 @@ mod tests {
             store.issue().await.unwrap();
         }
         if let NonceStore::InMemory(s) = &store {
-            assert!(s.len() <= 4, "entry count must stay within the hard cap");
+            assert!(
+                s.nonce_count() <= 4,
+                "entry count must stay within the hard cap"
+            );
         }
     }
 
@@ -530,7 +349,7 @@ mod tests {
         store.issue().await.unwrap();
         store.prune();
         if let NonceStore::InMemory(s) = &store {
-            assert_eq!(s.len(), 0);
+            assert_eq!(s.nonce_count(), 0);
         }
     }
 

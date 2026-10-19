@@ -1,9 +1,10 @@
 //! Production [`ChainQuery`]: the chain logic moved to `nft-gate-core::chain` (generic over a
 //! `Transport`, shared with the Cloudflare Worker); this module binds it to the hyper client.
 
-pub use nft_gate_core::chain::*;
-#[allow(unused_imports)]
-pub use nft_gate_core::decision::ChainQuery;
+#[cfg(test)]
+use nft_gate_core::chain::*;
+#[cfg(test)]
+use nft_gate_core::decision::ChainQuery;
 
 use crate::config::AuthHeader;
 use crate::grpc::HyperTransport;
@@ -28,7 +29,7 @@ fn now_ms() -> u64 {
 use crate::http_client::TimedOut;
 #[cfg(test)]
 #[allow(unused_imports)]
-use crate::verify::{normalize_address, normalize_move_type};
+use nft_gate_core::sig::{normalize_address, normalize_move_type};
 
 /// The native chain client.
 pub type SuiRpc = nft_gate_core::chain::SuiRpc<HyperTransport>;
@@ -652,7 +653,6 @@ mod tests {
     #[tokio::test]
     #[ignore = "hits a Sui full node; run with --ignored"]
     async fn live_gate_and_ownership_requests_are_accepted() {
-        use crate::verify::ChainQuery;
         // The testnet relay gate published 2026-10-09 (see gateway-workers/wrangler.toml).
         let gate = std::env::var("NFT_GATE_LIVE_GATE").unwrap_or_else(|_| {
             "0x316f1bf9764db352e925bb598aff44ea77be4ab652f0bd2eb3fdcc0a378faddc".to_string()
@@ -677,7 +677,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "hits a Sui full node; run with --ignored"]
     async fn live_consume_tx_valid() {
-        use crate::verify::{consumed_event_type, ChainQuery};
+        use nft_gate_core::sig::consumed_event_type;
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let Some(digest) = env("NFT_GATE_LIVE_DIGEST") else {
             eprintln!("live_consume_tx_valid: NFT_GATE_LIVE_DIGEST is not set; nothing to check");

@@ -15,17 +15,28 @@ pub struct HyperTransport {
 
 impl HyperTransport {
     pub fn new(http: HttpClient, auth: Option<AuthHeader>, timeout: Duration) -> Self {
-        Self { http, auth, timeout }
+        Self {
+            http,
+            auth,
+            timeout,
+        }
     }
 }
 
 impl Transport for HyperTransport {
-    async fn post_grpc_web(&self, url: &str, body: Vec<u8>) -> anyhow::Result<(Option<String>, Vec<u8>)> {
+    async fn post_grpc_web(
+        &self,
+        url: &str,
+        body: Vec<u8>,
+    ) -> anyhow::Result<(Option<String>, Vec<u8>)> {
         let (headers, bytes) = self
             .http
             .post_grpc_web(url, Bytes::from(body), self.auth.as_ref(), self.timeout)
             .await?;
-        let status = headers.get("grpc-status").and_then(|v| v.to_str().ok()).map(str::to_string);
+        let status = headers
+            .get("grpc-status")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
         Ok((status, bytes.to_vec()))
     }
 

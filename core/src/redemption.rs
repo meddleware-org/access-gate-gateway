@@ -79,7 +79,7 @@ impl RedemptionTable {
             key.to_string(),
             Row {
                 committed: false,
-                expiry_ms: now + lease_ttl_secs * 1000,
+                expiry_ms: now.saturating_add(lease_ttl_secs.saturating_mul(1000)),
                 token: new_token.clone(),
             },
         );
@@ -90,7 +90,7 @@ impl RedemptionTable {
         match self.rows.get_mut(key) {
             Some(r) if !r.committed && r.token == token && r.expiry_ms > now => {
                 r.committed = true;
-                r.expiry_ms = now + retention_secs * 1000;
+                r.expiry_ms = now.saturating_add(retention_secs.saturating_mul(1000));
                 r.token.clear();
                 Commit::Ok
             }
@@ -133,7 +133,7 @@ impl NonceTable {
                 self.rows.remove(&oldest);
             }
         }
-        let expiry = now + ttl_secs * 1000;
+        let expiry = now.saturating_add(ttl_secs.saturating_mul(1000));
         self.rows.insert(nonce, expiry);
         expiry
     }
@@ -143,6 +143,19 @@ impl NonceTable {
             Some(expiry) => expiry > now,
             None => false,
         }
+    }
+
+    /// Drop expired nonces (the periodic prune of a long-lived process).
+    pub fn prune(&mut self, now: u64) {
+        self.rows.retain(|_, e| *e > now);
+    }
+
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
     }
 }
 
@@ -163,7 +176,7 @@ impl RateTable {
         }
         let (mut start, mut count) = (now, 0);
         if let Some(&(s, c)) = self.rows.get(key) {
-            if now - s < 60_000 {
+            if now.saturating_sub(s) < 60_000 {
                 start = s;
                 count = c;
             }

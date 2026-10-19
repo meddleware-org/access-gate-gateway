@@ -1,6 +1,7 @@
 name: Rust CI
 
-# CI for the Rust gateway implementation (gateway-rust) and its Dockerfile scan.
+# CI for the Rust workspace: nft-gate-core (the shared decision logic, native and wasm32), the
+# gateway-rust adapter, and the gateway-rust Dockerfile scan.
 # The Node Workers gateway is covered by node-ci.yml.
 
 on:
@@ -14,7 +15,7 @@ permissions:
 
 jobs:
   rust-ci:
-    name: Rust gateway (gateway-rust)
+    name: Rust workspace (core + gateway-rust)
     runs-on: ubuntu-latest
     # A real Redis for the env-gated backend round trip (Lua lease/commit/release, GETDEL).
     services:
@@ -24,14 +25,10 @@ jobs:
           - 6379:6379
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
-    defaults:
-      run:
-        working-directory: gateway-rust
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Versions aligned (npm == crate == tag)
-        working-directory: .
         run: bash scripts/check-versions.sh
 
       # rustup ships on the runner image; using it directly leaves no third-party toolchain action
@@ -41,7 +38,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: "gateway-rust -> target"
+          workspaces: ". -> target"
           # Only save the cache on main-branch pushes to avoid saturating the
           # GitHub Actions cache upload bandwidth on every PR run.
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -50,15 +47,15 @@ jobs:
         run: cargo fmt --check
 
       - name: Clippy
-        run: cargo clippy --all-targets --locked -- -D warnings
+        run: cargo clippy --all-targets --locked --workspace -- -D warnings
 
       - name: Test
-        run: cargo test --locked
+        run: cargo test --locked --workspace
 
       - name: Redis backend round trip
         env:
           REDIS_URL: redis://127.0.0.1:6379
-        run: cargo test --locked -- --ignored redis_backend
+        run: cargo test --locked -p nft-gate-gateway -- --ignored redis_backend
 
       # Coverage figure (RUST lens): printed to the job summary; informational, not a gate.
       - name: Install cargo-llvm-cov
@@ -68,29 +65,47 @@ jobs:
 
       - name: Coverage
         run: |
-          cargo llvm-cov --locked --summary-only | tee coverage.txt
-          { echo '### Line coverage (gateway-rust)'; echo '```'; tail -n 3 coverage.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cargo llvm-cov --locked --workspace --summary-only | tee coverage.txt
+          { echo '### Line coverage (workspace)'; echo '```'; tail -n 3 coverage.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
-      # Advisories, licences, bans and sources per deny.toml. The `advisories` check reads the same
-      # RustSec database as `cargo audit`, so it supersedes the audit-only check (no second tool).
+      # Advisories, licences, bans and sources per deny.toml (workspace root; the graph includes the
+      # wasm32 target of the core). The `advisories` check reads the same RustSec database as
+      # `cargo audit`, so it supersedes the audit-only check (no second tool).
       - name: cargo deny
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
-          manifest-path: gateway-rust/Cargo.toml
+          manifest-path: Cargo.toml
       # The release binary is built inside the Dockerfile (with --locked).
+
+  # The decision logic runs in two places: natively (gateway-rust) and as wasm32 in the Cloudflare
+  # Worker. This job pins the core ALONE (no hyper, no tokio; its own minimal feature set, which the
+  # workspace test above unifies away) and proves it still builds for the Worker's target.
+  core:
+    name: nft-gate-core (native tests + wasm32 build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the stable toolchain with the wasm32 target
+        run: rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown --no-self-update && rustup default stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ". -> target"
+          key: core
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Test (native, core alone)
+        run: cargo test --locked -p nft-gate-core
+      - name: Build for the Worker target
+        run: cargo build --locked -p nft-gate-core --target wasm32-unknown-unknown
 
   msrv:
     name: MSRV (rust-version in Cargo.toml)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: gateway-rust
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install the declared minimum toolchain
         run: rustup toolchain install 1.88 --profile minimal --no-self-update && rustup default 1.88
       - name: Check on the declared minimum toolchain
-        run: cargo check --locked
+        run: cargo check --locked -p nft-gate-core -p nft-gate-gateway
 
   trivy-scan:
     name: Trivy (gateway-rust Dockerfile)

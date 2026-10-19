@@ -1,14 +1,20 @@
-//! Generic NFT-gated reverse proxy binary.
+//! Generic NFT-gated reverse proxy binary: the hyper/axum/tokio/Redis adapter around `nft-gate-core`.
 #![forbid(unsafe_code)]
+//!
+//! Everything the gateway decides and does lives in `nft-gate-core` (shared with the Cloudflare
+//! Worker): the proof, the signature schemes, the decision, the Sui reads, the state machines, the
+//! header / path / config policy and the request orchestration (`nft_gate_core::gateway`). This crate
+//! supplies only I/O: the TCP server and its limits, the hyper HTTP client, Redis, the system clock and
+//! entropy, and the mapping between axum types and the core's [`RequestHead`] / [`Reply`].
 //!
 //! # Startup sequence
 //!
-//! 1. Load [`config::GatewayConfig`] from environment variables (see `config.rs`). Abort on
+//! 1. Load [`config::ServerConfig`] from environment variables (see `config.rs`). Abort on
 //!    missing required vars.
 //! 2. Build an [`http_client::HttpClient`] for upstream and Sui RPC HTTP.
 //! 3. Construct a [`sui_rpc::SuiRpc`] from the shared client.
 //! 4. Open either an in-memory or Redis [`challenge::NonceStore`] based on `REDIS_URL`.
-//! 5. Create the per-address [`ratelimit::RateLimiter`].
+//! 5. Create the in-memory rate windows.
 //! 6. Spawn a background task that prunes the in-memory nonce store every
 //!    `NONCE_PRUNE_INTERVAL_SECS` (no-op for the Redis backend).
 //! 7. Bind an axum TCP listener and serve (with the peer address available for client-IP
@@ -19,9 +25,9 @@
 //! [`AppState`] is the single shared object threaded through every request via
 //! `axum::extract::State`. It holds:
 //!
-//! - `cfg` — the loaded gateway configuration.
-//! - `store` — the nonce store (in-memory or Redis).
-//! - `limiter` — the per-address, per-minute rate limiter.
+//! - `cfg` — the loaded configuration (`cfg.gateway` is the part shared with the Worker).
+//! - `store` — the nonce / redemption store (in-memory or Redis).
+//! - `rates` — the per-IP and per-address rate windows.
 //! - `chain` — the Sui RPC client for ownership / event queries.
 //! - `http` — the shared [`http_client::HttpClient`] used both by the proxy and the RPC client.
 
@@ -30,295 +36,149 @@ mod config;
 mod grpc;
 mod headers;
 mod http_client;
-mod proof;
 mod proxy;
-mod ratelimit;
 #[cfg(test)]
 mod router_tests;
+mod state;
 mod sui_rpc;
 #[cfg(test)]
 mod testkit;
-mod verify;
 
 use axum::error_handling::HandleErrorLayer;
 use axum::extract::{ConnectInfo, Request, State};
-use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
+use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
+use nft_gate_core::gateway::{Gateway, JsonReply, Reply, RequestHead};
+use nft_gate_core::headers::{cors_allowed_origin, CORS_GRANTS};
+use nft_gate_core::net::client_ip;
+use nft_gate_core::state::{MemoryRates, RateBudgets};
 use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower::ServiceBuilder;
 
 use challenge::NonceStore;
-use config::GatewayConfig;
+use config::ServerConfig;
 use http_client::HttpClient;
-use ratelimit::RateLimiter;
+use state::{NativeState, SystemClock};
 use sui_rpc::SuiRpc;
-use verify::verify_access_request;
 
 /// Shared state threaded through every axum request handler.
 pub struct AppState {
-    /// Loaded gateway configuration (env vars).
-    cfg: GatewayConfig,
-    /// Single-use nonce store (in-memory or Redis).
+    /// Loaded configuration (env vars).
+    cfg: ServerConfig,
+    /// Single-use nonce and redemption store (in-memory or Redis).
     store: NonceStore,
-    /// Per-authenticated-address, fixed-window rate limiter (post-auth).
-    limiter: RateLimiter,
-    /// Per-IP rate limiter for the challenge endpoint and public paths (pre-auth).
-    ip_limiter: RateLimiter,
-    /// Per-IP rate limiter for gated requests, applied BEFORE signature verification.
-    preauth_limiter: RateLimiter,
+    /// Rate windows: per client IP (challenge and public paths), per client IP for gated requests
+    /// BEFORE signature verification, and per authenticated address (post-auth).
+    rates: MemoryRates<SystemClock>,
     /// Sui gRPC client (gRPC-web) for ownership and consume-transaction queries.
     chain: SuiRpc,
     /// Shared HTTP client used by both the reverse proxy and the Sui RPC calls.
     http: HttpClient,
 }
 
-/// Build a JSON `{"error": reason}` response with the given status code.
-fn deny(status: StatusCode, reason: &str) -> Response {
-    (status, Json(json!({ "error": reason }))).into_response()
-}
-
-/// The client IP used as the pre-auth rate-limit key (never for authentication).
-///
-/// With `trusted_hops == 0` it is the TCP peer address: forwarding headers are client-controlled
-/// and would let anyone pick a fresh rate-limit bucket per request. With N trusted proxies in
-/// front, each appends the address it saw, so the Nth `X-Forwarded-For` entry from the right is
-/// the address the outermost trusted proxy received the request from. A header with fewer entries
-/// did not pass through every proxy, so the peer address is used instead.
-fn client_ip(headers: &HeaderMap, peer: Option<SocketAddr>, trusted_hops: usize) -> String {
-    rate_key(&client_ip_raw(headers, peer, trusted_hops))
-}
-
-/// IPv6 clients are keyed by their /64 (one subscriber controls the whole prefix and could
-/// otherwise rotate source addresses to dodge the limit and grow the limiter); IPv4 and anything
-/// unparseable are used as is.
-fn rate_key(ip: &str) -> String {
-    match ip.parse::<std::net::Ipv6Addr>() {
-        Ok(v6) => {
-            let s = v6.segments();
-            format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+impl AppState {
+    /// Wire the server state from its configuration, nonce store and clients.
+    fn new(cfg: ServerConfig, store: NonceStore, chain: SuiRpc, http: HttpClient) -> Self {
+        let g = &cfg.gateway;
+        let rates = MemoryRates::new(
+            SystemClock::new(),
+            RateBudgets {
+                ip: g.challenge_rate_limit_per_min,
+                gated_preauth: g.gated_preauth_rate_limit_per_min,
+                address: g.rate_limit_per_min,
+            },
+        );
+        Self {
+            cfg,
+            store,
+            rates,
+            chain,
+            http,
         }
-        Err(_) => ip.to_string(),
     }
 }
 
-fn client_ip_raw(headers: &HeaderMap, peer: Option<SocketAddr>, trusted_hops: usize) -> String {
-    let peer_ip = || peer.map_or_else(|| "unknown".to_string(), |p| p.ip().to_string());
-    if trusted_hops == 0 {
-        return peer_ip();
+/// Render a gateway-generated answer: `{"error": reason}` (plus `code`), or the challenge. The
+/// operator-only `diag` goes to the log and never to the client.
+fn render(reply: JsonReply) -> Response {
+    if let Some(diag) = &reply.diag {
+        tracing::error!("{diag}");
     }
-    let entries: Vec<&str> = headers
-        .get_all("x-forwarded-for")
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(','))
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect();
-    match entries.len().checked_sub(trusted_hops) {
-        Some(i) => entries[i].to_string(),
-        None => peer_ip(),
+    let status = StatusCode::from_u16(reply.status).unwrap_or(StatusCode::BAD_GATEWAY);
+    let mut res = (status, Json(reply.body)).into_response();
+    if let Some(allow) = reply.allow {
+        res.headers_mut()
+            .insert(header::ALLOW, HeaderValue::from_static(allow));
     }
+    res
 }
 
-/// [`client_ip`] for an axum request (peer address from `ConnectInfo`).
-fn extract_client_ip(req: &Request, trusted_hops: usize) -> String {
+/// The fields of a request the shared orchestration reads. The client IP is the TCP peer unless
+/// `TRUSTED_PROXY_HOPS` says how many proxies to trust (never the leftmost `X-Forwarded-For` entry,
+/// which the client controls).
+fn request_head(app: &AppState, req: &Request) -> RequestHead {
     let peer = req
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
-        .map(|c| c.0);
-    client_ip(req.headers(), peer, trusted_hops)
-}
-
-/// Extract the base64 access-proof token from the request. Prefers `Authorization: Bearer
-/// <token>` (scheme case-insensitive, any whitespace after it: the Workers gateway's
-/// `^Bearer\s+(.+)$`); falls back to the `X-Access-Proof` header.
-fn extract_proof_token(req: &Request) -> Option<String> {
-    if let Some(v) = req.headers().get(header::AUTHORIZATION) {
-        if let Ok(s) = v.to_str() {
-            if let Some((scheme, rest)) = s.split_once(char::is_whitespace) {
-                let token = rest.trim();
-                if scheme.eq_ignore_ascii_case("bearer") && !token.is_empty() {
-                    return Some(token.to_string());
-                }
-            }
-        }
+        .map(|c| c.0.ip());
+    let xff: Vec<&str> = req
+        .headers()
+        .get_all("x-forwarded-for")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .collect();
+    let text = |name: &str| {
+        req.headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+    };
+    RequestHead {
+        method: req.method().as_str().to_string(),
+        path: req.uri().path().to_string(),
+        authorization: text("authorization"),
+        x_access_proof: text("x-access-proof"),
+        via: headers::joined(req.headers(), "via"),
+        client_ip: client_ip(&xff, peer, app.cfg.trusted_proxy_hops),
     }
-    req.headers()
-        .get("x-access-proof")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.trim().to_string())
 }
 
-/// JSON `{"error": reason, "code": code}` (the machine-readable code a client can act on).
-fn deny_code(status: StatusCode, reason: &str, code: &str) -> Response {
-    (status, Json(json!({ "error": reason, "code": code }))).into_response()
-}
-
-/// Main request dispatcher. Handles `/healthz`, `/v1/challenge`, configured public paths, and
-/// gated paths (signature + ownership verification before forwarding to the upstream).
+/// Main request dispatcher: derive the [`RequestHead`], hand the request to the shared orchestration
+/// (`/v1/challenge`, public paths, signature + ownership verification, single-use redemption) and
+/// render its [`Reply`]. `/healthz` and CORS preflights are answered before this point.
 async fn handle(State(app): State<Arc<AppState>>, req: Request) -> Response {
-    let method = req.method().clone();
-    let path = req.uri().path().to_string();
-
-    // A request that already carries this gateway's own `Via` entry has looped back through it (the
-    // upstream resolves to this gateway): refuse it before any nonce, rate-limit or redemption work.
-    // `/healthz` and CORS preflights are answered before this point.
-    if headers::is_looped(req.headers()) {
-        return deny(StatusCode::LOOP_DETECTED, "loop detected");
-    }
-
-    if method == Method::GET && path == "/v1/challenge" {
-        let ip = extract_client_ip(&req, app.cfg.trusted_proxy_hops);
-        if !app.ip_limiter.check(&ip) {
-            return deny(StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded");
-        }
-        return match app.store.issue().await {
-            Ok((nonce, expires_at)) => {
-                Json(json!({ "nonce": nonce, "expiresAt": expires_at })).into_response()
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "nonce issue failed");
-                deny(StatusCode::SERVICE_UNAVAILABLE, "gateway state unavailable")
-            }
-        };
-    }
-
-    // Public passthrough (e.g. /v1/tip-config): read-only. A body-carrying method would reach the
-    // upstream with no proof, so only GET/HEAD are forwarded. Rate-limit per IP first.
-    if app.cfg.is_public_path(&path) {
-        if method != Method::GET && method != Method::HEAD {
-            let mut res = deny(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
-            res.headers_mut()
-                .insert(header::ALLOW, HeaderValue::from_static("GET, HEAD"));
-            return res;
-        }
-        let ip = extract_client_ip(&req, app.cfg.trusted_proxy_hops);
-        if !app.ip_limiter.check(&ip) {
-            return deny(StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded");
-        }
-        return proxy::forward(&app, req).await;
-    }
-
-    if !proxy::FORWARDED_METHODS.contains(&method) {
-        return deny(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
-    }
-
-    let token = match extract_proof_token(&req) {
-        Some(t) => t,
-        None => return deny(StatusCode::UNAUTHORIZED, "missing access proof"),
+    let head = request_head(&app, &req);
+    let state = NativeState {
+        store: &app.store,
+        rates: &app.rates,
     };
-
-    // Verification costs CPU and a store call per request, so bound it per client first.
-    let ip = extract_client_ip(&req, app.cfg.trusted_proxy_hops);
-    if !app.preauth_limiter.check(&ip) {
-        return deny(StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded");
-    }
-
-    match verify_access_request(&app.cfg, &app.store, &token, &app.chain).await {
-        Ok(verified) => {
-            if !app.limiter.check(&verified.address) {
-                return deny(StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded");
-            }
-            match verified.redemption_key {
-                Some(key) => redeem_and_forward(&app, &key, req).await,
-                None => proxy::forward(&app, req).await,
-            }
-        }
-        Err(d) => {
-            let status = match d {
-                verify::Denied::ChainError => StatusCode::BAD_GATEWAY,
-                verify::Denied::StateUnavailable => StatusCode::SERVICE_UNAVAILABLE,
-                _ => StatusCode::FORBIDDEN,
-            };
-            deny(status, d.reason())
-        }
+    let gateway = Gateway {
+        cfg: &app.cfg.gateway,
+        state: &state,
+        chain: &app.chain,
+        upstream: &*app,
+    };
+    match gateway.handle(&head, req).await {
+        Reply::Json(reply) => render(reply),
+        Reply::Upstream(response) => response,
     }
 }
-
-/// Single-use: the permanent on-chain consume digest is the one-time token. Lease it (the lease
-/// returns an owner token), proxy, then COMMIT on a successful upload or RELEASE on failure, both
-/// presenting the token — so an interrupted upload leaves the consume redeemable, a duplicate can't
-/// double-spend it, and a request whose lease lapsed can never clear or overwrite a newer holder's.
-/// The lease outlives the body-read and upstream deadlines together (checked at startup). A commit that fails, or finds its
-/// lease lost, is a 502 (never success); a store error is a 503 (never a conflict).
-async fn redeem_and_forward(app: &AppState, key: &str, req: Request) -> Response {
-    let unavailable = |e: anyhow::Error| {
-        tracing::error!(error = %e, "redemption store failed");
-        deny(StatusCode::SERVICE_UNAVAILABLE, "gateway state unavailable")
-    };
-    let token = match app
-        .store
-        .try_lease_redemption(key, app.cfg.redemption_lease_ttl_secs)
-        .await
-    {
-        Err(e) => return unavailable(e),
-        Ok(challenge::Lease::Redeemed) => {
-            return deny_code(
-                StatusCode::CONFLICT,
-                "this consume has already been redeemed for an upload",
-                "redeemed",
-            )
-        }
-        Ok(challenge::Lease::Leased) => {
-            return deny_code(
-                StatusCode::CONFLICT,
-                "an upload for this consume is already in progress",
-                "leased",
-            )
-        }
-        Ok(challenge::Lease::Ok(token)) => token,
-    };
-    let resp = proxy::forward(app, req).await;
-    if !resp.status().is_success() {
-        app.store.release_redemption(key, &token).await;
-        return resp;
-    }
-    match app
-        .store
-        .commit_redemption(key, &token, app.cfg.redemption_retention_secs)
-        .await
-    {
-        Ok(challenge::Commit::Ok) => resp,
-        Ok(challenge::Commit::Lost) => {
-            tracing::error!("redemption lease lost before commit");
-            deny(StatusCode::BAD_GATEWAY, "redemption lease lost")
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "commit_redemption failed");
-            app.store.release_redemption(key, &token).await;
-            deny(StatusCode::BAD_GATEWAY, "redemption commit failed")
-        }
-    }
-}
-
-/// Grants every response carries — the same set as the Workers gateway (`cors.ts`).
-const CORS_GRANTS: [(&str, &str); 4] = [
-    (
-        "access-control-allow-methods",
-        "GET, POST, PUT, HEAD, OPTIONS",
-    ),
-    (
-        "access-control-allow-headers",
-        "authorization, content-type, x-access-proof",
-    ),
-    ("access-control-expose-headers", "location, upload-offset"),
-    ("access-control-max-age", "86400"),
-];
 
 /// CORS as the Workers gateway does it: a preflight is answered here, before rate limits and auth;
 /// every response (errors included) carries the grants and `Vary: Origin`; the request `Origin` is
-/// reflected only on an exact `ALLOWED_ORIGINS` match — otherwise no `Access-Control-Allow-Origin`.
+/// reflected only on an exact `ALLOWED_ORIGINS` match (`nft_gate_core::headers`) — otherwise no
+/// `Access-Control-Allow-Origin`.
 async fn cors(State(state): State<Arc<AppState>>, req: Request, next: Next) -> Response {
     let allowed = req
         .headers()
         .get(header::ORIGIN)
         .and_then(|v| v.to_str().ok())
-        .filter(|o| state.cfg.allowed_origins.iter().any(|a| a == o))
+        .and_then(|o| cors_allowed_origin(Some(o), &state.cfg.gateway.allowed_origins))
         .and_then(|o| HeaderValue::from_str(o).ok());
     let mut resp = if req.method() == Method::OPTIONS {
         StatusCode::NO_CONTENT.into_response()
@@ -343,6 +203,11 @@ async fn cors(State(state): State<Arc<AppState>>, req: Request, next: Next) -> R
         headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
     }
     resp
+}
+
+/// A JSON `{"error": reason}` answer for the layers around the orchestration.
+fn deny(status: StatusCode, reason: &str) -> Response {
+    (status, Json(json!({ "error": reason }))).into_response()
 }
 
 /// Construct the axum [`Router`] with the shared [`AppState`]. `/healthz` is answered directly and
@@ -373,19 +238,20 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let cfg = GatewayConfig::from_env()?;
+    let cfg = ServerConfig::from_env()?;
+    let g = &cfg.gateway;
     // The upstream URL is deliberately not logged: it is the private origin (audit F26).
-    tracing::info!(?cfg.bind_addr, nft_type = %cfg.nft_type, single_use = cfg.single_use, "starting nft-gate-gateway");
+    tracing::info!(?cfg.bind_addr, nft_type = %g.nft_type, single_use = g.single_use, "starting nft-gate-gateway");
 
     let http = HttpClient::new()?;
     let chain = sui_rpc::new_sui_rpc(
         http.clone(),
-        cfg.sui_rpc_url.clone(),
-        cfg.ownership_cache_ttl_ms,
-        cfg.sui_rpc_auth_header.clone(),
-        std::time::Duration::from_secs(cfg.rpc_timeout_secs),
+        g.sui_rpc_url.clone(),
+        g.ownership_cache_ttl_ms,
+        g.sui_rpc_auth_header.clone(),
+        std::time::Duration::from_secs(g.rpc_timeout_secs),
     );
-    if cfg.single_use && cfg.redis_url.is_none() && cfg.allow_volatile_redemptions {
+    if g.single_use && cfg.redis_url.is_none() && cfg.allow_volatile_redemptions {
         tracing::warn!(
             "SINGLE_USE with an in-memory store (ALLOW_VOLATILE_REDEMPTIONS): spent consumes are \
              forgotten on restart; use REDIS_URL outside development"
@@ -394,30 +260,19 @@ async fn main() -> anyhow::Result<()> {
     let store = match &cfg.redis_url {
         Some(url) => {
             tracing::info!("using Redis/Dragonfly nonce store — fleet-wide replay protection");
-            NonceStore::redis(url, cfg.challenge_ttl_secs).await?
+            NonceStore::redis(url, g.challenge_ttl_secs).await?
         }
         None => {
             tracing::info!(
                 "using in-memory nonce store (correct at replicas:1; set REDIS_URL to scale out)"
             );
-            NonceStore::in_memory(cfg.challenge_ttl_secs, cfg.nonce_max_entries)
+            NonceStore::in_memory(g.challenge_ttl_secs, g.nonce_max_entries)
         }
     };
-    let limiter = RateLimiter::new(cfg.rate_limit_per_min);
-    let ip_limiter = RateLimiter::new(cfg.challenge_rate_limit_per_min);
-    let preauth_limiter = RateLimiter::new(cfg.gated_preauth_rate_limit_per_min);
     let bind_addr = cfg.bind_addr;
     let prune_interval = cfg.nonce_prune_interval_secs.max(1);
 
-    let state = Arc::new(AppState {
-        cfg,
-        store,
-        limiter,
-        ip_limiter,
-        preauth_limiter,
-        chain,
-        http,
-    });
+    let state = Arc::new(AppState::new(cfg, store, chain, http));
 
     // Background prune keeps the in-memory nonce map bounded independent of issue cadence
     // (no-op for the Redis backend, which expires via key TTL).
@@ -546,46 +401,24 @@ async fn shutdown_signal() {
 /// Shared test fixtures.
 #[cfg(test)]
 pub(crate) mod tests_support {
-    use crate::config::GatewayConfig;
+    use crate::config::ServerConfig;
+    use std::collections::HashMap;
 
-    /// A complete config with test defaults (single-use off, `/v1/tip-config` public).
-    pub fn test_cfg() -> GatewayConfig {
-        GatewayConfig {
-            bind_addr: "0.0.0.0:8080".parse().unwrap(),
-            gateway_origin: "https://gateway.example".into(),
-            network: "testnet".into(),
-            upstream_url: "http://upstream".into(),
-            sui_rpc_url: "http://rpc".into(),
-            nft_type: "0x1::access_gate::AccessNFT".into(),
-            gate_id: "0x2".into(),
-            challenge_ttl_secs: 300,
-            single_use: false,
-            public_paths: vec!["/v1/tip-config".into()],
-            allowed_origins: vec!["https://app.example".into()],
-            rate_limit_per_min: 30,
-            challenge_rate_limit_per_min: 30,
-            gated_preauth_rate_limit_per_min: 120,
-            max_body_bytes: 262144,
-            redis_url: None,
-            nonce_max_entries: 10_000,
-            nonce_prune_interval_secs: 60,
-            ownership_cache_ttl_ms: 0,
-            redemption_lease_ttl_secs: 900,
-            redemption_retention_secs: 2_592_000,
-            consume_max_age_secs: 432_000,
-            allow_volatile_redemptions: false,
-            rpc_timeout_secs: 15,
-            header_read_timeout_secs: 10,
-            body_read_timeout_secs: 30,
-            max_connections: 1024,
-            shutdown_grace_secs: 30,
-            max_concurrent_requests: 64,
-            trusted_proxy_hops: 0,
-            upstream_timeout_secs: 600,
-            max_response_bytes: 16_777_216,
-            upstream_auth_headers: Vec::new(),
-            sui_rpc_auth_header: None,
-        }
+    /// A complete config with test defaults (single-use off, `/v1/tip-config` public), built by the
+    /// real parser so the fixtures can never drift from what a deployment can express.
+    pub fn test_cfg() -> ServerConfig {
+        let env: HashMap<&str, &str> = HashMap::from([
+            ("GATEWAY_ORIGIN", "https://gateway.example"),
+            ("NETWORK", "testnet"),
+            ("UPSTREAM_URL", "http://upstream"),
+            ("SUI_RPC_URL", "http://rpc"),
+            ("NFT_TYPE", "0x1::access_gate::AccessNFT"),
+            ("GATE_ID", "0x2"),
+            ("ALLOW_INSECURE_HTTP", "1"),
+            ("ALLOWED_ORIGINS", "https://app.example"),
+            ("NONCE_MAX_ENTRIES", "10000"),
+        ]);
+        ServerConfig::from_lookup(&|k: &str| env.get(k).map(|v| v.to_string())).unwrap()
     }
 }
 
@@ -593,34 +426,22 @@ pub(crate) mod tests_support {
 mod tests {
     use super::*;
 
-    fn xff(v: &str) -> HeaderMap {
-        let mut h = HeaderMap::new();
-        h.insert("x-forwarded-for", v.parse().unwrap());
-        h
-    }
-
-    #[test]
-    fn client_ip_ignores_forwarding_headers_without_trusted_proxies() {
-        let peer: SocketAddr = "198.51.100.7:4000".parse().unwrap();
-        assert_eq!(client_ip(&xff("1.2.3.4"), Some(peer), 0), "198.51.100.7");
-        assert_eq!(client_ip(&HeaderMap::new(), None, 0), "unknown");
-    }
-
-    #[test]
-    fn client_ip_takes_the_entry_the_outermost_trusted_proxy_saw() {
-        let peer: SocketAddr = "10.0.0.2:4000".parse().unwrap();
-        // client spoofed "6.6.6.6"; the one trusted proxy appended the real client 203.0.113.9.
-        assert_eq!(
-            client_ip(&xff("6.6.6.6, 203.0.113.9"), Some(peer), 1),
-            "203.0.113.9"
+    /// An `AppState` over the test config with in-memory state and a hermetic client.
+    fn test_state(cfg: ServerConfig) -> AppState {
+        let g = &cfg.gateway;
+        let chain = sui_rpc::new_sui_rpc(
+            HttpClient::new().unwrap(),
+            g.sui_rpc_url.clone(),
+            0,
+            None,
+            std::time::Duration::from_secs(15),
         );
-        // two hops: CDN appended the client, ingress appended the CDN edge.
-        assert_eq!(
-            client_ip(&xff("6.6.6.6, 203.0.113.9, 172.16.0.1"), Some(peer), 2),
-            "203.0.113.9"
-        );
-        // fewer entries than hops: fall back to the peer.
-        assert_eq!(client_ip(&xff("203.0.113.9"), Some(peer), 2), "10.0.0.2");
+        AppState::new(
+            cfg,
+            NonceStore::in_memory(300, 100),
+            chain,
+            HttpClient::new().unwrap(),
+        )
     }
 
     #[tokio::test]
@@ -628,23 +449,7 @@ mod tests {
         use tower::ServiceExt;
         let mut cfg = tests_support::test_cfg();
         cfg.max_concurrent_requests = 1;
-        let http = HttpClient::new().unwrap();
-        let state = Arc::new(AppState {
-            chain: sui_rpc::new_sui_rpc(
-                http.clone(),
-                cfg.sui_rpc_url.clone(),
-                0,
-                None,
-                std::time::Duration::from_secs(15),
-            ),
-            store: NonceStore::in_memory(300, 100),
-            limiter: RateLimiter::new(30),
-            ip_limiter: RateLimiter::new(30),
-            preauth_limiter: RateLimiter::new(120),
-            http,
-            cfg,
-        });
-        let app = build_router(state);
+        let app = build_router(Arc::new(test_state(cfg)));
         let get = |p: &str| {
             axum::http::Request::builder()
                 .uri(p)
@@ -659,22 +464,7 @@ mod tests {
 
     fn cors_app() -> Router {
         let cfg = tests_support::test_cfg();
-        let http = HttpClient::new().unwrap();
-        build_router(Arc::new(AppState {
-            chain: sui_rpc::new_sui_rpc(
-                http.clone(),
-                cfg.sui_rpc_url.clone(),
-                0,
-                None,
-                std::time::Duration::from_secs(15),
-            ),
-            store: NonceStore::in_memory(300, 100),
-            limiter: RateLimiter::new(30),
-            ip_limiter: RateLimiter::new(30),
-            preauth_limiter: RateLimiter::new(120),
-            http,
-            cfg,
-        }))
+        build_router(Arc::new(test_state(cfg)))
     }
 
     fn with_origin(
@@ -753,63 +543,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn public_path_matching() {
-        let cfg = tests_support::test_cfg();
-        assert!(cfg.is_public_path("/v1/tip-config"));
-        assert!(!cfg.is_public_path("/v1/blob-upload"));
-    }
-
-    #[test]
-    fn ipv6_clients_are_keyed_by_their_slash_64() {
-        assert_eq!(
-            rate_key("2001:db8:1:2:aaaa:bbbb:cccc:dddd"),
-            rate_key("2001:db8:1:2::1")
-        );
-        assert_ne!(rate_key("2001:db8:1:2::1"), rate_key("2001:db8:1:3::1"));
-        assert_eq!(rate_key("203.0.113.9"), "203.0.113.9");
-        assert_eq!(rate_key("unknown"), "unknown");
-    }
-
-    fn token_request(auth: Option<&str>, x_proof: Option<&str>) -> Request {
-        let mut b = axum::http::Request::builder().uri("/v1/x");
-        if let Some(a) = auth {
-            b = b.header(header::AUTHORIZATION, a);
-        }
-        if let Some(x) = x_proof {
-            b = b.header("x-access-proof", x);
-        }
-        b.body(axum::body::Body::empty()).unwrap()
-    }
-
-    #[test]
-    fn bearer_token_extraction_matches_the_workers_gateway() {
-        for (auth, want) in [
-            ("Bearer abc", Some("abc")),
-            ("bearer abc", Some("abc")),
-            ("BEARER   abc", Some("abc")),
-            ("Bearer\tabc", Some("abc")),
-            ("Bearer ", None),
-            ("Basic abc", None),
-            ("abc", None),
-        ] {
-            assert_eq!(
-                extract_proof_token(&token_request(Some(auth), None)).as_deref(),
-                want,
-                "{auth:?}"
-            );
-        }
-        // Bearer wins over X-Access-Proof; the header is the fallback.
-        assert_eq!(
-            extract_proof_token(&token_request(Some("Bearer abc"), Some("zzz"))).as_deref(),
-            Some("abc")
-        );
-        assert_eq!(
-            extract_proof_token(&token_request(None, Some(" zzz "))).as_deref(),
-            Some("zzz")
-        );
-    }
-
     async fn status_of(app: Router, method: Method, path: &str, auth: Option<&str>) -> StatusCode {
         use tower::ServiceExt;
         let mut b = axum::http::Request::builder().method(method).uri(path);
@@ -845,23 +578,8 @@ mod tests {
     async fn gated_requests_are_rate_limited_per_ip_before_verification() {
         use tower::ServiceExt;
         let mut cfg = tests_support::test_cfg();
-        cfg.gated_preauth_rate_limit_per_min = 3;
-        let http = HttpClient::new().unwrap();
-        let app = build_router(Arc::new(AppState {
-            chain: sui_rpc::new_sui_rpc(
-                http.clone(),
-                cfg.sui_rpc_url.clone(),
-                0,
-                None,
-                std::time::Duration::from_secs(15),
-            ),
-            store: NonceStore::in_memory(300, 100),
-            limiter: RateLimiter::new(30),
-            ip_limiter: RateLimiter::new(30),
-            preauth_limiter: RateLimiter::new(cfg.gated_preauth_rate_limit_per_min),
-            http,
-            cfg,
-        }));
+        cfg.gateway.gated_preauth_rate_limit_per_min = 3;
+        let app = build_router(Arc::new(test_state(cfg)));
         let mut seen = Vec::new();
         for _ in 0..5 {
             let req = axum::http::Request::builder()

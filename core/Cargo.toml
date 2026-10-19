@@ -23,6 +23,8 @@ p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"]
 serde_json = "1"
 
 [dev-dependencies]
+# Signing only (test fixtures); verification uses ed25519-consensus.
+ed25519-dalek = "3"
 proptest = "1"
 pollster = "0.4"
 

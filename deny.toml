@@ -1,7 +1,13 @@
-# cargo-deny policy for nft-gate-gateway (run in CI by rust-ci.yml; locally: `cargo deny check`).
+# cargo-deny policy for the Rust workspace: nft-gate-core and nft-gate-gateway (run in CI by
+# rust-ci.yml; locally: `cargo deny check` at the repository root).
 
 [graph]
-targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+# The wasm32 target is the Cloudflare Worker build of nft-gate-core (getrandom `js`, wasm-bindgen).
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "wasm32-unknown-unknown",
+]
 
 [advisories]
 # RustSec advisories: vulnerable and yanked crates fail the build; unmaintained crates are reported

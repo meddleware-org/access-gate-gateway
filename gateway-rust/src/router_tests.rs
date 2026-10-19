@@ -10,7 +10,9 @@ use crate::testkit::{
     Reply, Seen, Stub,
 };
 use axum::body::Body;
+use axum::http::HeaderMap;
 use http_body_util::BodyExt;
+use nft_gate_core::config::GatewayConfig;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tower::ServiceExt;
@@ -119,26 +121,29 @@ impl Rig {
     ) -> Self {
         let (sk, address) = test_signer();
         let mut cfg = tests_support::test_cfg();
-        cfg.single_use = single_use;
-        cfg.sui_rpc_url = node.url.clone();
-        cfg.upstream_url = upstream.url.clone();
-        tweak(&mut cfg);
+        cfg.gateway.single_use = single_use;
+        cfg.gateway.sui_rpc_url = node.url.clone();
+        cfg.gateway.upstream_url = upstream.url.clone();
+        tweak(&mut cfg.gateway);
         let http = HttpClient::new().unwrap();
-        let state = Arc::new(AppState {
-            chain: crate::sui_rpc::new_sui_rpc(
-                http.clone(),
-                cfg.sui_rpc_url.clone(),
-                0,
-                None,
-                std::time::Duration::from_secs(5),
-            ),
-            store,
-            limiter: RateLimiter::new(1000),
-            ip_limiter: RateLimiter::new(1000),
-            preauth_limiter: RateLimiter::new(1000),
-            http,
-            cfg,
-        });
+        let chain = crate::sui_rpc::new_sui_rpc(
+            http.clone(),
+            cfg.gateway.sui_rpc_url.clone(),
+            0,
+            None,
+            std::time::Duration::from_secs(5),
+        );
+        let mut state = AppState::new(cfg, store, chain, http);
+        // Generous budgets: these tests are about the dispatcher, not the limits.
+        state.rates = MemoryRates::new(
+            SystemClock::new(),
+            RateBudgets {
+                ip: 1000,
+                gated_preauth: 1000,
+                address: 1000,
+            },
+        );
+        let state = Arc::new(state);
         Self {
             app: build_router(state.clone()),
             state,

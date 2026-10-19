@@ -1,12 +1,13 @@
-//! The allow/deny decision (verbatim from `gateway-rust/src/verify.rs`), generic over the two things
-//! a platform supplies: the chain ([`ChainQuery`]) and the single-use nonce store ([`NonceTake`]).
-//! `GatewayConfig` (env parsing, tokio, axum) stays in the native crate; the decision needs only the
-//! six fields of [`VerifyParams`].
+//! The allow/deny decision, generic over the two things a platform supplies: the chain
+//! ([`ChainQuery`]) and the single-use nonce store ([`NonceTake`], which every
+//! [`StateStore`] is). The decision needs only the six fields of [`VerifyParams`].
 
+use crate::config::GatewayConfig;
 use crate::proof::{decode_access_proof, is_tx_digest, personal_message, MessageContext};
 use crate::sig::{consumed_event_type, normalize_address, verify_personal_message_signature};
+use crate::state::StateStore;
 
-/// The configuration the decision reads (a subset of `GatewayConfig` / the Worker `Config`).
+/// The configuration the decision reads (a subset of [`GatewayConfig`]).
 #[derive(Debug, Clone)]
 pub struct VerifyParams {
     pub single_use: bool,
@@ -17,11 +18,30 @@ pub struct VerifyParams {
     pub consume_max_age_secs: u64,
 }
 
+impl From<&GatewayConfig> for VerifyParams {
+    fn from(cfg: &GatewayConfig) -> Self {
+        Self {
+            single_use: cfg.single_use,
+            gateway_origin: cfg.gateway_origin.clone(),
+            gate_id: cfg.gate_id.clone(),
+            network: cfg.network.clone(),
+            nft_type: cfg.nft_type.clone(),
+            consume_max_age_secs: cfg.consume_max_age_secs,
+        }
+    }
+}
+
 /// Consume a nonce exactly once; `Ok(true)` iff it was valid, unexpired and unused. `Err` = the
 /// store failed (→ `Denied::StateUnavailable`, 503).
 #[allow(async_fn_in_trait)]
 pub trait NonceTake {
     async fn take_if_valid(&self, nonce: &str) -> anyhow::Result<bool>;
+}
+
+impl<T: StateStore + ?Sized> NonceTake for T {
+    async fn take_if_valid(&self, nonce: &str) -> anyhow::Result<bool> {
+        self.take_nonce(nonce).await
+    }
 }
 
 /// Abstraction over on-chain lookups needed to authorise a request. Implemented by

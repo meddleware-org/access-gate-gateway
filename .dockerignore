@@ -1,0 +1,19 @@
+# Build context of gateway-rust/Dockerfile is the repository root: keep it to the Cargo workspace
+# (Cargo.toml, Cargo.lock, core/, gateway-rust/) and drop everything else.
+**/target/
+**/node_modules/
+.git/
+.github/
+.gitignore
+.dockerignore
+.env
+.env.*
+*.pem
+*.key
+**/*.md
+conformance/
+docs/
+**/docs/
+gateway-workers/
+spike-workers-rs/
+scripts/

@@ -1,101 +1,41 @@
-//! Header policy for a forwarding hop (RFC 9110 §7.6.1): the same lists as the Workers gateway
-//! (`headers.ts`). Hop-by-hop fields describe one connection, not the message, so they are removed
-//! in both directions: the fixed set plus every field the `Connection` header names. Credentials,
-//! cookies and spoofable forwarding fields are removed from the request, and upstream cookies and
-//! CORS fields from the response (the gateway emits its own CORS from `ALLOWED_ORIGINS`).
+//! Header policy for a forwarding hop, applied to `http::HeaderMap`. The policy itself (which fields
+//! go, the `Via` loop marker, the safe-path rule) is `nft_gate_core::headers`, shared with the
+//! Cloudflare Worker; this module only walks a native header map with it.
 
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue};
+use nft_gate_core::headers::{
+    connection_named, drop_request_header, drop_response_header, VIA_TOKEN,
+};
 
-/// Fields that are hop-by-hop by definition.
-const HOP_BY_HOP: [&str; 9] = [
-    "connection",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "proxy-connection",
-    "te",
-    "trailer",
-    "transfer-encoding",
-    "upgrade",
-];
-
-/// The `Via` entry (RFC 9110 §7.6.3) this gateway adds to every upstream request. A request that
-/// arrives already carrying it has looped back to the gateway (F43), whichever hostname it took.
-pub const VIA_TOKEN: &str = "1.1 nft-gate";
-
-/// True if `headers` already carry this gateway's own `Via` entry. Only the received-by name
-/// `nft-gate` matches: any other value (e.g. a CDN's `1.1 google`) is foreign and passes. Each
-/// comma-separated entry is `protocol received-by [comment]`; a comment is not examined.
-pub fn is_looped(headers: &HeaderMap) -> bool {
+/// The values of `Connection`, joined: the fields it names are hop-by-hop for this message.
+fn named_by_connection(headers: &HeaderMap) -> Vec<String> {
     headers
-        .get_all(header::VIA)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(','))
-        .any(|entry| {
-            entry
-                .split_whitespace()
-                .nth(1)
-                .is_some_and(|by| by.eq_ignore_ascii_case("nft-gate"))
-        })
-}
-
-/// Client-supplied fields the gateway never forwards.
-const REQUEST_STRIP: [&str; 11] = [
-    "host",
-    "authorization",
-    "x-access-proof",
-    "content-length",
-    "cookie",
-    "forwarded",
-    "via",
-    "x-forwarded-for",
-    "x-forwarded-host",
-    "x-forwarded-proto",
-    "x-real-ip",
-];
-
-/// Upstream fields the gateway never returns (CORS is handled separately by prefix).
-const RESPONSE_STRIP: [&str; 4] = ["content-length", "set-cookie", "set-cookie2", "alt-svc"];
-
-/// Remove the hop-by-hop fields, including those named in `Connection`, from `headers`.
-pub fn strip_hop_by_hop(headers: &mut HeaderMap) {
-    let named: Vec<String> = headers
         .get_all(header::CONNECTION)
         .iter()
         .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(','))
-        .map(|t| t.trim().to_ascii_lowercase())
-        .filter(|t| !t.is_empty())
-        .collect();
-    for name in HOP_BY_HOP.iter().map(|n| n.to_string()).chain(named) {
-        if let Ok(n) = HeaderName::from_bytes(name.as_bytes()) {
-            headers.remove(n);
-        }
-    }
+        .flat_map(connection_named)
+        .collect()
 }
 
-fn remove_prefixed(headers: &mut HeaderMap, prefix: &str) {
+fn retain(headers: &HeaderMap, drop: impl Fn(&str, &[String]) -> bool) -> HeaderMap {
+    let named = named_by_connection(headers);
     let doomed: Vec<HeaderName> = headers
         .keys()
-        .filter(|k| k.as_str().starts_with(prefix))
+        .filter(|k| drop(k.as_str(), &named))
         .cloned()
         .collect();
+    let mut out = headers.clone();
     for k in doomed {
-        headers.remove(k);
+        out.remove(k);
     }
+    out
 }
 
 /// The headers to send upstream: the client's, minus hop-by-hop, credentials and spoofable fields.
 /// The upstream's own access credentials (`cf-access-*`) are the gateway's alone, so anything the
 /// client sent in that namespace is dropped (the configured ones are added by the HTTP client).
 pub fn upstream_request_headers(incoming: &HeaderMap) -> HeaderMap {
-    let mut headers = incoming.clone();
-    strip_hop_by_hop(&mut headers);
-    for name in REQUEST_STRIP {
-        headers.remove(name);
-    }
-    remove_prefixed(&mut headers, "cf-access-");
+    let mut headers = retain(incoming, drop_request_header);
     // The gateway's own hop marker, set after the client's `via` was dropped (F43).
     headers.insert(header::VIA, HeaderValue::from_static(VIA_TOKEN));
     headers
@@ -103,33 +43,23 @@ pub fn upstream_request_headers(incoming: &HeaderMap) -> HeaderMap {
 
 /// The headers to return to the client: the upstream's, minus hop-by-hop, cookies and CORS fields.
 pub fn client_response_headers(upstream: &HeaderMap) -> HeaderMap {
-    let mut headers = upstream.clone();
-    strip_hop_by_hop(&mut headers);
-    for name in RESPONSE_STRIP {
-        headers.remove(name);
-    }
-    remove_prefixed(&mut headers, "access-control-");
-    headers
+    retain(upstream, drop_response_header)
 }
 
-/// True if `path` is safe to append to the upstream URL: no encoded separators, NUL, backslash,
-/// control characters, dot-dot segments or empty segments.
-pub fn is_safe_path(path: &str) -> bool {
-    let lower = path.to_ascii_lowercase();
-    !(lower.contains("%2f")
-        || lower.contains("%5c")
-        || lower.contains("%00")
-        || lower.contains("%2e%2e")
-        || path.contains('\\')
-        || path.contains("//")
-        || path.split('/').any(|seg| seg == "..")
-        || path.bytes().any(|b| b < 0x20 || b == 0x7f))
+/// All `Via` field values joined with `,` (what `nft_gate_core::headers::via_is_looped` reads).
+pub fn joined(headers: &HeaderMap, name: &str) -> Option<String> {
+    let values: Vec<&str> = headers
+        .get_all(name)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .collect();
+    (!values.is_empty()).then(|| values.join(","))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::HeaderValue;
+    use nft_gate_core::headers::via_is_looped;
 
     fn map(pairs: &[(&str, &str)]) -> HeaderMap {
         let mut h = HeaderMap::new();
@@ -182,46 +112,24 @@ mod tests {
         assert_eq!(out["x-keep-me"], "yes");
     }
 
-    /// Loop detection table (F43). Identical in the Workers gateway (`test/proxy.test.ts`,
-    /// `VIA_TABLE`): the same inputs must give the same answers.
-    const VIA_TABLE: [(Option<&str>, bool); 14] = [
-        (None, false),
-        (Some(""), false),
-        (Some("1.1 nft-gate"), true),
-        (Some("1.1 NFT-GATE"), true),
-        (Some("HTTP/1.1 nft-gate (gateway)"), true),
-        (Some("1.1 google, 1.1 nft-gate"), true),
-        (Some("1.1 nft-gate, 1.1 google"), true),
-        (Some("1.1 google"), false),
-        (Some("1.1 varnish (Varnish/6.0)"), false),
-        (Some("1.1 google (nft-gate)"), false),
-        (Some("1.1 nft-gateway"), false),
-        (Some("1.1 my-nft-gate"), false),
-        (Some("nft-gate"), false),
-        (Some("1.1 registry-auth-proxy"), false),
-    ];
-
+    /// Several `Via` fields are read as one list.
     #[test]
-    fn via_loop_table() {
-        for (via, looped) in VIA_TABLE {
-            let h = match via {
-                Some(v) => map(&[("via", v)]),
-                None => HeaderMap::new(),
-            };
-            assert_eq!(is_looped(&h), looped, "{via:?}");
-        }
-        // Several Via fields are read as one list.
+    fn via_fields_are_joined_and_the_marker_is_the_one_the_gateway_refuses() {
         let mut h = map(&[("via", "1.1 google")]);
         h.append("via", HeaderValue::from_static("1.1 nft-gate"));
-        assert!(is_looped(&h));
-    }
-
-    #[test]
-    fn the_marker_the_gateway_adds_is_the_one_it_refuses() {
-        assert!(is_looped(&upstream_request_headers(&map(&[(
-            "via",
-            "1.1 google"
-        )]))));
+        assert_eq!(
+            joined(&h, "via").as_deref(),
+            Some("1.1 google,1.1 nft-gate")
+        );
+        assert!(via_is_looped(&joined(&h, "via").unwrap()));
+        assert_eq!(joined(&HeaderMap::new(), "via"), None);
+        assert!(via_is_looped(
+            &joined(
+                &upstream_request_headers(&map(&[("via", "1.1 google")])),
+                "via"
+            )
+            .unwrap()
+        ));
     }
 
     #[test]
@@ -242,24 +150,5 @@ mod tests {
             assert!(!out.contains_key(gone), "{gone}");
         }
         assert_eq!(out["x-relay"], "kept");
-    }
-
-    #[test]
-    fn unsafe_paths_are_refused() {
-        for bad in [
-            "/a%2fb",
-            "/a%2Fb",
-            "/a%5cb",
-            "/a%00",
-            "/a//b",
-            "/a/../b",
-            "/a\\b",
-            "/a%2e%2e/b",
-        ] {
-            assert!(!is_safe_path(bad), "{bad}");
-        }
-        for ok in ["/v1/blob-upload-relay", "/v1/tip-config", "/"] {
-            assert!(is_safe_path(ok), "{ok}");
-        }
     }
 }

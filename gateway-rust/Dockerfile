@@ -1,6 +1,10 @@
 # =============================================================================
 # nft-gate-gateway — bespoke, minimal container image
 # =============================================================================
+# BUILD CONTEXT = THE REPOSITORY ROOT (the crate depends on ../core in the Cargo workspace):
+#   docker build -f gateway-rust/Dockerfile .
+# The root .dockerignore keeps the context to Cargo.toml, Cargo.lock, core/ and gateway-rust/.
+#
 # Multi-stage build using cargo-chef for reliable dep-layer caching:
 #   planner  — computes the dependency recipe from Cargo.toml/lock
 #   builder  — compiles deps (cached layer), then compiles the binary
@@ -24,10 +28,11 @@ RUN cargo chef prepare --recipe-path recipe.json
 # ── Builder: compile deps (cached), then the binary ──────────────────────────
 FROM chef AS builder
 COPY --from=planner /src/recipe.json recipe.json
-# This layer is re-used on every build where only src/ changes (not Cargo.lock).
-RUN cargo chef cook --release --locked --recipe-path recipe.json
+# This layer is re-used on every build where only src/ changes (not Cargo.lock). Only the gateway and
+# what it depends on are built: the workspace may hold crates (the Worker) that need another target.
+RUN cargo chef cook --release --locked -p nft-gate-gateway --recipe-path recipe.json
 COPY . .
-RUN cargo build --release --locked && strip target/release/nft-gate-gateway
+RUN cargo build --release --locked -p nft-gate-gateway && strip target/release/nft-gate-gateway
 
 # ── Runtime: minimal distroless image ────────────────────────────────────────
 FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2
