@@ -24,9 +24,19 @@
   from its first dispatch (run 38077866216, 2026-10-10T18:57Z) and on every daily schedule since (2026-10-11 to
   2026-10-18). The deployed version itself still cannot be read from the repo; `deploy-workers.yml` tags each
   version `<tag>-code`.
-- npm `@meddleware/nft-gate-gateway` **0.0.22** (tag `v0.0.22` = `3189969`; published 2026-10-10T18:49Z, SLSA v1
-  provenance attestation present, checked 2026-10-18; the same version is the crate `nft-gate-gateway` 0.0.22 on
-  crates.io and the `gateway-rust` image, whose `docker-publish` run succeeded). 0.0.21 (tag `v0.0.21` =
+- **Redeployed from `main` on 2026-10-19** with 0.0.23: `Deploy Workers` run 39185110276 (`workflow_dispatch`,
+  2026-10-19T01:23Z, success). Live probes after the deploy: `/v1/challenge` 200 and `/v1/tip-config` 200 (both
+  re-read from the public route 2026-10-19 by this pass); a canonical proof token decodes and an unpadded token is
+  refused as `malformed access proof` (reported by the release orchestrator; not re-probed here). The Worker now
+  runs `@meddleware/access-gate-client` `^0.0.9` (lockfile 0.0.9; was `^0.0.6`) and the refreshed dependency groups
+  (below).
+- npm `@meddleware/nft-gate-gateway` **0.0.23** (tag `v0.0.23` = `31c0f15`, released 2026-10-19; SLSA v1 provenance
+  attestation present and `latest`, checked with `npm view` 2026-10-19; the same version is the crate
+  `nft-gate-gateway` 0.0.23 on crates.io, not yanked, and the `gateway-rust` image
+  `quay.io/meddleware-org/nft-gate-gateway:0.0.23` = index `sha256:0d0be82ada8f757ebc0b036030962487914e2c0e39b8173455c595b97a3f535a`
+  from the quay API; the `docker-publish` run 39184480792 passed "Scan the published image (Trivy)" before
+  "Sign images (keyless)"; npm run 39184480907 and crates.io run 39184480796 succeeded). Previously **0.0.22** (tag `v0.0.22` = `3189969`; published
+  2026-10-10T18:49Z, SLSA v1 provenance attestation present, checked 2026-10-18). 0.0.21 (tag `v0.0.21` =
   `83349b8`, published 2026-10-08T08:19Z) was the version of the 2026-10-09 pass; the Worker of 2026-10-09
   carried `main` commits after that tag (the config change `574fe70` and Dependabot merges).
 - `SINGLE_USE=true` against the access_gate republished on 2026-10-09,
@@ -38,7 +48,7 @@
   consumed, `nft-gate:access:v2` proof, upload through this Worker; the indexer shows minted=1
   consumed=1.
 
-**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release and deployment status 2026-10-18)
+**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release and deployment status 2026-10-19)
 **Reviewer:** Internal review
 **Severity ceiling:** High — the gateway is the only paywall in front of the operator's Walrus relay.
   A verification bypass gives unpaid uploads at the operator's cost, and a redemption flaw lets one
@@ -46,9 +56,10 @@
   Critical.
 **Status:** re-verified 2026-10-09 — 40 findings dispositioned (23 RESOLVED, 5 MITIGATED, 5 ADJUDICATED,
   5 ACCEPTED-RISK, 2 DEFERRED) plus 6 Positive; F42–F46 added in this pass. Fix wave 2026-10-10 (47 findings; the
-  final counts are in the log): released as 0.0.22 and deployed to the live Worker the same day.
+  final counts are in the log): released as 0.0.22 and deployed to the live Worker the same day. Release status
+  re-checked 2026-10-19: 0.0.23 released and the Worker redeployed from `main` (no finding changes; see the log).
 
-**Wrangler / compatibility:** wrangler `^4.143.0` (lockfile 4.147.0, workerd 1.20260815.1);
+**Wrangler / compatibility:** wrangler `^4.143.0` (lockfile 4.151.0 on 2026-10-19, workerd 1.20260815.1);
   `compatibility_date = "2026-06-01"`; `compatibility_flags = ["nodejs_compat"]`; `workers_dev = false`,
   `preview_urls = false`
 **Cloudflare plan:** **not declared** in the repo. Comments say "free-tier" (DO SQLite, the quota
@@ -549,8 +560,8 @@ of a spent (`uses_remaining = 0`) receipt gets unlimited access in ownership mod
 
 - access-gate-client 0.0.5 (`8435927` in that repo) replaced `usesRemaining` with a discriminated
   `PassVariant` (`unlimited` | `singleUse` with an exact `bigint` remaining) and made `ownsAccessNft`
-  match only usable passes; an unparseable variant is rejected. This Worker depends on `^0.0.6`
-  (lockfile 0.0.6; strict event decoding and exact variants, 0.0.20 `11aa7c9`).
+  match only usable passes; an unparseable variant is rejected. This Worker depended on `^0.0.6`
+  (strict event decoding and exact variants, 0.0.20 `11aa7c9`) and has depended on `^0.0.9` (lockfile 0.0.9) since 0.0.23.
 - Decision (OQ2): ownership counts only usable passes. `ownsNftLive` documents it.
 - The pinning tests live in access-gate-client; this repo's verify tests use a fake chain (the live
   read suites of access-gate-client passed against the new package on 2026-10-09).
@@ -1138,9 +1149,9 @@ this gateway is moot, and nothing would notice.
   TS lens rule).
 
 **Remediation / evidence:** `@mysten/sui` is `^2.33.1` (0.0.18 CHANGELOG), the ADR-0001 baseline
-(`^2.33.1`, one copy per bundle); the lockfile resolves 2.35.0 and `npm ls @mysten/sui` shows a single
-deduped copy shared with access-gate-client. First-party ranges are `^0.0.6` (access-gate-client; the latest is 0.0.9, so this one is behind, a gateway-repo
-item) and `^0.0.16` (`^0.0.17` since 2026-10-10, F47, the latest published; both lockfile entries re-checked 2026-10-18). The `@noble/*` `~2.4.0` pins stay (same family as `@mysten/sui`, on the verification path).
+(`^2.33.1`, one copy per bundle); the lockfile resolves 2.36.0 (2026-10-19; 2.35.0 when this finding was resolved) and `npm ls @mysten/sui` showed a single
+deduped copy shared with access-gate-client. First-party ranges are `^0.0.9` (access-gate-client, lockfile 0.0.9, the latest; it was `^0.0.6` until 0.0.23, 2026-10-19, when the behind-the-latest gateway-repo
+item was closed) and `^0.0.16` (`^0.0.17` since 2026-10-10, F47, the latest published; both lockfile entries re-checked 2026-10-18). The `@noble/*` `~2.4.0` pins stay (same family as `@mysten/sui`, on the verification path).
 
 ### F34 — KV backend has a documented cross-region nonce replay window (ownership mode)
 
@@ -1415,13 +1426,13 @@ merged the Worker group on 2026-10-09 (`dd9b146`).
 
 | Dependency | Pinned (lockfile) | Liveness dependency? | CVE / audit status | Notes |
 | --- | --- | --- | --- | --- |
-| `@mysten/sui` | `^2.33.1` (2.35.0) | every gated request (gRPC) | clean | ADR-0001 baseline `^2.33.1`; single copy |
+| `@mysten/sui` | `^2.33.1` (2.36.0) | every gated request (gRPC) | clean | ADR-0001 baseline `^2.33.1`; single copy |
 | `@noble/curves` / `@noble/hashes` | `~2.4.0` (2.4.0) | signature verify path | clean | `zip215`, `lowS` options |
 | `@meddleware/nft-gate-client` | `^0.0.17` (0.0.17) | wire format, vectors | clean | first-party; exact resolution |
-| `@meddleware/access-gate-client` | `^0.0.6` (0.0.6) | ownership mode | clean | usable passes only (F7) |
-| wrangler / workerd | `^4.143.0` (4.147.0 / 1.20260815.1) | deploy, test pool | clean | |
-| `@cloudflare/vitest-pool-workers` | `~0.22.0` (0.22.0) | CI tests | clean | |
-| `@cloudflare/workers-types` | `~5.20261005.1` | types | clean | |
+| `@meddleware/access-gate-client` | `^0.0.9` (0.0.9) | ownership mode | clean | usable passes only (F7) |
+| wrangler / workerd | `^4.143.0` (4.151.0 / 1.20260815.1) | deploy, test pool | clean | |
+| `@cloudflare/vitest-pool-workers` | `~0.23.0` (0.23.0) | CI tests | clean | |
+| `@cloudflare/workers-types` | `~5.20261015.1` | types | clean | |
 | `typescript` / `vitest` / `eslint` | `^6.0.0` (6.0.3) / `~4.1.11` (4.1.11) / `^10.11.0` (10.12.0) | dev | clean | TS 7 and vitest 5 declined by decision |
 | Sui fullnode `https://fullnode.testnet.sui.io:443` | public (Mysten) | gated — fails **closed** (502) | n/a | 15 s per-call deadline |
 | Upstream relay | `UPSTREAM_URL` (secret) | gated + public — 502/504 | n/a | Access-locked |
@@ -2014,6 +2025,14 @@ PROXY lens:
   38077866216) and daily since. The "Not run" items of the 2026-10-10 entry (the workflow run, the deployment) are done. Section
   D: the F32 box was already ticked and now cites the runs; the two unticked boxes (mainnet `access_gate`, external review)
   are unchanged.
+- 2026-10-19 — release status re-verified: **0.0.23 released** (tag `v0.0.23` = `31c0f15`; npm `@meddleware/nft-gate-gateway` 0.0.23 with SLSA v1
+  provenance, crate 0.0.23 not yanked, image `0.0.23` index `sha256:0d0be82a…535a` from the quay API; Trivy-before-sign passed in the Docker run) and the
+  **Worker redeployed from `main`** (`Deploy Workers` run 39185110276, success; `/v1/challenge` and `/v1/tip-config` answer 200).
+  - **Contents:** `@meddleware/access-gate-client` `^0.0.9` (was `^0.0.6`); dependency groups: `@mysten/sui` 2.36.0, wrangler 4.151.0,
+    `@cloudflare/vitest-pool-workers` 0.23.0 (lockfile values read 2026-10-19). The same tag carries `gateway-rust`'s rustls 0.23.46.
+  - **Findings and gates:** no change; the F33 first-party-range item (access-gate-client behind the latest) is closed by the bump.
+  - **Not re-verified here:** the unpadded-token refusal on the live route (release orchestrator's probe); the test counts of the 2026-10-10 entry were not re-run.
+  - Dependabot policy encoded in .github/dependabot.yml (majors declined); open PRs merged 2026-10-19
 - 2026-10-19 — live paywall run 2026-10-19: PASS — pass bought on the relay gate, consumed, v2 proof accepted, upload through the Worker, replay refused 409, strict decoder, indexer events; harness `integrations/paywall/` (infrastructure workspace).
 
 ## Pre-save consistency checklist (this pass)

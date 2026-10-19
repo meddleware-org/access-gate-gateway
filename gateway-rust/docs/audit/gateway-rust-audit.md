@@ -15,15 +15,27 @@
   Workers gateway but is scoped to small-body upstreams (bodies are buffered, README "Scope"), so the
   paywall runs on `gateway-workers` only (root `CLAUDE.md`). No overlay, manifest or
   `config/images.yaml` entry exists.
-- **0.0.22 is released** (tag `v0.0.22` = `3189969`, 2026-10-10; crate, npm sibling and image published by the
+- **0.0.23 is released** (tag `v0.0.23` = `31c0f15`, 2026-10-19; crate, npm sibling and image published by the
+  tag's runs, all green; both gateways move together, D16). It carries `rustls` 0.23.46 (RUSTSEC-2026-0346,
+  RUSTSEC-2026-0347 and the Brotli certificate-decompression advisory, found by `cargo deny` after 0.0.22 and fixed on `main`
+  on 2026-10-18) and the Dependabot cargo group (tokio 1.53.3, hyper 1.12.0, serde_json 1.0.154, proptest 1.12.0; lockfile read 2026-10-19).
+  Checked 2026-10-19: crates.io `nft-gate-gateway` max version 0.0.23 (updated 2026-10-19T01:17Z, not yanked); npm sibling 0.0.23
+  with an SLSA v1 provenance attestation; image `quay.io/meddleware-org/nft-gate-gateway:0.0.23` (also tagged `0.0` and `latest`) =
+  index `sha256:0d0be82ada8f757ebc0b036030962487914e2c0e39b8173455c595b97a3f535a` (quay API); `docker-publish` run 39184480792 passed
+  "Scan the published image (Trivy)" before "Sign images (keyless)" (the self-hosted-mirror jobs failed at registry login as before). The
+  cosign signature, SBOM and provenance were not verified by me. Still **not deployed** (see the first bullet): the published image now carries the
+  rustls fix, but nothing runs it.
+- Declined by policy (2026-10-19) and now `ignore` rules in `.github/dependabot.yml`: the `axum` 0.8, `redis` 1.x and `base64` 0.23
+  majors. They are migration work for when OQ9 (deploy or not) is decided, not defects (S4).
+- **0.0.22 was released** (tag `v0.0.22` = `3189969`, 2026-10-10; crate, npm sibling and image published by the
   tag's runs, all green) and carries the fixes recorded below: F17, F21, F26, F28, F29 (CI and Docker parts), F45,
-  F46, F47; both gateways move together (D16). It is published but **not deployed** (see the first bullet).
-- Crate `nft-gate-gateway` **0.0.22** on crates.io (default version 0.0.22, updated 2026-10-10T18:50Z; trusted
+  F46, F47; both gateways move together (D16). It was published but **not deployed**.
+- Crate `nft-gate-gateway` **0.0.22** on crates.io (default version 0.0.22 until 0.0.23, updated 2026-10-10T18:50Z; trusted
   publishing, run of tag `v0.0.22` succeeded; checked 2026-10-18 through the crates.io API). 0.0.21 (published
   2026-10-08T08:19Z; 0.0.18–0.0.21 since the first pass) was the version of the 2026-10-09 and first 2026-10-10
   reads. The npm sibling `@meddleware/nft-gate-gateway` 0.0.22 was published 2026-10-10T18:49Z with an SLSA v1
   provenance attestation (checked 2026-10-18).
-- Image `quay.io/meddleware-org/nft-gate-gateway:0.0.22` (also tagged `0.0` and `latest`; multi-arch index
+- Image `quay.io/meddleware-org/nft-gate-gateway:0.0.22` (tagged `0.0` and `latest` until 0.0.23; multi-arch index
   `sha256:e207add604e54bda370f42e6429540b58f6f1467c6457241300232958fcab23d`, pushed 2026-10-10T18:54Z by
   `docker-publish.yml` run 38077120738, success; read on 2026-10-18 through quay's public API and `skopeo`). In
   that run the verify jobs (Rust gateway with the Redis round trip and coverage, MSRV, Trivy on the Dockerfile),
@@ -42,7 +54,7 @@
   publication) **only through operator env**; the superseded `0xa55789…` / `0xfd6c3b…` appear only in
   the env-gated live test (F45, B.SC-1).
 
-**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release status 2026-10-18)
+**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release status 2026-10-19)
 **Reviewer:** Internal review
 **Severity ceiling:** High — a verification bypass would admit unpaid traffic to the protected
   upstream, and a redemption-store failure would let one paid single-use consume buy unlimited
@@ -50,7 +62,7 @@
   Critical.
 **Status:** fix wave 2026-10-10 (0.0.22, commit `40a7e89`) — 40 findings dispositioned (24 RESOLVED,
   3 MITIGATED, 6 ADJUDICATED, 4 ACCEPTED-RISK, 3 DEFERRED) plus 8 Positive; re-verified 2026-10-09, F42–F48
-  added in that pass; 0.0.22 released 2026-10-10 (crate, npm, image), not deployed
+  added in that pass; 0.0.22 released 2026-10-10 and 0.0.23 released 2026-10-19 (crate, npm, image), not deployed
 
 **Toolchain:** `rust-version = "1.88"` (Cargo.toml; MSRV job in `rust-ci.yml`) — no
   `rust-toolchain.toml`   **Edition:** 2021
@@ -90,7 +102,7 @@
 **Aggregator / publisher hosts:** n/a   **Tip ceiling:** n/a (client-side; relay-enforced)
 **Epoch default / maximum:** n/a   **Deletable default:** n/a
 
-**Images:** `quay.io/meddleware-org/nft-gate-gateway:<semver>` (0.0.22 = `@sha256:e207add6…b23d`, read 2026-10-18;
+**Images:** `quay.io/meddleware-org/nft-gate-gateway:<semver>` (0.0.23 = `@sha256:0d0be82a…535a`, read 2026-10-19; 0.0.22 = `@sha256:e207add6…b23d`, read 2026-10-18;
   0.0.21 = `@sha256:f7d627eb…9281`) and `docker.io/<DOCKERHUB_NAMESPACE>/nft-gate-gateway:<semver>`
   (multi-arch index, signed at the index digest by the workflow; not re-verified here); best-effort
   `<PRIVATE_REGISTRY>/<PRIVATE_NAMESPACE>/nft-gate-gateway:<sha>-<arch>` (unsigned)
@@ -321,8 +333,8 @@ and `Cargo.lock` only); its Rust CI run succeeded, and the local tree was not ad
 | `cargo llvm-cov --locked --summary-only` | 2026-10-10, local: 90.7 % of lines, 91.4 % of functions, 90.1 % of regions (test code included in the denominator) |
 | `redis_backend_round_trip` | not run (needs `REDIS_URL`; not in CI, S2) |
 | `cargo deny` / `cargo audit` | not installed locally. `cargo-deny-action` is green in CI on `main` (Rust CI run of 2026-10-09T17:52Z on `85b18e1`); `cargo audit` is covered by cargo-deny's `advisories` check (same RustSec database, F28). Dependabot security alerts are disabled for the repository (API 403). |
-| Published versions | crates.io `nft-gate-gateway` max 0.0.21 (2026-10-08T08:19Z, none yanked); npm sibling 0.0.21; quay.io `nft-gate-gateway:0.0.21` present (index `sha256:f7d627eb…9281`). (2026-10-18: crates.io default version 0.0.22; npm 0.0.22 published 2026-10-10T18:49Z with provenance; quay.io `0.0.22` present, index `sha256:e207add6…b23d`, pushed 2026-10-10T18:54Z) |
-| Dependabot | `.github/dependabot.yml`: weekly, grouped; npm (`/gateway-workers`), cargo and docker (`/gateway-rust`), github-actions. 2026-10-09 triage: merged cargo group, distroless digest, `ed25519-dalek` 3.0.0 (dev-dependency), `blake2` 0.11.0, Actions group; closed `k256`/`p256` 0.14 (PRs #4, #6, major declined), TypeScript 7 and vitest 5 (Workers). |
+| Published versions | crates.io `nft-gate-gateway` max 0.0.21 (2026-10-08T08:19Z, none yanked); npm sibling 0.0.21; quay.io `nft-gate-gateway:0.0.21` present (index `sha256:f7d627eb…9281`). (2026-10-18: crates.io default version 0.0.22; npm 0.0.22 published 2026-10-10T18:49Z with provenance; quay.io `0.0.22` present, index `sha256:e207add6…b23d`, pushed 2026-10-10T18:54Z). 2026-10-19: crates.io max 0.0.23 (not yanked), npm 0.0.23 with provenance, quay.io `0.0.23` index `sha256:0d0be82a…535a` |
+| Dependabot | `.github/dependabot.yml`: weekly, grouped; npm (`/gateway-workers`), cargo and docker (`/gateway-rust`), github-actions. 2026-10-09 triage: merged cargo group, distroless digest, `ed25519-dalek` 3.0.0 (dev-dependency), `blake2` 0.11.0, Actions group; closed `k256`/`p256` 0.14 (PRs #4, #6, major declined), TypeScript 7 and vitest 5 (Workers). 2026-10-19: policy encoded as `ignore` rules (`@types/node` and `typescript` majors, `node` majors, `golang` minor/major, and for cargo the `axum`, `redis` and `base64` majors); the open grouped PRs were merged. |
 
 ---
 
@@ -1472,17 +1484,17 @@ version updates are configured and were triaged on 2026-10-09 (Scope).
 
 | Dependency | Pinned version (lockfile) | Liveness dependency? | CVE / audit status | Notes |
 | --- | --- | --- | --- | --- |
-| `axum` | 0.7.9 | every request (router, extractors) | cargo-deny (CI) | 0.8.x current; the accept loop is a hyper `http1::Builder`, not `axum::serve`, so it sets its own timer (F5) |
-| `hyper` / `hyper-util` | 1.11.1 / 0.1.21 | server + client | cargo-deny (CI) | client does not follow redirects; HTTP/1 only |
-| `hyper-rustls` / `rustls` / `webpki-roots` | 0.27.10 / 0.23.45 / 1.0.9 | TLS to RPC + upstream | cargo-deny (CI) | baked-in roots; rebuild to refresh |
-| `tokio` / `tower` | 1.53.2 / 0.5.3 | runtime; load shedding | cargo-deny (CI) | |
+| `axum` | 0.7.9 | every request (router, extractors) | cargo-deny (CI) | 0.8.x current (the major is an `ignore` rule in `dependabot.yml` since 2026-10-19); the accept loop is a hyper `http1::Builder`, not `axum::serve`, so it sets its own timer (F5) |
+| `hyper` / `hyper-util` | 1.12.0 / 0.1.21 | server + client | cargo-deny (CI) | client does not follow redirects; HTTP/1 only |
+| `hyper-rustls` / `rustls` / `webpki-roots` | 0.27.10 / 0.23.46 / 1.0.9 | TLS to RPC + upstream | cargo-deny (CI) | baked-in roots; rebuild to refresh. rustls 0.23.46 fixes RUSTSEC-2026-0346/-0347 and the Brotli advisory (in 0.0.23; 0.0.22 carried 0.23.45) |
+| `tokio` / `tower` | 1.53.3 / 0.5.3 | runtime; load shedding | cargo-deny (CI) | |
 | `ed25519-consensus` | 2.1.0 | ed25519 verify path | cargo-deny (CI) | ZIP-215 |
-| `k256` / `p256` / `ecdsa` | 0.13.4 / 0.13.2 / 0.16.9 | ECDSA verify path | cargo-deny (CI) | low-S enforced explicitly. The 0.14 major was declined 2026-10-09 (PRs #4, #6 closed); the repo's `dependabot.yml` carries no `ignore` entry, so an ignore, if set, lives on the GitHub side and is not verifiable here |
+| `k256` / `p256` / `ecdsa` | 0.13.4 / 0.13.2 / 0.16.9 | ECDSA verify path | cargo-deny (CI) | low-S enforced explicitly. The 0.14 major was declined 2026-10-09 (PRs #4, #6 closed); the repo's `dependabot.yml` carries no `ignore` entry for `k256`/`p256` (it gained `ignore` rules for other majors on 2026-10-19), so an ignore for them, if set, lives on the GitHub side and is not verifiable here |
 | `blake2` / `sha2` | 0.10.6 (0.11.0 on `main`, `85b18e1`, Dependabot) / 0.10.9 (+0.9.9, 0.11.0 transitive) | intent hash, address | cargo-deny (CI) | the 0.11 bump changed only `Cargo.toml`/`Cargo.lock`; CI (vectors included) green. The 0.0.21 crate and image still carry 0.10.6 |
 | `redis` | 0.27.6 (`script`, `connection-manager`) | Redis backend — fails **closed** | cargo-deny (CI) | `GETDEL` needs Redis ≥ 6.2 / Dragonfly |
 | `rand_core` (OsRng) | 0.6.4 | nonce and lease-token generation | cargo-deny (CI) | 24-byte tokens |
-| `serde_json` / `base64` | 1.0.151 / 0.22.1 | proof decode | cargo-deny (CI) | token capped at 4096 B before decode |
-| `proptest` (dev) / `ed25519-dalek` (dev) | 1.11.0 / 3.0.0 | tests only | — | dalek 3.0.0 merged 2026-10-09 (`367e673`); signs fixtures only |
+| `serde_json` / `base64` | 1.0.154 / 0.22.1 | proof decode | cargo-deny (CI) | token capped at 4096 B before decode |
+| `proptest` (dev) / `ed25519-dalek` (dev) | 1.12.0 / 3.0.0 | tests only | — | dalek 3.0.0 merged 2026-10-09 (`367e673`); signs fixtures only |
 | Sui fullnode (`SUI_RPC_URL`) | operator-chosen; public `fullnode.<net>.sui.io:443` | every gated request — fails **closed** (502) | n/a | gRPC-web; `SUI_RPC_AUTH_HEADER` optional; prunes old transactions (F45) |
 | Redis / Dragonfly | operator-run | challenge + gated (when set) — fails **closed** (503) | n/a | required for `SINGLE_USE` |
 | Upstream (relay) | operator-run | gated + public paths — 502/504 | n/a | origin lock not verifiable here (F32) |
@@ -1796,7 +1808,7 @@ The gateway is not deployed; "pre-testnet" below is the gate for putting it in f
   trust. Single-use accounting is in the gateway's redemption store by design (F23), now owner-bound and
   age-bounded. That is gateway-local state, not financial truth: commission and payment remain
   on-chain in `access_gate`.
-- **Deployment readiness:** Section D. The crate and image are published (0.0.22, 2026-10-10), but there is no
+- **Deployment readiness:** Section D. The crate and image are published (0.0.23, 2026-10-19; 0.0.22 on 2026-10-10), but there is no
   deployment, by decision. The remaining pre-deployment gates in Section D are F31 and F32 and need OQ9.
 - **Chain-access layering & on-chain ID/ABI coupling:**
   - ADR-0001's "domain client" rule applies to TypeScript consumers. As a Rust service the gateway
@@ -1932,7 +1944,7 @@ PROXY lens:
   paths are exercised on every push.
 - **S3** (done in 0.0.22) SHOULD add a chunked over-cap request test, a slow-body test, a stalled-upstream test and a
   shutdown-bound test.
-- **S4** MAY upgrade to axum 0.8.
+- **S4** MAY upgrade to axum 0.8 (with `redis` 1.x and `base64` 0.23, all declined as Dependabot majors on 2026-10-19; migration work for when OQ9 is decided).
 - **S5** MAY expose Prometheus-style counters for denials by reason, 409s, commit failures and
   upstream timeouts.
 - **S6** SHOULD record in ADR-0001 that the Rust gateway is an accepted second read-side
@@ -2091,6 +2103,12 @@ PROXY lens:
   round trip in CI. Not verified by me: the cosign signature, the SBOM content and the provenance (no `cosign`
   here). The Section D image box stays unticked (private mirror unsigned, F29/OQ8). Incidental: the `Rust CI` runs of the Dependabot
   PRs of 2026-10-15 failed in Clippy and MSRV; not investigated.
+- 2026-10-19 — release status re-verified: **0.0.23 released** (tag `v0.0.23` = `31c0f15`; crate 0.0.23 max version and not yanked, npm 0.0.23 with provenance, image index
+  `sha256:0d0be82a…535a` from the quay API; Trivy image scan before signing passed in run 39184480792). The rustls 0.23.46 fix, previously only on
+  `main`, is now in the published crate and image. Still not deployed (OQ9). `Cargo.lock` read 2026-10-19: rustls 0.23.46, tokio 1.53.3, hyper 1.12.0, serde_json 1.0.154, proptest 1.12.0.
+  - **Declined majors:** axum 0.8, redis 1.x and base64 0.23 are now `ignore` rules in `.github/dependabot.yml` (policy 2026-10-19); they are migration work for when OQ9 is decided.
+  - **Findings and gates:** no change. **Not verified here:** the cosign signature, SBOM and provenance of the 0.0.23 image (no `cosign`); test counts were not re-run.
+  - Dependabot policy encoded in .github/dependabot.yml (majors declined); open PRs merged 2026-10-19
 - **2026-10-18 (later) — `cargo deny` caught new advisories; fixed.** After the audits were pushed, `Rust CI` on `main` went red:
   RUSTSEC-2026-0346 (`Debug` impls for client session values expose TLS secrets), RUSTSEC-2026-0347 (buffered application data
   sent to the outer server after ECH rejection) and a Brotli-certificate-decompression advisory (up to 1 GiB allocated before
@@ -2098,7 +2116,7 @@ PROXY lens:
   after the 0.0.22 release. Fixed by `cargo update -p rustls` to **0.23.46** (lockfile only; commit `Cargo.lock` on `main`,
   2026-10-18): `cargo test --locked` 114 passed, `clippy -D warnings` clean, `Rust CI` and `Node CI` green. The
   published 0.0.22 crate/image carry the old lock (the gateway is undeployed, so nothing was exposed); the next release picks up
-  the fix, and the Trivy image scan before signing would block a release that still carried it. This is the supply-chain gate
+  the fix (released as 0.0.23 on 2026-10-19), and the Trivy image scan before signing would block a release that still carried it. This is the supply-chain gate
   (B.2, F28) working as designed. Incidental: the 2026-10-15 Dependabot PRs (axum 0.7→0.8, redis 0.27→1.7, base64 0.22→0.23)
   are majors and fail Clippy/MSRV as expected; they are triage items, not defects.
 
