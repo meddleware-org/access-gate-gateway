@@ -11,10 +11,12 @@
   AUDIT_TEMPLATE_PROXY.md (2026-10-08)
 **Deployment status:**
 
-- **Not deployed**, by decision: `gateway-rust` is kept at wire and behaviour parity with the live
-  Workers gateway but is scoped to small-body upstreams (bodies are buffered, README "Scope"), so the
+- **Not deployed**, by decision (OQ9 (a), 2026-10-19): `gateway-rust` is kept at wire and behaviour parity with the
+  live Workers gateway but is scoped to small-body upstreams (bodies are buffered, README "Scope"), so the
   paywall runs on `gateway-workers` only (root `CLAUDE.md`). No overlay, manifest or
-  `config/images.yaml` entry exists.
+  `config/images.yaml` entry exists. Revisit triggers are in OQ9.
+- **0.0.25 is committed locally** (2026-10-19, unreleased): no change to this gateway's code; the version moves with
+  the Workers gateway (D16) and the OQ9 decision is documented in the READMEs and CLAUDE.md files.
 - **0.0.24 is released as v0.0.24** (2026-10-19, commit 63af1a4; both gateways move together, D16): loop detection
   (F43: `Via: 1.1 nft-gate` on the upstream request, `508` for a request that already carries it). The decisions OQ6 and OQ8 were recorded the same day
   (documentation only). Not deployed (see the first bullet).
@@ -29,7 +31,7 @@
   cosign signature, SBOM and provenance were not verified by me. Still **not deployed** (see the first bullet): the published image now carries the
   rustls fix, but nothing runs it.
 - Declined by policy (2026-10-19) and now `ignore` rules in `.github/dependabot.yml`: the `axum` 0.8, `redis` 1.x and `base64` 0.23
-  majors. They are migration work for when OQ9 (deploy or not) is decided, not defects (S4).
+  majors. They are migration work for a deployment (OQ9 decided 2026-10-19: stay undeployed until a revisit trigger), not defects (S4).
 - **0.0.22 was released** (tag `v0.0.22` = `3189969`, 2026-10-10; crate, npm sibling and image published by the
   tag's runs, all green) and carries the fixes recorded below: F17, F21, F26, F28, F29 (CI and Docker parts), F45,
   F46, F47; both gateways move together (D16). It was published but **not deployed**.
@@ -57,13 +59,14 @@
   publication) **only through operator env**; the superseded `0xa55789…` / `0xfd6c3b…` appear only in
   the env-gated live test (F45, B.SC-1).
 
-**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release status 2026-10-19; decisions and F43 fix 2026-10-19)
+**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release status 2026-10-19; decisions and F43 fix 2026-10-19; OQ9 decided 2026-10-19)
 **Reviewer:** Internal review
 **Severity ceiling:** High — a verification bypass would admit unpaid traffic to the protected
   upstream, and a redemption-store failure would let one paid single-use consume buy unlimited
   uploads. The gateway holds no user funds and signs nothing on-chain, so nothing here reaches
   Critical.
-**Status:** decisions and fix 2026-10-19 (0.0.24, committed locally, unreleased) — 40 findings dispositioned (25 RESOLVED,
+**Status:** OQ9 decided 2026-10-19 (stay undeployed; 0.0.25 committed locally, unreleased, no code change; counts unchanged).
+  Decisions and fix 2026-10-19 (0.0.24, released as v0.0.24) — 40 findings dispositioned (25 RESOLVED,
   3 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED) plus 8 Positive; fix wave 2026-10-10 (0.0.22, commit `40a7e89`);
   re-verified 2026-10-09, F42–F48 added in that pass; 0.0.22 released 2026-10-10 and 0.0.23 released 2026-10-19 (crate, npm, image), not deployed
 
@@ -181,13 +184,15 @@ of which touches the live Workers deployment:
   licence notices and the first live run of the self-hosted-registry copy (F29; OQ8 was decided on
   2026-10-19: the cluster pulls by digest and the mirror carries the same signed image, so there is no
   separate signing there) and the registry credential inventory (F30, `OPERATOR_TASKS.md`).
-- *Deployment* (DEFERRED, tied to OQ9, the decision to deploy): runtime credential rotation (F31) and
-  manifests, pod security, limits and the origin-lock check (F32).
+- *Deployment* (DEFERRED under OQ9 (a), decided 2026-10-19: stay undeployed): runtime credential rotation (F31)
+  and manifests, pod security, limits and the origin-lock check (F32). They become work only when a revisit
+  trigger fires.
 
 **Decisions and fix of 2026-10-19 (0.0.24).** OQ6 (commit failure after a 2xx upstream: `502` + release,
 the use is kept) and OQ8 (the cluster pulls by digest; signatures, SBOM and provenance are produced once
 at quay.io and carried to the self-hosted registry by `mirror-private`) are decided. The loop marker F43 is
-implemented in both gateways with parity tests. OQ9 stays open with options and a recommendation.
+implemented in both gateways with parity tests. OQ9 was decided later the same day: (a) stay undeployed
+(reasons and revisit triggers in OQ9).
 
 **Fix wave of 2026-10-10 (0.0.22).** The parity and pre-deployment gaps are closed: ownership reads every
 page up to a bound (F17), single-use success is decided from the effects status (F21), the upstream
@@ -210,8 +215,8 @@ negatives (high-S on both curves, a non-canonical ed25519 `s`, wrong intent, tru
   provenance attestations, crates.io OIDC), and the release job runs the same workflow as CI.
 
 **Posture.** A hardened, parity-complete gateway for small-body upstreams that is deliberately not
-deployed. Before it fronts anything, close the remaining pre-deployment gates in Section D (F31, F32) and
-decide OQ9. No open finding is above Low; the Medium findings of the first pass
+deployed (OQ9 (a), 2026-10-19). If a revisit trigger fires, close the remaining pre-deployment gates in
+Section D (F31, F32) first. No open finding is above Low; the Medium findings of the first pass
 (F1–F5, F7) are resolved.
 
 ---
@@ -1109,7 +1114,7 @@ it needs push access to one namespace and nothing else.
 
 ### F31 — Runtime credentials have no rotation plan
 
-**Severity:** Low   **Disposition:** DEFERRED (deployment; OQ9 — nothing is held while undeployed)
+**Severity:** Low   **Disposition:** DEFERRED (deployment; OQ9 decided (a) 2026-10-19: stay undeployed — nothing is held while undeployed)
 **Where:** `UPSTREAM_AUTH_HEADERS`, `SUI_RPC_AUTH_HEADER`, `REDIS_URL` (`src/config.rs`; README env
 table).
 
@@ -1127,7 +1132,7 @@ The Workers gateway's inventory (token name, expiry 2027-09-09, rotation procedu
 
 ### F32 — Deployment manifests, pod security and resource limits are not in this repo
 
-**Severity:** Info   **Disposition:** DEFERRED (deployment; tracked to the platform workspace; OQ9)
+**Severity:** Info   **Disposition:** DEFERRED (deployment; tracked to the platform workspace; OQ9 decided (a) 2026-10-19: stay undeployed)
 **Where:** n/a. `gateway-rust/CLAUDE.md` points to a nonexistent `infrastructure/k8s/`.
 
 **Issue:** The IMG lens §A *Runtime user & filesystem*, *Health & resources* and *Deployment pinning*,
@@ -1762,18 +1767,18 @@ PROXY lens §C:
 | --- | --- | --- | --- |
 | gRPC-web against a real fullnode (field numbers) | yes (literal-field-number fixtures against a scripted node) | `live_gate_and_ownership_requests_are_accepted`, `live_consume_tx_valid` (`--ignored`, testnet; fresh consume from `NFT_GATE_LIVE_*`) | F45 (both passed 2026-10-10) |
 | Redis/Dragonfly backend (Lua CAS, `GETDEL`) | no | `redis_backend_round_trip` (`--ignored`, needs `REDIS_URL`) | run in CI against a Redis service container (0.0.22, S2) |
-| Upstream origin lock (the upstream refuses direct requests; negative check) | n/a | live deployment only | F32, OQ9 |
+| Upstream origin lock (the upstream refuses direct requests; negative check) | n/a | live deployment only (none, by decision) | F32, OQ9 (a) |
 | Pod memory under `MAX_CONCURRENT_REQUESTS × caps` (≈1.03 GiB) | no | staging load test | F6, F32 |
 | Graceful shutdown under load | the bound is tested; load is not | staging | F19 |
 | Wallet display of the v2 message | n/a | live wallet | Risks |
-| Paywall end to end through this gateway | no | none — not deployed; the 2026-10-09 e2e ran through the Workers gateway | OQ9 |
+| Paywall end to end through this gateway | no | none — not deployed by decision; the 2026-10-09 e2e ran through the Workers gateway | OQ9 (a) |
 
 ---
 
 ## Section D — Deployment-readiness gates
 
-The gateway is not deployed; "pre-testnet" below is the gate for putting it in front of any upstream
-(OQ9, a maintainer decision). Items ticked have evidence in this pass.
+The gateway is not deployed, by decision (OQ9 (a), 2026-10-19); "pre-testnet" below is the gate for putting it
+in front of any upstream if a revisit trigger fires. Items ticked have evidence in this pass.
 
 ### pre-localnet
 
@@ -1852,7 +1857,8 @@ The gateway is not deployed; "pre-testnet" below is the gate for putting it in f
   age-bounded. That is gateway-local state, not financial truth: commission and payment remain
   on-chain in `access_gate`.
 - **Deployment readiness:** Section D. The crate and image are published (0.0.23, 2026-10-19; 0.0.22 on 2026-10-10), but there is no
-  deployment, by decision. The remaining pre-deployment gates in Section D are F31 and F32 and need OQ9.
+  deployment, by decision (OQ9 (a), 2026-10-19). The remaining pre-deployment gates in Section D are F31 and F32,
+  deferred until a revisit trigger fires.
 - **Chain-access layering & on-chain ID/ABI coupling:**
   - ADR-0001's "domain client" rule applies to TypeScript consumers. As a Rust service the gateway
     necessarily re-implements the read side (`sui_rpc.rs`).
@@ -1987,7 +1993,7 @@ PROXY lens:
   paths are exercised on every push.
 - **S3** (done in 0.0.22) SHOULD add a chunked over-cap request test, a slow-body test, a stalled-upstream test and a
   shutdown-bound test.
-- **S4** MAY upgrade to axum 0.8 (with `redis` 1.x and `base64` 0.23, all declined as Dependabot majors on 2026-10-19; migration work for when OQ9 is decided).
+- **S4** MAY upgrade to axum 0.8 (with `redis` 1.x and `base64` 0.23, all declined as Dependabot majors on 2026-10-19). OQ9 is decided (stay undeployed), so this is migration work for when a revisit trigger fires; until then the majors stay declined.
 - **S5** MAY expose Prometheus-style counters for denials by reason, 409s, commit failures and
   upstream timeouts.
 - **S6** SHOULD record in ADR-0001 that the Rust gateway is an accepted second read-side
@@ -2049,8 +2055,14 @@ PROXY lens:
   mirror. F29.)*
 - **OQ9** Deployment plan for the Rust gateway: target cluster, owner of manifests,
   `TRUSTED_PROXY_HOPS` value, and how the upstream's origin lock (Access service token or in-cluster
-  network policy) is verified. *(Open; maintainer. The gateway stays undeployed until decided; the
-  pre-deployment gates are in Section D.)*
+  network policy) is verified. *(Decided 2026-10-19: **(a) stay undeployed.** Reasons: no small-body upstream exists; the Workers gateway on Workers Free costs nothing, while self-hosting the
+  relay path would need streaming bodies (F6) plus a persistent, highly available Redis for the 30-day
+  redemption records — more operations for a sole maintainer and weaker consistency than Durable Objects;
+  the gateway stays CI-green at parity as the self-host / white-label artefact.
+  Revisit triggers: (1) a small-body upstream that Meddleware wants gated; (2) a white-label customer who must
+  self-host; (3) Workers Free proving insufficient while Workers Paid is unaffordable — then streaming bodies
+  (F6) come first. On a trigger, take (b) with the recommendation below. F31 and F32 stay DEFERRED under this
+  decision; S4 stays migration work.)*
 
   Options and recommendation (not a decision):
   - (a) Stay undeployed. The live Workers gateway serves the only paywall and `gateway-rust` is scoped to
@@ -2088,7 +2100,8 @@ PROXY lens:
   moot. That is verifiable only against a live deployment.
 - **An undeployed gateway ages.** Parity with the live Workers gateway is checked by the shared
   vectors and per-suite tests (the pagination and status-check divergences were closed in 0.0.22, F17,
-  F21). Untested divergence can accumulate until a deployment is decided.
+  F21). Untested divergence can accumulate while it stays undeployed by decision (OQ9), and the declined
+  axum/redis majors (S4) grow into a larger migration the longer a revisit trigger takes.
 
 ---
 
@@ -2198,6 +2211,15 @@ PROXY lens:
   - Measured 2026-10-19: `cargo fmt --check` clean; `cargo clippy --all-targets --locked -- -D warnings` clean; `cargo test --locked` 117 passed, 0 failed, 3 ignored
     (114 before; +3: `via_loop_table`, `the_marker_the_gateway_adds_is_the_one_it_refuses`, the router test); `scripts/check-versions.sh` passes (0.0.24).
   - Not run: the `mirror-private` job (no credentials), `cargo deny` (not installed locally).
+- 2026-10-19 (Part C) — OQ9 decided: **(a) stay undeployed** (no small-body upstream; the Worker on Workers Free costs nothing; a
+  self-hosted relay path needs streaming bodies and an HA Redis), with revisit triggers (small-body upstream, a white-label customer who must
+  self-host, Workers Free insufficient while Paid is unaffordable — F6 streaming first). Recorded in OQ9, the deployment status, the
+  executive summary, Section D, C.2, Risks and the root and `gateway-rust` README/CLAUDE.md files.
+  - F31 and F32 stay DEFERRED, now citing OQ9 (a); S4 (axum 0.8, redis 1.x, base64 0.23) stays migration work for a revisit.
+  - Version 0.0.25 (committed locally, unreleased; commit pending): no Rust code change; `Cargo.toml` and the `Cargo.lock` root entry move
+    with the Workers gateway (D16); `scripts/check-versions.sh` passes; `cargo metadata --locked` and `cargo fmt --check` pass. Clippy and
+    `cargo test` were not re-run (no source change since the 0.0.24 run: 117 passed).
+  - Counts unchanged: 25 RESOLVED, 3 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED (F30, F31, F32); 8 Positive.
 
 ## Pre-save consistency checklist (this pass)
 
@@ -2206,7 +2228,7 @@ PROXY lens:
 - [x] Template line: base + RUST + SUI_CLIENT + WALRUS + IMG + AUTH + PROXY, each dated as in the
   registry.
 - [x] Closing structure present in order.
-- [x] Open questions: OQ9 open (options and a recommendation recorded); the others carry a recorded decision note, the dispositions moved
+- [x] Open questions: every OQ carries a recorded decision note (OQ9 decided 2026-10-19: stay undeployed), the dispositions moved
   on the findings.
 - [x] Section D ↔ dispositions — ticked only for RESOLVED/ADJUDICATED/MITIGATED-with-evidence items;
   unticked items cite F29–F32 or maintainer items.

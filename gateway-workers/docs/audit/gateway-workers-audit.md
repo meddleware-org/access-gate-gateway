@@ -28,6 +28,8 @@
   detection (F43: `Via: 1.1 nft-gate` on the upstream request, `508 loop detected` for a request that already carries it). The decisions
   OQ6 and OQ8 (the latter is the Rust gateway's) were recorded the same day. The live Worker still runs 0.0.23 until it is released and
   `Deploy Workers` is run.
+- **0.0.25 is committed locally** (2026-10-19, unreleased, not deployed): `MAX_BODY_BYTES` 10⁸ B, `WORKERS_PLAN` and the
+  plan-aware quota guard (F48), the CPU benchmark (F11). Deploying it is the maintainer's action (`Deploy Workers`).
 - **Redeployed from `main` on 2026-10-19** with 0.0.23: `Deploy Workers` run 39185110276 (`workflow_dispatch`,
   2026-10-19T01:23Z, success). Live probes after the deploy: `/v1/challenge` 200 and `/v1/tip-config` 200 (both
   re-read from the public route 2026-10-19 by this pass); a canonical proof token decodes and an unpadded token is
@@ -52,7 +54,7 @@
   consumed, `nft-gate:access:v2` proof, upload through this Worker; the indexer shows minted=1
   consumed=1.
 
-**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release and deployment status 2026-10-19; decisions and F43 fix 2026-10-19)
+**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release and deployment status 2026-10-19; decisions and F43 fix 2026-10-19; OQ3/OQ4 and the plan work 2026-10-19)
 **Reviewer:** Internal review
 **Severity ceiling:** High — the gateway is the only paywall in front of the operator's Walrus relay.
   A verification bypass gives unpaid uploads at the operator's cost, and a redemption flaw lets one
@@ -62,14 +64,18 @@
   5 ACCEPTED-RISK, 2 DEFERRED) plus 6 Positive; F42–F46 added in this pass. Fix wave 2026-10-10 (47 findings; the
   final counts are in the log): released as 0.0.22 and deployed to the live Worker the same day. Release status
   re-checked 2026-10-19: 0.0.23 released and the Worker redeployed from `main`. Decisions and the F43 fix of
-  2026-10-19 (0.0.24, committed locally, unreleased, not deployed): 28 RESOLVED, 3 MITIGATED, 5 ADJUDICATED, 4 ACCEPTED-RISK,
-  1 DEFERRED, 6 Positive (47 findings).
+  2026-10-19 (0.0.24, released, not deployed): 28 RESOLVED, 3 MITIGATED, 5 ADJUDICATED, 4 ACCEPTED-RISK,
+  1 DEFERRED, 6 Positive (47 findings). OQ3 and OQ4 decided and the plan work of 2026-10-19 (0.0.25, committed
+  locally, unreleased, not deployed; F48 added): 30 RESOLVED, 3 MITIGATED, 5 ADJUDICATED, 4 ACCEPTED-RISK,
+  0 DEFERRED, 6 Positive (48 findings).
 
 **Wrangler / compatibility:** wrangler `^4.143.0` (lockfile 4.151.0 on 2026-10-19, workerd 1.20260815.1);
   `compatibility_date = "2026-06-01"`; `compatibility_flags = ["nodejs_compat"]`; `workers_dev = false`,
   `preview_urls = false`
-**Cloudflare plan:** **not declared** in the repo. Comments say "free-tier" (DO SQLite, the quota
-  guard), and the declared body cap (100 MiB) equals the Free/Pro request-body limit (OQ3, F11).
+**Cloudflare plan:** **Workers Free** at launch, decided 2026-10-19 (OQ3); Workers Paid on funding or when
+  trailing platform revenue covers it for two consecutive months (workspace `docs/economics/COST_MODEL.md` §5).
+  Declared in `wrangler.toml` as `WORKERS_PLAN = "free"` (0.0.25); the body cap is `100000000` B, exactly the
+  Free/Pro zone limit (F11); the README "Switch to Workers Paid" runbook makes the switch configuration only.
 **Bindings:**
 
 - Durable Object `NONCE_STATE` → class `NonceRateState`, migration tag `v1`
@@ -83,7 +89,8 @@
   `preview_urls` pinned off in `wrangler.toml` (F29).
 **Deploy mechanism:** `.github/workflows/deploy-workers.yml`. It is `workflow_dispatch`, runs only from
   `main`, re-runs `node-ci.yml` first and runs in environment `production` (deployment branch policy:
-  `main` only; no required reviewers — F16). The credential is the `CLOUDFLARE_API_TOKEN` secret.
+  `main` only; no required reviewers, a recorded single-maintainer decision — F16, OQ4). The credential is the
+  `CLOUDFLARE_API_TOKEN` secret.
   Deploy steps: `wrangler versions upload` → `versions secret put UPSTREAM_AUTH_HEADERS` →
   `versions deploy`, or `wrangler deploy` when that secret is unset.
 
@@ -119,8 +126,8 @@
   audience-bound message); outbound static headers
 **Signing / client credentials:** `UPSTREAM_AUTH_HEADERS`, `SUI_RPC_AUTH_HEADER`, `CF_ANALYTICS_TOKEN`
   (Worker secrets); `CLOUDFLARE_API_TOKEN`, `UPSTREAM_AUTH_HEADERS` (GitHub secrets) — Access token
-  inventory and rotation recorded in `docs/networking/CLOUDFLARE.md` §2.4; API-token scopes unrecorded
-  (F31)
+  inventory and rotation recorded in `docs/networking/CLOUDFLARE.md` §2.4; API-token target scope, expiry and
+  rotation recorded (OQ4, workspace `OPERATOR_TASKS.md`); the live token's scope is unverified (F31)
 **Authorization model:** on-chain — owning a usable pass of `NFT_TYPE` for `GATE_ID` (ownership mode), or
   a successful `consume` by the signer, redeemed once (single-use mode, deployed)
 
@@ -169,10 +176,11 @@ against `main` (`367e673`).
 6. **Ownership mode** (F7): counts only usable passes.
 
 **What remains.** Nothing above Info/Low is unresolved in code (the `Via` loop marker, F43, was added to both
-gateways in 0.0.24 on 2026-10-19). The one DEFERRED item is
-maintainer-owned: the **Cloudflare plan** and body/CPU sizing (F11, OQ3). Three items are MITIGATED with
-a stated residual: deploy-environment reviewers and API-token scopes (F16, F31, OQ4) and the `unknown`
-IP bucket (F29). Fixed after the first re-verification (2026-10-10, commit `ec91935`; released as 0.0.22 and deployed to the Worker the same day): the
+gateways in 0.0.24 on 2026-10-19). Nothing is DEFERRED: the Cloudflare plan was decided on 2026-10-19
+(OQ3: Workers Free at launch, Paid ready to switch; 0.0.25 sets the exact body cap, a plan-aware quota guard
+and a CPU benchmark), and so was deploy protection (OQ4: single maintainer now, a second reviewer when one
+can be hired; F16 RESOLVED). Three items are MITIGATED with a stated residual: the edge CPU percentiles read
+after the next deploy (F11), the live API token's scope (F31, operator) and the `unknown` IP bucket (F29). Fixed after the first re-verification (2026-10-10, commit `ec91935`; released as 0.0.22 and deployed to the Worker the same day): the
 **scheduled negative origin-lock check** (F32: `origin-lock.yml`), the cosmetic stale comments (F21),
 the residual test gaps (F30) and the base64/UTF-8/JSON layers of proof decoding (F47,
 nft-gate-client 0.0.17).
@@ -191,9 +199,9 @@ nft-gate-client 0.0.17).
 - Both test pools run in CI. The deploy is manual, CI-gated and branch-restricted. npm publishing
   uses OIDC with provenance.
 
-**Posture.** A hardened, live testnet gateway. The remaining mainnet work is operational: confirm the
-Cloudflare plan against the body cap and CPU budget (F11), decide deploy reviewers and record token
-scopes (F16, F31), and obtain an external review. The negative origin check is scheduled (F32); confirm
+**Posture.** A hardened, live testnet gateway. The remaining mainnet work is operational: read the CPU-time
+p99 and `exceededCpu` count from Workers analytics after deploying 0.0.25 (F11; a p99 near 10 ms blocks a
+launch on Free), verify the live API token's scope (F31), and obtain an external review. The negative origin check is scheduled (F32); confirm
 its first run after the release.
 
 ---
@@ -212,7 +220,7 @@ platform (execution, `CF-Connecting-IP`, Durable Object consistency, Access).
 | Sui fullnode (`SUI_RPC_URL`, public testnet) | chain reads | lie/withhold | trusted; 15 s per-call deadline; fail closed (502) |
 | Upstream relay | responses, redirects, headers | redirect the gateway; widen CORS | redirects never followed (F4); response headers filtered (F12, F13) |
 | Cloudflare platform | execution, limits, Access, cache | — | trust anchor |
-| Holder of `CLOUDFLARE_API_TOKEN` | deploy + secrets | ship any code to the live route | B.CF-1; branch policy `main` only; reviewers undecided (F16) |
+| Holder of `CLOUDFLARE_API_TOKEN` | deploy + secrets | ship any code to the live route | B.CF-1; branch policy `main` only; no reviewer by recorded decision (OQ4, F16) |
 | Holder of the Access service token | origin access | bypass the gateway entirely | secret custody; expiry 2027-09-09 recorded, rotation procedure in `CLOUDFLARE.md` (F31) |
 | Gate admin | pause / policy | block access (only where the gate's immutable policy opts in) | live read; fails closed on unrecognised JSON (F15); this gate's `pause_blocks_access` is false (F45) |
 
@@ -221,7 +229,7 @@ platform (execution, `CF-Connecting-IP`, Durable Object consistency, Access).
 | Actor | Controls | Bounded by |
 | --- | --- | --- |
 | Client | every header, body + framing, nonce/token strings, query | §A I9 (body), I14 (client identity), I12/I13 (state), I19 (cache); Sui client lens verification (I3–I5) |
-| Cloudflare platform | execution, limits, `CF-Connecting-IP`, cache, Access | trust anchor; plan limits (OQ3) |
+| Cloudflare platform | execution, limits, `CF-Connecting-IP`, cache, Access | trust anchor; plan limits (OQ3 decided: Free at launch) |
 | Upstream origin | responses; reachability without the gateway | origin lock (I17 — refused directly on 2026-10-09; positive check in every deploy; daily negative check `origin-lock.yml`, F32) |
 | Sui RPC | chain reads | Sui client lens rows |
 | Holder of the deploy token | production code + secrets | B.CF-1 |
@@ -269,7 +277,7 @@ platform (execution, `CF-Connecting-IP`, Durable Object consistency, Access).
 | Authority / credential | Holder | Confers | Compromise impact | Rotation / revocation |
 | --- | --- | --- | --- | --- |
 | CF Access service token (`UPSTREAM_AUTH_HEADERS`) | Worker secret + GitHub secret | origin access | full gateway bypass | token `nft-gate-worker-relay-origin-v2`, expires 2027-09-09, procedure in `CLOUDFLARE.md` §2.4 (F31) |
-| `CLOUDFLARE_API_TOKEN` | GitHub `production` environment secret | deploy Workers + secrets | arbitrary code on the live route | scopes and rotation unrecorded (F31) |
+| `CLOUDFLARE_API_TOKEN` | GitHub `production` environment secret | deploy Workers + secrets | arbitrary code on the live route | target scope, expiry ≤ 1 year and rotation recorded (OQ4, `OPERATOR_TASKS.md`); live scope unverified (F31) |
 | `SUI_RPC_AUTH_HEADER` (optional) | Worker secret | RPC quota | quota abuse | unrecorded (unused today) |
 | `CF_ANALYTICS_TOKEN` (optional, unused) | Worker secret | account analytics read | analytics read | unrecorded (unused today) |
 | Access proof | client | one gated request per nonce, one upload per consume | relay by a third party is useless: audience-bound (F1) | nonce TTL 300 s |
@@ -647,10 +655,11 @@ Rust.
 
 ### F11 — Plan tier, CPU budget and the exact body limit are undeclared
 
-**Severity:** Low   **Disposition:** DEFERRED (pending OQ3; maintainer item — the Cloudflare plan —
-and the pre-mainnet gate "plan tier confirmed"; the mainnet cost estimate in `OPERATOR_TASKS.md`
-"Funding, grants and an external audit" names the Cloudflare plan)
-**Where:** `wrangler.toml` (`MAX_BODY_BYTES = "104857600"`, comments "free-tier") and `README.md:149-163`.
+**Severity:** Low   **Disposition:** MITIGATED (0.0.25, 2026-10-19, commit pending; OQ3 decided: Workers Free at
+launch; body cap exact; CPU measured locally. Residual: the edge CPU percentiles after the next deploy, an
+operator step, and the pre-mainnet gate "plan tier confirmed")
+**Where:** `wrangler.toml` (`MAX_BODY_BYTES`, `WORKERS_PLAN`, the commented `[limits]` block), `src/quota.ts`
+and `README.md` ("Request body limit", "Switch to Workers Paid", "CPU budget on Free").
 
 **Issue:** WORKERS lens §A *Limits* and the pre-mainnet gate need the plan recorded. The facts below
 are from the Cloudflare docs, retrieved 2026-09-29 per the lens; re-check them.
@@ -674,6 +683,29 @@ are from the Cloudflare docs, retrieved 2026-09-29 per the lens; re-check them.
   `min(plan limit, relay cap)` in exact bytes, and measure p99 CPU per gated request from Workers
   analytics. The operator needs to do these before mainnet; the plan is also an input to the mainnet
   cost estimate.
+- **2026-10-19 (0.0.25).** Limits re-checked in the Cloudflare docs MCP: Free 10 ms CPU per HTTP request
+  (Paid 30 s default, up to 5 min), 100,000 Worker requests/day, Durable Objects 100,000 requests/day and
+  13,000 GB-s/day; request body 100 MB on Free and Pro **zones**, independent of the Workers plan.
+  - Plan recorded (OQ3): Workers Free at launch, `WORKERS_PLAN = "free"`; the switch to Paid is a runbook
+    (`README.md` "Switch to Workers Paid": dashboard, `WORKERS_PLAN = "paid"`, uncomment `[limits] cpu_ms = 50`,
+    deploy, verify).
+  - `MAX_BODY_BYTES = "100000000"`: the gateway's own JSON `413` is now the binding limit (README updated).
+  - CPU: `test/cpu-bench.test.ts` (workerd) and `test/cpu-bench.node.test.ts` (Node) time
+    `verifyPersonalMessageSignature` on the shared vectors and assert a warm verification is under 10 ms.
+    Measured 2026-10-19 on an Intel i5-7400, three runs: warm verification in local workerd 1.1–1.4 ms
+    (ed25519, secp256k1) and 2.1–2.2 ms (secp256r1); the first verification in a fresh isolate (curve set-up
+    and JIT; ed25519 runs first) 26–36 ms. These are **wall times** of a synchronous loop: workerd gives the
+    Worker no CPU clock (`performance.now()` advances in local workerd with ~1 ms resolution and is frozen
+    between I/O on the edge). Node process CPU time for the same code (`process.cpuUsage`, all threads of the
+    test process, so an upper bound) is 2.1–4.2 ms warm and 48–54 ms for the first call. No edge figure was
+    measured.
+  - Reading: a warm gated request fits Free's 10 ms with margin, secp256r1 included. The cold first
+    verification exceeds 10 ms; Cloudflare tolerates an infrequent overrun per isolate, so it is a risk to
+    watch, not an observed failure (the Worker has served every gated request on Free since 2026-10-09,
+    paywall runs included). If `exceededCpu` appears in analytics, warming the curves at module load (startup
+    time, outside the per-request budget) is the first remedy; the next is the switch to Paid.
+  - Left (operator): after deploying 0.0.25, read CPU p50/p99 and the `exceededCpu` count from Workers
+    analytics; a p99 approaching 10 ms is a launch blocker on Free and is recorded as such.
 
 ### F12 — Upstream CORS headers pass through and can widen the allowlist; cached responses retain them
 
@@ -775,9 +807,9 @@ or missing JSON".
 
 ### F16 — Deploy environment protection is asserted in comments, not evidenced
 
-**Severity:** Info   **Disposition:** MITIGATED (branch policy verified 2026-10-09; reviewer choice
-pending OQ4 — maintainer item; token scopes F31; pre-mainnet gate "deploys gated on CI and a protected
-environment")
+**Severity:** Info   **Disposition:** RESOLVED (2026-10-19: branch policy verified 2026-10-09 and the reviewer
+choice recorded, OQ4 (a): single maintainer, no required reviewer, a second reviewer when one can be hired;
+token scopes stay with F31 and the pre-mainnet gate "token scopes minimal")
 **Where:** `deploy-workers.yml:3-6` ("executes in the protected `production` environment (configure
 required reviewers in the repository settings)") and `:37` (`environment: production`).
 
@@ -798,6 +830,12 @@ also unrecorded.
   maintainer a reviewer adds a confirmation, not a second person) and record the
   `CLOUDFLARE_API_TOKEN` scopes (ideally Workers Scripts:Edit and Workers Routes:Edit for the one zone,
   with an expiry), F31.
+- 2026-10-19: OQ4 decided (a) now, (c) later: the environment keeps the `main`-only branch policy and the
+  CI gate with no required reviewer (a reviewer would only add a confirmation click by the same person); a
+  second maintainer becomes a required reviewer once revenue or funding allows hiring one. The token's
+  target scope (account-scoped; Workers Scripts:Edit and Workers Routes:Edit on the one zone; expiry ≤ 1 year;
+  a `production` environment secret) and its rotation are an operator section in the workspace
+  `OPERATOR_TASKS.md` ("Deploy environment and `CLOUDFLARE_API_TOKEN`"); verifying the live token is F31.
 
 ### F17 — `SUI_RPC_AUTH_HEADER` is parsed without validation
 
@@ -1083,8 +1121,9 @@ No coverage tool or figure is configured.
 ### F31 — Credential inventory, Access token expiry and API-token scopes are unrecorded
 
 **Severity:** Low   **Disposition:** MITIGATED (Access token inventory and rotation recorded; the
-`CLOUDFLARE_API_TOKEN` scopes/expiry and a pre-expiry reminder are maintainer items, pre-mainnet gate
-"secrets-management verified")
+`CLOUDFLARE_API_TOKEN` target scope, expiry and rotation recorded 2026-10-19 (OQ4) in the workspace
+`OPERATOR_TASKS.md`, with the pre-expiry reminders; verifying the live token's scope is an operator step,
+pre-mainnet gate "secrets-management verified")
 **Where:** `wrangler.toml` header (secret names, setup steps) and `deploy-workers.yml`
 (`CLOUDFLARE_API_TOKEN`, `UPSTREAM_AUTH_HEADERS`).
 
@@ -1109,6 +1148,12 @@ No coverage tool or figure is configured.
   path, remove and revoke the old token). B.AUTH-1 below mirrors it.
 - Remaining, maintainer-owned and not yet in `OPERATOR_TASKS.md`: the `CLOUDFLARE_API_TOKEN` scopes,
   expiry and rotation (F16), and a calendar reminder ahead of 2027-09-09.
+- 2026-10-19: both are now in the workspace `OPERATOR_TASKS.md` section "Deploy environment and
+  `CLOUDFLARE_API_TOKEN`": the target scope (account-scoped API token, Workers Scripts:Edit and Workers
+  Routes:Edit on `meddleware.co.uk`, expiry ≤ 1 year, held only as a `production` environment secret), the
+  rotation steps, and reminders a month before the API token's expiry and before 2027-09-09 for the Access
+  token. Left: the operator reads the live token's permissions and expiry in the dashboard and records them
+  there.
 
 ### F32 — Origin lock is verified positively, not negatively
 
@@ -1410,6 +1455,31 @@ through the decoder and, except the newline case that cannot ride in a header, t
 `gateway-rust` already rejected these cases (its `conformance_shared_vectors` reads the same list); the
 second gateway's re-run belongs to its own audit.
 
+### F48 — Quota guard measured the wrong quantities against stale limits (found and fixed 2026-10-19)
+
+**Severity:** Info   **Disposition:** RESOLVED (0.0.25, 2026-10-19, commit pending)
+**Where:** `src/quota.ts` (before 0.0.25).
+
+**Issue:** The optional guard (disabled in production) compared the **sum** of Worker and Durable Object
+requests with a monthly 3,000,000 and DO active seconds with a monthly 390,000 "GB-s". Workers Free meters
+Worker requests and DO requests separately and **per day** (100,000 each, 13,000 DO GB-s), so the guard
+could warn about 30 days too late. It treated active seconds as GB-s (DO duration is billed at 128 MB per
+object), had no Paid mode, and read a GraphQL error response (`data: null`) as zero usage, which cleared
+the degrade flag.
+
+**Impact:** None live (the guard is disabled, and single-use ignores the degrade flag). Enabled, it would
+have given false comfort as Free limits were reached.
+
+**Remediation / evidence:** `WORKERS_PLAN` (`free` default | `paid`, strict in `loadConfig` and in the guard)
+selects published allowances (Cloudflare docs, 2026-10-19): Free daily from 00:00 UTC (Worker requests,
+DO requests, DO GB-s as separate meters) or Paid monthly included amounts (plus Worker CPU from
+`cpuTimeUs`). DO GB-s = active seconds × 0.128. Paid only warns and never sets the flag. A GraphQL `errors`
+array or a missing account is a failed check. Tests: `test/quota.test.ts` (allowances, windows, separate
+meters, warn and degrade thresholds in both modes, the GraphQL-error case, the skips), `test/config.test.ts`
+("WORKERS_PLAN is free (default) or paid"). The GraphQL field names `cpuTimeUs` and `date_geq` on the DO
+datasets follow the Cloudflare docs examples but were not run against the live API (the guard is not
+enabled); an unknown field now fails loudly.
+
 ---
 
 ## Section A — Invariant verification matrix
@@ -1490,7 +1560,7 @@ installed copy.
 | Authority / capability / secret | Where minted / held | Custody | Gates | Rotation plan |
 | --- | --- | --- | --- | --- |
 | npm publish `@meddleware/nft-gate-gateway` | `npm-publish.yml` (tag `v*`, `NPM_PUBLISH=true`) | GitHub OIDC → npm trusted publisher, `--provenance` | package releases | n/a (no token) |
-| `CLOUDFLARE_API_TOKEN` | GitHub secret (`production` env) | GitHub | Worker code + secrets on the live route | **scopes and rotation unrecorded (F16, F31)** |
+| `CLOUDFLARE_API_TOKEN` | GitHub secret (`production` env) | GitHub | Worker code + secrets on the live route | target scope, expiry ≤ 1 year and rotation in `OPERATOR_TASKS.md` (OQ4); live scope unverified (F31) |
 | `UPSTREAM_AUTH_HEADERS` | GitHub secret (source of truth) → Worker secret | GitHub + Cloudflare | origin lock | token expires 2027-09-09; procedure in `CLOUDFLARE.md` §2.4 (F31) |
 | `UPSTREAM_URL` | Worker secret | Cloudflare | which origin is gated | n/a (not a credential) |
 | `SUI_RPC_AUTH_HEADER` (opt.) | Worker secret | Cloudflare | RPC quota | unrecorded; unused today |
@@ -1518,9 +1588,9 @@ installed copy.
 | --- | --- |
 | Who can deploy | anyone who can run `workflow_dispatch` on `main` in `meddleware-org/nft-gate`, subject to the `production` environment (deployment branch policy `main` only, **verified 2026-10-09**; no required reviewers, admins may bypass); anyone holding `CLOUDFLARE_API_TOKEN` or Cloudflare dashboard access |
 | Who can `wrangler secret put` | the same token (the workflow uses `versions secret put`/`delete`) |
-| Token scopes | **unrecorded** (F16, F31) |
+| Token scopes | target recorded (Workers Scripts:Edit + Workers Routes:Edit on the one zone, expiry ≤ 1 year; OQ4); the live token is unverified (F31, operator) |
 | Deploy only after CI | Yes — `needs: ci` (`node-ci.yml`: audit, vectors check, type-check, lint, both test pools); `if: github.ref == 'refs/heads/main'` |
-| Protected environment with reviewers | branch policy configured; reviewers not configured and the choice is not recorded (OQ4) |
+| Protected environment with reviewers | branch policy configured; no required reviewer by recorded decision (OQ4 (a), 2026-10-19; (c) a second reviewer once one can be hired) |
 | Route / zone owner | `meddleware.co.uk` zone; route ID `63427e4d…`; owner not recorded |
 | Recent deploys | 2026-10-08 `4743c7b` success, `11aa7c9` failure (deploy pre-check could not load `config.ts`; fixed by `83349b8`, success), 2026-10-09 `574fe70` and `367e673` success |
 
@@ -1610,7 +1680,7 @@ Rust column from `gateway-rust` 0.0.22 (its own audit is canonical for it). Thre
 | Limit | Value | Where enforced | Test |
 | --- | --- | --- | --- |
 | header-read timeout · body-read deadline · idle timeout | none in the Worker; the Cloudflare edge terminates client connections and applies its own timeouts | platform | live-only (C.2) |
-| request body cap (declared / streamed) | 104,857,600 B both; declared → `413` before the upstream is contacted; streamed → counter aborts the fetch | `proxy.ts::forward`, `limitBody` | `proxy.test.ts` (5 workerd tests) |
+| request body cap (declared / streamed) | 100,000,000 B both (the Free/Pro zone limit, 0.0.25); declared → `413` before the upstream is contacted; streamed → counter aborts the fetch | `proxy.ts::forward`, `limitBody` | `proxy.test.ts` (5 workerd tests) |
 | concurrent connections / in-flight forwards | no gateway cap; isolate concurrency is the platform's (the Rust gateway has `MAX_CONNECTIONS`); memory is one chunk per forward (streaming) | platform | live-only |
 | upstream connect · response · total deadline | one total deadline, 600 s (`UPSTREAM_TIMEOUT_SECS`, 1–3600), body included; `504`; no separate connect or header deadline | `proxy.ts` | "ends a stalled upstream with 504…" |
 | Sui RPC per call | 15 s (`RPC_TIMEOUT_SECS`, 1–120) | `chain.ts::withDeadline` | chain deadline tests |
@@ -1622,7 +1692,7 @@ Rust column from `gateway-rust` 0.0.22 (its own audit is canonical for it). Thre
 | Credential (name) | Type | Where held | Who can read | Rotation · last rotated | Compromise procedure |
 | --- | --- | --- | --- | --- | --- |
 | `UPSTREAM_AUTH_HEADERS` | CF Access service token (id + secret), `nft-gate-worker-relay-origin-v2` | GitHub secret → Worker secret | repo admins; Cloudflare account members | rotated 2026-10-01; **expires 2027-09-09**; no reminder yet | revoke the token in Zero Trust → create a new one → add it to the app policy → update the GitHub secret → run Deploy Workers → verify → revoke the old (`CLOUDFLARE.md` §2.4) |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API token | GitHub `production` env secret | repo admins | **unrecorded** (F16, F31) | roll the token in the Cloudflare dashboard → update the secret |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token | GitHub `production` env secret | repo admins | expiry ≤ 1 year with a reminder a month ahead; procedure in `OPERATOR_TASKS.md` (OQ4); live expiry unverified (F31) | roll the token in the Cloudflare dashboard → update the secret |
 | `SUI_RPC_AUTH_HEADER` | bearer/API key | Worker secret | Cloudflare account members | unused today | rotate at the provider |
 | `CF_ANALYTICS_TOKEN` | Cloudflare API token (analytics read) | Worker secret | same | unused today | roll |
 
@@ -1695,7 +1765,8 @@ PROXY lens §C:
 | gRPC field shapes against a real fullnode | fakes only | `grpc-chain.integration.test.ts` (`GRPC_TESTNET=1`) | passed manually 2026-10-09; add a scheduled CI job (S3) |
 | Paywall end to end (buy, consume, v2 proof, upload through the Worker) | no | live testnet run by the maintainer | PASS 2026-10-09 |
 | Access enforcement at the origin (direct request refused) | n/a | live only | refused 401 on 2026-10-09 and 2026-10-10; daily `origin-lock.yml` (F32) |
-| Plan limits (413 at the platform, CPU 1102, subrequests) | n/a | live only | F11 / OQ3 |
+| Plan limits (413 at the platform, CPU 1102, subrequests) | CPU per verification benchmarked (`cpu-bench` tests, wall time in workerd, CPU time in Node) | edge CPU percentiles live only | F11 / OQ3 |
+| Quota-guard allowances and windows (both plans) | `test/quota.test.ts` (fetch stubbed) | GraphQL field names live only | F48 |
 | Client header-read, body-read and idle timeouts | n/a | live only (Cloudflare edge) | — |
 | Cross-colo cache behaviour, DO cross-region latency | n/a | live only | F25 |
 | Quota-guard GraphQL | no | live only (disabled) | F2 |
@@ -1745,11 +1816,13 @@ PROXY lens §C:
 
 - [x] proof bound to an audience — F1 (decided: v2)
 - [x] ownership mode rejects exhausted passes — F7 (decided: usable passes only)
-- [ ] plan tier confirmed against the declared body cap and CPU budget — F11 / OQ3 (maintainer: the
-  Cloudflare plan; measure p99 CPU)
+- [ ] plan tier confirmed against the declared body cap and CPU budget — F11 / OQ3. Plan decided (Workers
+  Free at launch) and the body cap set to the zone limit exactly (0.0.25); CPU benchmarked locally (warm
+  verification ≤ 2.2 ms wall in workerd). Open: the operator reads CPU p99 and `exceededCpu` from Workers
+  analytics after deploying 0.0.25
 - [ ] deploys gated on CI **and** a protected environment (reviewers configured or the choice
-  recorded); token scopes minimal — branch policy done; reviewer choice and token scopes F16 / F31 /
-  OQ4 (maintainer)
+  recorded); token scopes minimal — branch policy done; reviewer choice recorded (OQ4 (a), F16 RESOLVED);
+  open: the operator verifies the live token's scope and expiry (F31, `OPERATOR_TASKS.md`)
 - [x] cache key normalised; CORS sends `Vary: Origin`; errors reveal no configuration; upstream CORS
   stripped — F40, F12
 - [x] every fetch has a timeout — F6
@@ -1778,8 +1851,8 @@ PROXY lens §C:
   - The lockfile is committed and actions are SHA-pinned; Dependabot keeps them current.
   - `npm audit` gates CI and publish; npm publishes via OIDC with provenance; the publish verify job
     equals CI.
-  - Deploys use a Cloudflare API token behind a `main`-only environment, with scopes and rotation
-    unrecorded (F16, F31).
+  - Deploys use a Cloudflare API token behind a `main`-only environment; its target scope and rotation
+    are recorded (OQ4), the live token is unverified (F31).
   - The dev-tool CVE pins in `overrides` are recorded in B.1.
 - **Wire-format coupling & conformance vectors:**
   - The format is defined in `@meddleware/nft-gate-client`, which this Worker **imports** (zero drift
@@ -1790,8 +1863,8 @@ PROXY lens §C:
 - **On-chain-truth boundary:** authorisation comes from live chain reads. Single-use is enforced
   off-chain in the redemption DO by design (F23), now owner-bound and age-bounded. Commission and
   payment stay on-chain.
-- **Deployment readiness:** Section D. It runs live on testnet; the open items are maintainer-owned
-  (F11, F16, F31).
+- **Deployment readiness:** Section D. It runs live on testnet; the open items are operator steps
+  (F11 edge CPU percentiles, F31 live token scope).
 - **Chain-access layering & on-chain ID/ABI coupling:**
   - It conforms to ADR-0001: ownership parsing comes from `@meddleware/access-gate-client` and the
     wire format from `@meddleware/nft-gate-client`.
@@ -1816,7 +1889,7 @@ PROXY lens §C:
    **holds** (F3, F6).
 4. MUST prove the origin refuses requests without the service token, and track the token's expiry —
    **holds**: refused on 2026-10-09 and 2026-10-10, checked daily by `origin-lock.yml` (F32), and expiry
-   recorded (2027-09-09, F31; no reminder yet).
+   recorded (2027-09-09, F31; reminder in `OPERATOR_TASKS.md` since 2026-10-19).
 5. MUST rate-limit gated requests per `CF-Connecting-IP` before verification — **holds** (F9).
 6. MUST strip upstream `access-control-*` headers (including in the edge cache) and the full
    hop-by-hop set, consistent with `SECURITY.md` — **holds** (F12, F13).
@@ -1830,7 +1903,9 @@ PROXY lens §C:
    (F1).
 10. MUST reject exhausted passes in ownership mode or restrict the mode — **holds** (F7).
 11. MUST confirm the plan tier against the body cap and CPU, and record deploy protection and token
-    scopes — **does not hold yet** (F11, F16, F31 / OQ3, OQ4; maintainer items).
+    scopes — **partly holds** (2026-10-19): plan, body cap, deploy protection and target token scope
+    recorded (OQ3, OQ4; F16 RESOLVED); the edge CPU p99 (F11) and the live token's scope (F31) are operator
+    checks still open.
 12. MUST schedule the negative origin check — **holds** (F32; confirm the first scheduled run).
 
 **Lens baseline MUST lists.**
@@ -1842,12 +1917,12 @@ WORKERS lens:
 | CF-M1 | holds | I16 |
 | CF-M2 | holds (origin refused 2026-10-09 and 2026-10-10, negative check scheduled daily; expiry tracked) | F32, F31 |
 | CF-M3 | holds (DO only for single-use) | F2 |
-| CF-M4 | holds on streamed bytes; plan limit unconfirmed | F11 |
+| CF-M4 | holds on streamed bytes; cap equals the Free/Pro zone limit (10⁸ B) | F11 |
 | CF-M5 | holds (challenge, public, gated pre-auth) | F9 |
 | CF-M6 | holds (upstream ACAO stripped, also in the cache) | F12 |
 | CF-M7 | holds | F40 |
 | CF-M8 | holds | I20 |
-| CF-M9 | holds for test pools in CI and CI-gated, branch-restricted deploy; reviewers undecided | F16 |
+| CF-M9 | holds for test pools in CI and CI-gated, branch-restricted deploy; no reviewer by recorded decision (OQ4) | F16 |
 
 TS lens:
 
@@ -1890,7 +1965,7 @@ AUTH lens:
 
 | ID | Holds? | Evidence |
 | --- | --- | --- |
-| AUTH-M2 | partly (secrets in the secret store, Access token rotation procedure with overlap recorded; API-token rotation unrecorded) | F31 |
+| AUTH-M2 | partly (secrets in the secret store, Access token rotation procedure with overlap recorded; API-token rotation recorded in `OPERATOR_TASKS.md`, live token unverified) | F31 |
 | AUTH-M8 | holds (client credentials stripped, `cf-access-*` included; credentials never sent on redirects) | F4, F13 |
 | AUTH-M10 | holds for rate limits and log hygiene; deny reasons are deliberately distinct (chain facts are public and the client must react) | F9 |
 | AUTH-M11 | holds (versioned, domain-separated, audience-bound, rebuilt from configuration; negative vectors in both implementations) | F1 |
@@ -1940,7 +2015,14 @@ PROXY lens:
   on unlimited-pass gates? Shared with `gateway-rust` OQ2.
   *(Decided 2026-10-08: ownership counts only usable passes; see F7.)*
 - **OQ3** Which Cloudflare plan serves the live route? This decides the body limit (and whether
-  `MAX_BODY_BYTES` should be 10⁸ B), the CPU budget per request and the rule quotas. *(Open; maintainer.)*
+  `MAX_BODY_BYTES` should be 10⁸ B), the CPU budget per request and the rule quotas. *(Decided 2026-10-19:
+  **Workers Free for the mainnet launch**; switch to Workers Paid on funding, or when trailing platform revenue
+  covers Paid for two consecutive months — the trigger in the workspace `docs/economics/COST_MODEL.md` §5 and
+  `OPERATOR_TASKS.md` "Switch to Workers Paid". The maintainer has no funds at launch, and the model's launch
+  cost assumes Free. The switch is configuration only (0.0.25: `WORKERS_PLAN`, the commented `[limits] cpu_ms`
+  block, the README runbook); `MAX_BODY_BYTES` is 10⁸ B; the CPU risk is benchmarked and the edge p99 is an
+  operator check after deploy (F11). The recommendation below, (b) before mainnet, is superseded by the cost
+  decision.)*
 
   Options and recommendation (not a decision; the limits are the Cloudflare figures recorded in F11,
   retrieved 2026-09-29, and must be re-checked):
@@ -1956,8 +2038,13 @@ PROXY lens:
     rather than the platform's) and record p99 CPU per gated request from Workers analytics. Spend, so
     the maintainer's call.
 - **OQ4** Does the `production` environment have required reviewers or a wait timer? If not, record
-  the single-maintainer decision. What are `CLOUDFLARE_API_TOKEN`'s scopes and expiry? *(Open;
-  maintainer. Branch policy `main` only is verified.)*
+  the single-maintainer decision. What are `CLOUDFLARE_API_TOKEN`'s scopes and expiry? *(Decided 2026-10-19:
+  **(a) now, (c) later** — the single-maintainer decision (branch policy `main` only plus `needs: ci`, no
+  required reviewer) is recorded; a second reviewer is added as a required reviewer once revenue or funding
+  allows hiring one. Token: account-scoped, Workers Scripts:Edit and Workers Routes:Edit on the one zone,
+  expiry ≤ 1 year with a reminder a month ahead, stored as a `production` environment secret; the
+  operator verifies the live token (workspace `OPERATOR_TASKS.md` "Deploy environment and
+  `CLOUDFLARE_API_TOKEN`"). F16 RESOLVED; F31 keeps the verification.)*
 
   Options and recommendation (not a decision):
   - (a) Record the single-maintainer decision: branch policy `main` only plus the CI gate
@@ -2007,12 +2094,15 @@ PROXY lens:
   daily check (`origin-lock.yml`) notices within a day, but only if its schedule is alive (GitHub pauses
   scheduled workflows after 60 days without repository activity) and the zone does not challenge the
   runner (a challenge only warns).
-- **Access token expiry (2027-09-09)** stops every paid upload until rotated; there is no reminder yet
-  (F31).
+- **Access token expiry (2027-09-09)** stops every paid upload until rotated; the reminder is an operator
+  item in `OPERATOR_TASKS.md` (F31).
 - **No on-chain kill switch on the live relay gate** (F45): emergency stop is the route or the Access
   token.
 - **Deploy authority.** Anyone who can dispatch the workflow on `main`, or holds the API token, can
-  ship code to the paywall; reviewers are undecided (F16).
+  ship code to the paywall; no second reviewer by recorded decision until one can be hired (OQ4, F16).
+- **Workers Free limits.** At launch a cold isolate's first verification can exceed the 10 ms CPU limit
+  (measured locally, F11), and past 100,000 Worker or DO requests a day gated uploads fail until 00:00 UTC
+  (about 12,500 uploads a day, workspace cost model §5). Both fail closed; the switch to Paid is the remedy.
 
 ---
 
@@ -2109,6 +2199,22 @@ PROXY lens:
     table, the marker on the upstream request, two router tests); `npm audit --audit-level=high` 0 vulnerabilities; `scripts/check-versions.sh`
     passes (0.0.24). Not run: `wrangler deploy --dry-run`, the Worker on the edge.
   - Next: release 0.0.24, run `Deploy Workers`, then probe `/v1/challenge` and `/v1/tip-config` (both must still answer 200).
+- 2026-10-19 (Part B/C) — OQ3 and OQ4 decided; plan work (0.0.25, committed locally, unreleased, not deployed; commit pending).
+  - **Decided:** OQ3 (Workers Free at launch; Paid on funding or two consecutive months of trailing revenue covering it, per the
+    workspace cost model §5); OQ4 ((a) single maintainer now, (c) a second reviewer when one can be hired; token scope, expiry and rotation in
+    the workspace `OPERATOR_TASKS.md`).
+  - **Changed:** `MAX_BODY_BYTES` `100000000`; `WORKERS_PLAN` and the plan-aware quota guard; the commented `[limits] cpu_ms = 50`
+    block; the CPU benchmark per scheme; README "Switch to Workers Paid" and "CPU budget on Free". Limits re-checked in the Cloudflare
+    docs MCP.
+  - **Dispositions:** F11 DEFERRED → MITIGATED (edge CPU percentiles left to the operator); F16 MITIGATED → RESOLVED; F31 stays MITIGATED
+    (live token scope); **new F48** (quota guard measured the wrong quantities, RESOLVED). The two pre-mainnet boxes stay unticked with
+    narrowed residuals. Normative MUST 11 now partly holds.
+  - Counts: **30 RESOLVED, 3 MITIGATED** (F11, F29, F31), **5 ADJUDICATED** (F20, F22, F23, F36, F44), **4 ACCEPTED-RISK** (F25, F34, F35,
+    F45), **0 DEFERRED**; 6 Positive (F37–F41, F46). 48 findings.
+  - Measured 2026-10-19 (Node 26): `tsc --noEmit` and `eslint .` clean; `vitest run` 251 tests (248 passed, 3 skipped; 234 before, +17:
+    14 in `quota.test.ts`, 1 in `config.test.ts`, 1 CPU benchmark in each pool); `npm audit --audit-level=high` 0
+    vulnerabilities; `sync-vectors --check` and `scripts/check-versions.sh` pass (0.0.25). CPU figures and their method are in F11.
+  - Not run: the Worker on the edge (deploy is the maintainer's), the quota guard against the live GraphQL API, `wrangler deploy --dry-run`.
 
 ## Pre-save consistency checklist (this pass)
 
@@ -2118,10 +2224,10 @@ PROXY lens:
 - [x] Template line: base + WORKERS + TS + SUI_CLIENT + WALRUS + AUTH + PROXY, each dated as in the
   registry. IMG is not triggered (no image).
 - [x] Closing structure in order.
-- [x] Open questions: OQ3 and OQ4 open (options and a recommendation recorded); the others carry a recorded decision note (OQ6 decided
+- [x] Open questions: every OQ carries a recorded decision note (OQ3 and OQ4 decided 2026-10-19, OQ6 decided
   2026-10-19, OQ10 decided 2026-10-10), the dispositions moved on the findings.
 - [x] Section D ↔ dispositions — ticked only for RESOLVED/MITIGATED-with-evidence items; unticked items
-  cite F11, F16/F31 and the maintainer items.
+  cite F11, F31 and the maintainer items.
 - [x] Executive summary reflects current dispositions.
 - [x] Counts and versions re-measured 2026-10-10.
 - [x] Re-verification log entry added.
