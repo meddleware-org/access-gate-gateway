@@ -6,6 +6,10 @@
 //! - `/__test/mem`                   wasm linear-memory size (streaming stays flat)
 //! - `/__test/panic`                 a deliberate panic, to record what a trap looks like
 
+// Test-only module: the deliberate `/__test/panic` route and JSON indexing over the embedded vectors are
+// the point of it, and none of this is compiled into the deployed Worker.
+#![allow(clippy::panic, clippy::indexing_slicing)]
+
 use nft_gate_core::proof::{personal_message, MessageContext};
 use nft_gate_core::sig::verify_personal_message_signature;
 use wasm_bindgen::JsCast;
@@ -27,7 +31,11 @@ fn now_ms() -> f64 {
 fn bench(url: &Url) -> Result<Response> {
     let q: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
     let want = q.get("scheme").map_or("ed25519", String::as_str);
-    let iters: u32 = q.get("iters").and_then(|v| v.parse().ok()).unwrap_or(200).max(1);
+    let iters: u32 = q
+        .get("iters")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(200)
+        .max(1);
     let warmup: u32 = q.get("warmup").and_then(|v| v.parse().ok()).unwrap_or(20);
     let v: serde_json::Value =
         serde_json::from_str(VECTORS).map_err(|e| Error::RustError(e.to_string()))?;
@@ -80,7 +88,10 @@ pub async fn route(req: &web_sys::Request, env: &Env) -> Option<Result<Response>
         "bench" => bench(&url),
         "mem" => {
             let mem = wasm_bindgen::memory().unchecked_into::<js_sys::WebAssembly::Memory>();
-            let bytes = mem.buffer().unchecked_into::<js_sys::ArrayBuffer>().byte_length();
+            let bytes = mem
+                .buffer()
+                .unchecked_into::<js_sys::ArrayBuffer>()
+                .byte_length();
             json(200, serde_json::json!({ "wasmMemoryBytes": bytes }))
         }
         "panic" => panic!("deliberate panic (test-hooks)"),

@@ -41,10 +41,11 @@ pub async fn run(env: &Env) {
         return console_warn!("quota-guard: CF_ANALYTICS_TOKEN / CF_ACCOUNT_ID not set; skipping");
     };
     let now = js_sys::Date::now() as u64;
-    let usage = match fetch_usage(&endpoint(env), &token, &account, window_start_ms(plan, now)).await {
-        Ok(u) => u,
-        Err(e) => return console_warn!("quota-guard: usage query failed: {e}"),
-    };
+    let usage =
+        match fetch_usage(&endpoint(env), &token, &account, window_start_ms(plan, now)).await {
+            Ok(u) => u,
+            Err(e) => return console_warn!("quota-guard: usage query failed: {e}"),
+        };
     let a = assess_usage(&usage, plan);
     if a.warn {
         console_warn!("{}", warning_line(&a));
@@ -62,7 +63,9 @@ async fn fetch_usage(
     headers
         .set("authorization", &format!("Bearer {token}"))
         .map_err(js)?;
-    headers.set("content-type", "application/json").map_err(js)?;
+    headers
+        .set("content-type", "application/json")
+        .map_err(js)?;
     let init = web_sys::RequestInit::new();
     init.set_method("POST");
     init.set_headers(&headers);

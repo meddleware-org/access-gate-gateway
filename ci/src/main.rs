@@ -27,7 +27,8 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 }
 
 fn read(path: Option<String>) -> String {
-    path.and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default()
+    path.and_then(|p| std::fs::read_to_string(p).ok())
+        .unwrap_or_default()
 }
 
 fn status(args: &[String]) -> Result<u16, String> {
@@ -87,8 +88,12 @@ fn run(args: &[String]) -> Result<bool, String> {
         Some("report-origin-check") => {
             let url = flag(args, "--url").ok_or("--url is required")?;
             let headers = parse_header_dump(&read(flag(args, "--headers")));
-            let (lines, fail) =
-                report_origin_check(&host_of(&url), status(args)?, &headers, &read(flag(args, "--body")));
+            let (lines, fail) = report_origin_check(
+                &host_of(&url),
+                status(args)?,
+                &headers,
+                &read(flag(args, "--body")),
+            );
             for l in lines {
                 println!("{l}");
             }
@@ -100,7 +105,9 @@ fn run(args: &[String]) -> Result<bool, String> {
             println!("{} {detail}", state.as_str());
             Ok(true)
         }
-        _ => Err("usage: nft-gate-ci check-upstream-auth|report-origin-check|classify-origin".into()),
+        _ => {
+            Err("usage: nft-gate-ci check-upstream-auth|report-origin-check|classify-origin".into())
+        }
     }
 }
 

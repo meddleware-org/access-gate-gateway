@@ -38,7 +38,9 @@ impl Transport for WorkerTransport {
         init.set_method("POST");
         init.set_headers(&headers);
         init.set_body(&js_sys::Uint8Array::from(body.as_slice()));
-        init.set_signal(Some(&web_sys::AbortSignal::timeout_with_u32(self.timeout_ms)));
+        init.set_signal(Some(&web_sys::AbortSignal::timeout_with_u32(
+            self.timeout_ms,
+        )));
         let req = web_sys::Request::new_with_str_and_init(url, &init).map_err(js)?;
         let global: web_sys::WorkerGlobalScope = js_sys::global().unchecked_into();
         let resp: web_sys::Response = JsFuture::from(global.fetch_with_request(&req))

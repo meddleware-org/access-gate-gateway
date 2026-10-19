@@ -22,7 +22,8 @@ pub struct WorkerConfig {
     pub shard_global: bool,
     pub public_rate_limit_per_min: u32,
     pub public_cache_ttl_secs: u64,
-    #[allow(dead_code)] // validated here so a typo fails at startup; the scheduled handler reads its own env
+    #[allow(dead_code)]
+    // validated here so a typo fails at startup; the scheduled handler reads its own env
     pub quota_guard_enabled: bool,
     #[allow(dead_code)] // as above
     pub workers_plan: WorkersPlan,
@@ -67,7 +68,10 @@ mod tests {
             ("NETWORK", "testnet".to_string()),
             ("UPSTREAM_URL", "https://relay.example".to_string()),
             ("SUI_RPC_URL", "https://rpc.example".to_string()),
-            ("NFT_TYPE", "0x1::access_gate::SoulboundAccessNFT".to_string()),
+            (
+                "NFT_TYPE",
+                "0x1::access_gate::SoulboundAccessNFT".to_string(),
+            ),
             ("GATE_ID", "0x2".to_string()),
         ])
     }
@@ -117,6 +121,10 @@ mod tests {
     fn the_core_rules_apply() {
         // Loopback http needs the explicit opt-in (stricter than the TypeScript Worker).
         assert!(load(&[("UPSTREAM_URL", "http://127.0.0.1:1")]).is_err());
-        assert!(load(&[("UPSTREAM_URL", "http://127.0.0.1:1"), ("ALLOW_INSECURE_HTTP", "1")]).is_ok());
+        assert!(load(&[
+            ("UPSTREAM_URL", "http://127.0.0.1:1"),
+            ("ALLOW_INSECURE_HTTP", "1")
+        ])
+        .is_ok());
     }
 }

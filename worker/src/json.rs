@@ -16,7 +16,12 @@ pub fn render(value: &Value) -> String {
     };
     let mut keys: Vec<&String> = map.keys().collect();
     keys.sort_by(|a, b| {
-        let rank = |k: &String| KEY_ORDER.iter().position(|o| *o == k).unwrap_or(KEY_ORDER.len());
+        let rank = |k: &String| {
+            KEY_ORDER
+                .iter()
+                .position(|o| *o == k)
+                .unwrap_or(KEY_ORDER.len())
+        };
         rank(a).cmp(&rank(b)).then_with(|| a.cmp(b))
     });
     let mut out = String::from("{");

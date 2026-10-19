@@ -48,7 +48,8 @@ fn refusal(r: Refusal) -> Out {
 fn fallback(status: u16) -> Out {
     Out {
         status,
-        headers: web_sys::Headers::new().unwrap_or_else(|_| JsCast::unchecked_into(JsValue::UNDEFINED)),
+        headers: web_sys::Headers::new()
+            .unwrap_or_else(|_| JsCast::unchecked_into(JsValue::UNDEFINED)),
         body: Body::Empty,
     }
 }
@@ -94,7 +95,11 @@ fn limit_body(
             if seen.get() > max {
                 exceeded.set(true);
                 abort.abort();
-                call(&controller, "error", &JsValue::from_str("request body too large"));
+                call(
+                    &controller,
+                    "error",
+                    &JsValue::from_str("request body too large"),
+                );
                 return;
             }
             call(&controller, "enqueue", &chunk);
@@ -116,13 +121,24 @@ fn limit_body(
 fn fixed_length(readable: &ReadableStream, len: u32) -> Result<ReadableStream, JsValue> {
     let fls = worker::worker_sys::FixedLengthStream::new(len)?;
     let pair = Object::new();
-    Reflect::set(&pair, &"readable".into(), &Reflect::get(&fls, &"readable".into())?)?;
-    Reflect::set(&pair, &"writable".into(), &Reflect::get(&fls, &"writable".into())?)?;
+    Reflect::set(
+        &pair,
+        &"readable".into(),
+        &Reflect::get(&fls, &"readable".into())?,
+    )?;
+    Reflect::set(
+        &pair,
+        &"writable".into(),
+        &Reflect::get(&fls, &"writable".into())?,
+    )?;
     Ok(readable.pipe_through(pair.unchecked_ref()))
 }
 
 /// `AbortSignal.any([a, b])`.
-fn any_signal(a: &web_sys::AbortSignal, b: &web_sys::AbortSignal) -> Result<web_sys::AbortSignal, JsValue> {
+fn any_signal(
+    a: &web_sys::AbortSignal,
+    b: &web_sys::AbortSignal,
+) -> Result<web_sys::AbortSignal, JsValue> {
     let ctor = Reflect::get(&js_sys::global(), &"AbortSignal".into())?;
     let any: Function = Reflect::get(&ctor, &"any".into())?.dyn_into()?;
     let list = Array::of2(a, b);
@@ -144,7 +160,10 @@ impl WorkerUpstream<'_> {
         if let Err(r) = preflight(&method, &p.path, cl.as_deref(), cfg.max_body_bytes) {
             return refusal(r);
         }
-        match self.exchange(p, search, &method, has_body, cl.as_deref()).await {
+        match self
+            .exchange(p, search, &method, has_body, cl.as_deref())
+            .await
+        {
             Ok(out) => out,
             Err(e) => {
                 worker::console_error!("upstream exchange failed: {e}");
@@ -178,7 +197,13 @@ impl WorkerUpstream<'_> {
         // Request headers: the client's minus hop-by-hop, credentials and spoofable fields, then the
         // configured upstream credentials, then the gateway's own `Via` marker.
         let headers = web_sys::Headers::new().map_err(js)?;
-        let connection = p.req.headers().get("connection").ok().flatten().unwrap_or_default();
+        let connection = p
+            .req
+            .headers()
+            .get("connection")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         let named = connection_named(&connection);
         for (k, v) in header_entries(&p.req.headers()) {
             if !drop_request_header(&k.to_ascii_lowercase(), &named) {
@@ -193,9 +218,13 @@ impl WorkerUpstream<'_> {
 
         if has_body {
             if let Some(body) = p.req.body() {
-                let mut limited =
-                    limit_body(&body, cfg.max_body_bytes as f64, exceeded.clone(), abort.clone())
-                        .map_err(js)?;
+                let mut limited = limit_body(
+                    &body,
+                    cfg.max_body_bytes as f64,
+                    exceeded.clone(),
+                    abort.clone(),
+                )
+                .map_err(js)?;
                 if let Some(n) = cl.and_then(|v| v.trim().parse::<u32>().ok()) {
                     limited = fixed_length(&limited, n).map_err(js)?;
                 }
@@ -226,7 +255,7 @@ impl WorkerUpstream<'_> {
             }
             return Ok(refusal(UPSTREAM_ERROR));
         }
-        Ok(from_upstream(&resp).map_err(js)?)
+        from_upstream(&resp).map_err(js)
     }
 
     /// An unauthenticated public GET: the edge cache in front of the upstream (parity with
@@ -250,7 +279,9 @@ impl WorkerUpstream<'_> {
         if !(200..300).contains(&out.status) {
             return out;
         }
-        let _ = out.headers.set("cache-control", &format!("public, max-age={ttl}"));
+        let _ = out
+            .headers
+            .set("cache-control", &format!("public, max-age={ttl}"));
         // Tee the response: one branch to the client, one into the cache (after the response is sent).
         let init = web_sys::ResponseInit::new();
         init.set_status(out.status);
@@ -259,14 +290,18 @@ impl WorkerUpstream<'_> {
             Body::Stream(s) => Some(s),
             _ => None,
         };
-        let Ok(full) = web_sys::Response::new_with_opt_readable_stream_and_init(stream, &init) else {
+        let Ok(full) = web_sys::Response::new_with_opt_readable_stream_and_init(stream, &init)
+        else {
             return out;
         };
         let Ok(for_cache) = full.clone() else {
             return from_upstream(&full).unwrap_or(out);
         };
         self.ctx.wait_until(async move {
-            if let Err(e) = worker::Cache::default().put(key.as_str(), for_cache.into()).await {
+            if let Err(e) = worker::Cache::default()
+                .put(key.as_str(), for_cache.into())
+                .await
+            {
                 worker::console_warn!("public cache put failed: {e}");
             }
         });

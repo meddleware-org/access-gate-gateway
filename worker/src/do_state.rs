@@ -104,7 +104,10 @@ impl NonceRateState {
             return Ok(true);
         }
         let rows: Vec<RateRow> = self
-            .exec("SELECT start, count FROM rate WHERE addr = ?", vec![sv(addr)])?
+            .exec(
+                "SELECT start, count FROM rate WHERE addr = ?",
+                vec![sv(addr)],
+            )?
             .to_array()?;
         let (mut start, mut count) = (now, 0i64);
         if let Some(r) = rows.first() {
@@ -228,7 +231,12 @@ impl NonceRateState {
         Ok(())
     }
 
-    fn dispatch(&self, op: &str, q: &std::collections::HashMap<String, String>, now: i64) -> Result<serde_json::Value> {
+    fn dispatch(
+        &self,
+        op: &str,
+        q: &std::collections::HashMap<String, String>,
+        now: i64,
+    ) -> Result<serde_json::Value> {
         let get = |k: &str| q.get(k).map_or("", String::as_str);
         let int = |k: &str, d: i64| q.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
         Ok(match op {
@@ -236,7 +244,9 @@ impl NonceRateState {
                 "expiresAt": self.issue(get("nonce"), now, int("ttl", 300), int("max", 1_000_000))?
             }),
             "take" => serde_json::json!({ "ok": self.take_if_valid(get("nonce"), now)? }),
-            "rate" => serde_json::json!({ "ok": self.rate_check(get("addr"), int("max", 30), now)? }),
+            "rate" => {
+                serde_json::json!({ "ok": self.rate_check(get("addr"), int("max", 30), now)? })
+            }
             "lease" => {
                 match self.lease(get("key"), now, int("ttl", 900), int("max", 1_000_000))? {
                     LeaseOutcome::Ok(t) => serde_json::json!({ "status": "ok", "token": t }),

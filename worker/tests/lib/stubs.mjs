@@ -18,16 +18,24 @@ const grpc = (msg) => {
   return Buffer.concat([f, msg, t, trailer])
 }
 
-const gateObject = (paused, blocks) => len(1, len(100, structOf([['paused', boolVal(paused)], ['policy', structOf([['pause_blocks_access', boolVal(blocks)]])]])))
+// An `Object` message: object_id=2, version=3, object_type=6, json=100 (what both clients read).
+const gateJson = (paused, blocks) => structOf([['paused', boolVal(paused)], ['policy', structOf([['pause_blocks_access', boolVal(blocks)]])]])
+const objectMsg = (id, type, json) => Buffer.concat([str(2, id), uint(3, 1), str(6, type), len(100, json)])
+// GetObject (the Rust Worker's gRPC-web client): GetObjectResponse { Object object = 1 }.
+const gateObject = (gate, paused, blocks) => len(1, objectMsg(gate, `${NFT_PKG}::access_gate::Gate`, gateJson(paused, blocks)))
+// BatchGetObjects (the TypeScript Worker's @mysten/sui client): { repeated GetObjectResult objects = 1 }, result.object = 1.
+const batchGateObjects = (gate, paused, blocks, n) => Buffer.concat(Array.from({ length: n }, () => len(1, len(1, objectMsg(gate, `${NFT_PKG}::access_gate::Gate`, gateJson(paused, blocks))))))
 const consumeTx = (sender, gate, ageMs) => {
   const ev = Buffer.concat([
+    str(1, NFT_PKG),
+    str(2, 'access_gate'),
     str(3, sender),
     str(4, `${NFT_PKG}::access_gate::AccessConsumedEvent`),
     len(6, structOf([['gate_id', strVal(gate)], ['timestamp_ms', strVal(String(Date.now() - ageMs))]])),
   ])
   return len(1, Buffer.concat([len(4, len(4, uint(1, 1))), len(5, len(3, ev))]))
 }
-const ownedList = (gate) => len(1, len(100, structOf([['data', structOf([['gate_id', strVal(gate)], ['variant', structOf([['@variant', strVal('UnlimitedPass')]])]])]])))
+const ownedList = (gate) => len(1, objectMsg('0x' + 'ab'.repeat(32), `${NFT_PKG}::access_gate::SoulboundAccessNFT`, structOf([['data', structOf([['gate_id', strVal(gate)], ['variant', structOf([['@variant', strVal('UnlimitedPass')]])]])]])))
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 /** A random 32-byte transaction digest in base58 (the form the proof carries). */
@@ -49,10 +57,21 @@ export async function startFullnode() {
     req.on('data', (c) => chunks.push(c))
     req.on('end', () => {
       state.calls.push(req.url)
-      const body = Buffer.concat(chunks)
-      res.setHeader('content-type', 'application/grpc-web+proto')
+      // The Rust Worker speaks binary gRPC-web; @mysten/sui's client (the TypeScript Worker) speaks grpc-web-text (base64).
+      const text = String(req.headers['content-type'] ?? '').includes('grpc-web-text')
+      const body = text ? Buffer.from(Buffer.concat(chunks).toString(), 'base64') : Buffer.concat(chunks)
+      res.setHeader('content-type', text ? 'application/grpc-web-text+proto' : 'application/grpc-web+proto')
+      const end = res.end.bind(res)
+      res.end = (b) => end(text && Buffer.isBuffer(b) && b.length ? b.toString('base64') : b)
       if (state.failAll) { res.statusCode = 500; return res.end() }
-      if (req.url.endsWith('LedgerService/GetObject')) return res.end(grpc(gateObject(state.paused, true)))
+      if (req.url.endsWith('LedgerService/GetObject')) return res.end(grpc(gateObject(state.gate, state.paused, true)))
+      if (req.url.endsWith('LedgerService/BatchGetObjects')) {
+        // one result per request entry: count the `requests` (field 1) in the body
+        const msg = body.subarray(5)
+        let n = 0
+        for (let i = 0; i < msg.length;) { const tag = msg[i++]; if (tag === 0x0a) { let l = 0, sh = 0; for (;;) { const b = msg[i++]; l |= (b & 0x7f) << sh; if (!(b & 0x80)) break; sh += 7 } i += l; n++ } else break }
+        return res.end(grpc(batchGateObjects(state.gate, state.paused, true, Math.max(1, n))))
+      }
       if (req.url.endsWith('LedgerService/GetTransaction')) {
         // The digest is the first string field of the request (field 1, after the 5-byte frame header).
         const msg = body.subarray(5)
@@ -62,7 +81,7 @@ export async function startFullnode() {
         return res.end(grpc(consumeTx(sender, state.gate, state.consumeAgeMs)))
       }
       if (req.url.endsWith('StateService/ListOwnedObjects')) {
-        const owner = body.toString('latin1').match(/0x[0-9a-f]{64}/)?.[0]
+        const owner = body.toString('latin1').match(/0x[0-9a-f]{64}/)?.[0] // field 1 of the request
         return res.end(grpc(owner && state.owners.has(owner) ? ownedList(state.gate) : Buffer.alloc(0)))
       }
       res.statusCode = 404; res.end()

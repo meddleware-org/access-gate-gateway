@@ -40,7 +40,11 @@ impl Out {
 
     /// `{"error": reason}`.
     pub fn error(status: u16, reason: &str) -> Result<Self, JsValue> {
-        Self::json(status, crate::json::render(&serde_json::json!({ "error": reason })), None)
+        Self::json(
+            status,
+            crate::json::render(&serde_json::json!({ "error": reason })),
+            None,
+        )
     }
 
     /// `/healthz`: the runtime's default text content type.

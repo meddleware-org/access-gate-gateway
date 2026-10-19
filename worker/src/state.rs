@@ -226,9 +226,18 @@ mod tests {
 
     #[test]
     fn rate_keys_are_prefixed_per_scope_like_the_typescript_worker() {
-        assert_eq!(DoState::rate_key(RateScope::Challenge, "1.2.3.4"), "chal:1.2.3.4");
-        assert_eq!(DoState::rate_key(RateScope::Public, "1.2.3.4"), "ip:1.2.3.4");
-        assert_eq!(DoState::rate_key(RateScope::GatedPreauth, "1.2.3.4"), "pre:1.2.3.4");
+        assert_eq!(
+            DoState::rate_key(RateScope::Challenge, "1.2.3.4"),
+            "chal:1.2.3.4"
+        );
+        assert_eq!(
+            DoState::rate_key(RateScope::Public, "1.2.3.4"),
+            "ip:1.2.3.4"
+        );
+        assert_eq!(
+            DoState::rate_key(RateScope::GatedPreauth, "1.2.3.4"),
+            "pre:1.2.3.4"
+        );
         assert_eq!(DoState::rate_key(RateScope::Address, "0xabc"), "0xabc");
     }
 

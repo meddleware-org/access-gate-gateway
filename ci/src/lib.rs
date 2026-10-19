@@ -21,7 +21,9 @@ pub fn client_id_shape_ok(v: &str) -> bool {
 pub fn client_secret_shape_ok(v: &str) -> bool {
     is_hex(v, 64)
         || v.strip_prefix("cfast_").is_some_and(|t| {
-            t.len() == 48 && t.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            t.len() == 48
+                && t.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
         })
 }
 
@@ -50,7 +52,9 @@ pub fn check_upstream_auth(raw: Option<&str>) -> anyhow::Result<AuthCheck> {
             notes.push("contains \": \" (a whole header line pasted as the value?)".to_string());
         }
         let shape = match h.name.to_ascii_lowercase().as_str() {
-            "cf-access-client-id" => Some((client_id_shape_ok(&h.value), "<32 hex>.access (39 chars)")),
+            "cf-access-client-id" => {
+                Some((client_id_shape_ok(&h.value), "<32 hex>.access (39 chars)"))
+            }
             "cf-access-client-secret" => Some((
                 client_secret_shape_ok(&h.value),
                 "cfast_<48 alnum> (54 chars) or <64 hex>",
@@ -67,7 +71,10 @@ pub fn check_upstream_auth(raw: Option<&str>) -> anyhow::Result<AuthCheck> {
         }
         lines.push(format!("  {}: {}", h.name, notes.join(", ")));
     }
-    lines.push(format!("UPSTREAM_AUTH_HEADERS: {} header(s)", headers.len()));
+    lines.push(format!(
+        "UPSTREAM_AUTH_HEADERS: {} header(s)",
+        headers.len()
+    ));
     Ok(AuthCheck {
         lines,
         shape_problems,
@@ -128,7 +135,12 @@ pub fn report_origin_check(
     if (200..300).contains(&status) {
         return (out, false);
     }
-    for h in ["server", "cf-mitigated", "cf-access-domain", "www-authenticate"] {
+    for h in [
+        "server",
+        "cf-mitigated",
+        "cf-access-domain",
+        "www-authenticate",
+    ] {
         if let Some(v) = get(headers, h) {
             out.push(format!("  {h}: {v}"));
         }
@@ -175,7 +187,13 @@ fn location_parts(location: &str) -> (String, String) {
     {
         let (auth, path) = rest.split_once('/').map_or((rest, ""), |(a, p)| (a, p));
         let auth = auth.split(['?', '#']).next().unwrap_or("");
-        let host = auth.rsplit('@').next().unwrap_or("").split(':').next().unwrap_or("");
+        let host = auth
+            .rsplit('@')
+            .next()
+            .unwrap_or("")
+            .split(':')
+            .next()
+            .unwrap_or("");
         (host.to_ascii_lowercase(), format!("/{path}"))
     } else if location.starts_with('/') {
         ("origin.invalid".to_string(), location.to_string())
@@ -195,19 +213,28 @@ pub fn classify_origin_response(status: u16, headers: &[(String, String)]) -> (O
     }
     if status == 401 || status == 403 {
         return if get(headers, "cf-access-domain").is_some() {
-            (OriginLock::Locked, format!("HTTP {status} from Cloudflare Access"))
+            (
+                OriginLock::Locked,
+                format!("HTTP {status} from Cloudflare Access"),
+            )
         } else {
             (
                 OriginLock::Open,
-                format!("HTTP {status} but not from Cloudflare Access (no cf-access-domain header)"),
+                format!(
+                    "HTTP {status} but not from Cloudflare Access (no cf-access-domain header)"
+                ),
             )
         };
     }
     if (300..400).contains(&status) {
         let (host, path) = location_parts(get(headers, "location").unwrap_or(""));
-        let to_access = host.ends_with(".cloudflareaccess.com") || path.starts_with("/cdn-cgi/access/");
+        let to_access =
+            host.ends_with(".cloudflareaccess.com") || path.starts_with("/cdn-cgi/access/");
         return if to_access {
-            (OriginLock::Locked, format!("HTTP {status} redirect to the Access login"))
+            (
+                OriginLock::Locked,
+                format!("HTTP {status} redirect to the Access login"),
+            )
         } else {
             (
                 OriginLock::Open,
@@ -221,7 +248,10 @@ pub fn classify_origin_response(status: u16, headers: &[(String, String)]) -> (O
             format!("HTTP {status}: the origin answered a request without the service token"),
         );
     }
-    (OriginLock::Open, format!("HTTP {status}: not an Access refusal"))
+    (
+        OriginLock::Open,
+        format!("HTTP {status}: not an Access refusal"),
+    )
 }
 
 #[cfg(test)]
@@ -232,7 +262,10 @@ mod tests {
     const SECRET_NEW: &str = "cfast_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL";
 
     fn h(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     fn raw(id: &str, secret: &str) -> String {
@@ -245,7 +278,9 @@ mod tests {
     fn access_header_shapes() {
         assert!(client_id_shape_ok(ID));
         assert!(!client_id_shape_ok("0123456789abcdef0123456789abcdef"));
-        assert!(!client_id_shape_ok("0123456789ABCDEF0123456789abcdef.access"));
+        assert!(!client_id_shape_ok(
+            "0123456789ABCDEF0123456789abcdef.access"
+        ));
         assert!(client_secret_shape_ok(SECRET_NEW));
         assert!(client_secret_shape_ok(&"a".repeat(64)));
         assert!(!client_secret_shape_ok("cfast_short"));
@@ -257,7 +292,10 @@ mod tests {
         let c = check_upstream_auth(Some(&raw(ID, SECRET_NEW))).unwrap();
         assert_eq!(c.shape_problems, 0);
         let all = c.lines.join("\n");
-        assert!(all.contains("CF-Access-Client-Id: length 39, shape ok"), "{all}");
+        assert!(
+            all.contains("CF-Access-Client-Id: length 39, shape ok"),
+            "{all}"
+        );
         assert!(all.contains("2 header(s)"));
         assert!(!all.contains(ID) && !all.contains(SECRET_NEW));
     }
@@ -316,9 +354,13 @@ mod tests {
         );
         let all = l.join("\n");
         assert!(fail);
-        assert!(all.contains("(rejected by Cloudflare Access)") && all.contains("page title: Forbidden"));
+        assert!(
+            all.contains("(rejected by Cloudflare Access)")
+                && all.contains("page title: Forbidden")
+        );
         assert!(all.contains("::error::The origin rejected UPSTREAM_AUTH_HEADERS; not deploying."));
-        let (l, fail) = report_origin_check("o.example", 403, &h(&[("cf-mitigated", "challenge")]), "");
+        let (l, fail) =
+            report_origin_check("o.example", 403, &h(&[("cf-mitigated", "challenge")]), "");
         assert!(!fail && l.join("\n").contains("::warning::"));
     }
 
@@ -326,14 +368,20 @@ mod tests {
     #[test]
     fn access_401_or_403_is_locked() {
         for s in [401, 403] {
-            let (st, _) = classify_origin_response(s, &h(&[("cf-access-domain", "walrus-relay-origin.example.com")]));
+            let (st, _) = classify_origin_response(
+                s,
+                &h(&[("cf-access-domain", "walrus-relay-origin.example.com")]),
+            );
             assert_eq!(st, OriginLock::Locked);
         }
     }
 
     #[test]
     fn a_redirect_to_the_access_login_is_locked() {
-        let a = h(&[("location", "https://team.cloudflareaccess.com/cdn-cgi/access/login/x?kid=1")]);
+        let a = h(&[(
+            "location",
+            "https://team.cloudflareaccess.com/cdn-cgi/access/login/x?kid=1",
+        )]);
         assert_eq!(classify_origin_response(302, &a).0, OriginLock::Locked);
         let b = h(&[("location", "/cdn-cgi/access/login/x")]);
         assert_eq!(classify_origin_response(302, &b).0, OriginLock::Locked);
@@ -342,16 +390,25 @@ mod tests {
     #[test]
     fn a_refusal_that_is_not_access_is_open() {
         assert_eq!(classify_origin_response(401, &[]).0, OriginLock::Open);
-        assert_eq!(classify_origin_response(403, &h(&[("server", "cloudflare")])).0, OriginLock::Open);
+        assert_eq!(
+            classify_origin_response(403, &h(&[("server", "cloudflare")])).0,
+            OriginLock::Open
+        );
     }
 
     #[test]
     fn a_redirect_elsewhere_any_2xx_404_and_5xx_are_open() {
         let elsewhere = h(&[("location", "https://elsewhere.example.com/")]);
-        assert_eq!(classify_origin_response(302, &elsewhere).0, OriginLock::Open);
+        assert_eq!(
+            classify_origin_response(302, &elsewhere).0,
+            OriginLock::Open
+        );
         assert_eq!(classify_origin_response(301, &[]).0, OriginLock::Open);
         assert_eq!(classify_origin_response(200, &[]).0, OriginLock::Open);
-        assert_eq!(classify_origin_response(200, &h(&[("cf-access-domain", "x")])).0, OriginLock::Open);
+        assert_eq!(
+            classify_origin_response(200, &h(&[("cf-access-domain", "x")])).0,
+            OriginLock::Open
+        );
         assert_eq!(classify_origin_response(404, &[]).0, OriginLock::Open);
         assert_eq!(classify_origin_response(502, &[]).0, OriginLock::Open);
     }

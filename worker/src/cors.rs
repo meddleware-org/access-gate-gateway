@@ -21,8 +21,14 @@ mod tests {
             cors_allowed_origin(Some("https://a.example"), &allowed),
             Some("https://a.example")
         );
-        assert_eq!(cors_allowed_origin(Some("https://evil.example"), &allowed), None);
-        assert_eq!(cors_allowed_origin(Some("https://a.example/"), &allowed), None);
+        assert_eq!(
+            cors_allowed_origin(Some("https://evil.example"), &allowed),
+            None
+        );
+        assert_eq!(
+            cors_allowed_origin(Some("https://a.example/"), &allowed),
+            None
+        );
         assert_eq!(cors_allowed_origin(None, &allowed), None);
         assert_eq!(cors_allowed_origin(Some("https://a.example"), &[]), None);
     }
@@ -31,7 +37,10 @@ mod tests {
     fn the_four_grants_match_the_typescript_worker() {
         let g = grants();
         assert_eq!(g.len(), 4);
-        assert!(g.contains(&("access-control-allow-methods", "GET, POST, PUT, HEAD, OPTIONS")));
+        assert!(g.contains(&(
+            "access-control-allow-methods",
+            "GET, POST, PUT, HEAD, OPTIONS"
+        )));
         assert!(g.contains(&(
             "access-control-allow-headers",
             "authorization, content-type, x-access-proof"
