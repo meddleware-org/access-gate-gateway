@@ -94,8 +94,8 @@ The tests (and the `gateway` unit tests) read the shared vectors at `../conforma
 
 ## Rust version
 
-`rust-version = "1.88"` (checked in CI for this crate and `gateway-rust`). The Worker crate that joins the
-workspace needs a newer toolchain (workers-rs requires Rust 1.91 or later) and is checked separately.
+`rust-version = "1.88"` (checked in CI for this crate and `gateway-rust`). The Worker crate `../worker` is a workspace member
+with its own `rust-version = "1.91"` (workers-rs needs it) and is built and tested by the `worker` CI job.
 
 ## Licence
 

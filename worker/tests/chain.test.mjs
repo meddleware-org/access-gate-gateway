@@ -75,6 +75,15 @@ describe('single-use consume check (digest-first)', () => {
     assert.ok(Date.now() - started < 5000, `took ${Date.now() - started} ms`)
   })
 
+  it('a malformed digest never reaches the chain (403 malformed access proof, no fullnode call)', async () => {
+    f.rpc.state.calls.length = 0
+    const token = Buffer.from(JSON.stringify({ address: '0x1', nonce: 'aud-nonce', signature: 'AAAA', consumeDigest: 'DIGEST-1' })).toString('base64')
+    const res = await rawRequest(f.base, { method: 'PUT', path: '/v1/x', headers: { authorization: `Bearer ${token}`, 'CF-Connecting-IP': nextIp() }, body: 'x' })
+    assert.equal(res.status, 403)
+    assert.deepEqual(JSON.parse(res.body.toString()), { error: 'malformed access proof' })
+    assert.equal(f.rpc.state.calls.length, 0)
+  })
+
   it('reads the gate strictly: a paused gate that blocks access denies, an unpaused one does not', async () => {
     f.rpc.state.paused = true
     const res = await attempt(f, await registerConsume(f.rpc, wallet))

@@ -2,6 +2,16 @@
 
 All notable changes to `@meddleware/nft-gate-gateway` are documented here.
 
+## [0.0.27] - 2026-10-19
+
+No change to the Worker's code or package contents; the version moves with the Cargo workspace (one version for every artifact).
+
+### Changed
+
+- Docs: this Worker is **superseded, pending cutover** by the Rust Worker `../worker` (built and tested in 0.0.27, shadow not yet deployed): same Worker name, Durable Object class and schema, a differential
+  run against this Worker, and every behavioural case of this package's tests ported (`../worker/README.md`). It stays the live deployment and the rollback until the maintainer's shadow deploy, the CPU-time gate and the
+  cutover, and is retired afterwards. It is not deleted.
+
 ## [0.0.26] - 2026-10-19
 
 No change to the Worker's code; the version moves with the Rust gateway (one version for every artifact).

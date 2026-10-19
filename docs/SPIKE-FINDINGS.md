@@ -1,5 +1,8 @@
 # Findings — nft-gate Worker in Rust (workers-rs), 2026-10-19
 
+> **Historical (kept for the measurements).** The spike was promoted to the production crate [`../worker`](../worker/) in 0.0.27 and the spike directory was removed; the decisions asked for
+> below were taken (generated wasm-bindgen glue accepted, KV backend dropped, black-box Node/TS test harnesses allowed as test code, CPU-p99 cutover gate kept). Current numbers are in [`../worker/README.md`](../worker/README.md).
+
 Verdict: **GO**. Measured on this machine with pinned versions (worker/worker-build 0.8.7, wasm-bindgen 0.2.129,
 Rust 1.98.1, wrangler 4.151.0, workerd 2026-08-15, Node 26.12.0). Nothing was deployed.
 

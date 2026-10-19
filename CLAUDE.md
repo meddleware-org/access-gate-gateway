@@ -15,11 +15,18 @@ rate / redemption state machines, the header / path / CORS / config policy and t
 A gateway is an adapter that supplies only I/O: `gateway-rust/` (hyper / axum / Redis) and the Cloudflare Worker.
 
 The maintainer's standing rule is **no JS/TS backend code**. The live Worker `gateway-workers/` (TypeScript) is therefore
-being replaced by a Rust Worker (workers-rs) on the same core. Status: in progress. Done: the shared core and the native adapter
-on it (0.0.26). Next: the Worker adapter (Durable Object state, streamed `fetch` upstream), a shadow deploy, and the
-CPU-time p99 in Workers analytics as the cutover gate (the maintainer deploys). The Workers KV nonce backend is not carried
-over (it was refused with `SINGLE_USE` and only eventually consistent otherwise). `spike-workers-rs/` is the feasibility
-spike and measurement harness (own workspace, newer toolchain); its `FINDINGS.md` has the measurements.
+being replaced by the Rust Worker `worker/` (workers-rs) on the same core. Status (0.0.27): **built and tested, shadow not yet
+deployed**. `gateway-workers/` is marked superseded-pending-cutover and is NOT deleted: it is the live deployment and the rollback until
+the maintainer has shadow-deployed the Rust Worker (`deploy-worker-rust.yml`, mode `shadow`), read the CPU-time p99 ≤ 5 ms and p99.9 ≤ 10 ms in
+Workers analytics over a week on Free, cut over (same Worker name, Durable Object class `NonceRateState`, migration tag `v1`, so the live DO data is kept), and
+retired the TypeScript source (runbook: `worker/README.md`). The Workers KV nonce backend is not carried over. The spike's findings are `docs/SPIKE-FINDINGS.md`.
+
+**The Worker adapter** (`worker/`): `lib.rs` routes around the core (`/healthz`, CORS preflight, 508) and builds `Gateway`; `state.rs` + `do_state.rs` are the
+`StateStore` over the SQLite Durable Object (exact schema of the TypeScript one); `upstream.rs` is the streamed `fetch` proxy (byte cap,
+`FixedLengthStream`, public edge cache); `transport.rs` the gRPC-web `Transport`; `quota_guard.rs` the `scheduled` guard (logic in `core/src/quota.rs`).
+The request path must not panic (a wasm trap cannot be caught): `unwrap_used`, `expect_used`, `panic`, `indexing_slicing` are denied in `worker/Cargo.toml`, and
+`worker/scripts/lint-canary.sh` proves it in CI. The `test-hooks` cargo feature (test routes, a pinned DO clock, fault injection) must never reach the deployed build; `worker/tests/panic.test.mjs` asserts it
+does not. workers-rs / wasm-bindgen / worker-build are pinned exactly and move together (Dependabot ignores them). Tests are black-box Node scripts against the built wasm under `wrangler dev` (test code only; no Worker logic in JS).
 
 **Where a change goes:** decision logic, policy or request flow → `core/`, once. I/O → the adapter. Never fix a rule in only one gateway.
 
@@ -51,10 +58,11 @@ spike and measurement harness (own workspace, newer toolchain); its `FINDINGS.md
 
 One version for every artifact (D16): the npm package `@meddleware/nft-gate-gateway`
 (`gateway-workers/package.json`), the Cargo workspace (`[workspace.package]` version in the root `Cargo.toml`, inherited by
-the crates `nft-gate-core` and `nft-gate-gateway`; the gateway pins `nft-gate-core` at exactly that version) and the
-image. Bump `package.json` (+ lockfile), the workspace version and that pin together, then tag `v<version>`.
+the crates `nft-gate-core`, `nft-gate-gateway`, `nft-gate-worker` and `nft-gate-ci`; each crate that uses the core pins `nft-gate-core` at exactly that version),
+the test harness package `worker/package.json` and the image. Bump `gateway-workers/package.json` (+ lockfile), `worker/package.json` (+ lockfile), the workspace version and those
+pins together, then tag `v<version>`.
 `scripts/check-versions.sh` runs in Node CI, Rust CI and every publish workflow. It fails when the npm and Cargo versions
-differ, when a crate does not inherit the workspace version, when the pin differs, or when a tag does not match. The tag's
+differ, when a crate does not inherit the workspace version, when a pin differs, or when a tag does not match. The tag's
 `crates-publish.yml` publishes `nft-gate-core` first, then `nft-gate-gateway`.
 
 ## Wire protocol coupling
@@ -63,7 +71,7 @@ Both gateways MUST produce identical decisions for any given proof token. For th
 decision is `core/`); until the TypeScript Worker is retired the coupling is also enforced by the shared
 `conformance/vectors.json` golden vectors, which the core's tests and the TypeScript tests both consume.
 
-If you change any of the following, update the core AND (until it is retired) the TypeScript Worker, and regenerate the vectors:
+If you change any of the following, update the core AND (until it is retired) the TypeScript Worker (the differential run `worker/tests/differential.test.mjs` fails when the two diverge), and regenerate the vectors:
 - The signed message (`nft-gate:access:v2` and its audience lines: origin, gate, network, nonce, consume)
 - The proof token format (`base64(JSON { address, nonce, signature, consumeDigest? })`)
 - The `Authorization: Bearer` / `X-Access-Proof` header preference logic
@@ -97,7 +105,7 @@ for the on-chain side.
 
 ## Gateway selection guide
 
-| Use `gateway-workers/` if | Use `gateway-rust/` if |
+| Use `worker/` (Rust) / `gateway-workers/` (TypeScript, superseded pending cutover) if | Use `gateway-rust/` if |
 | --- | --- |
 | Zero-infra Wrangler deploy | Docker / k8s / bare metal |
 | Cloudflare edge distribution | Redis for horizontal scale-out |
@@ -148,7 +156,7 @@ The gateway does NOT trust:
 - Do not add custom auth flows — the whole point is the wire protocol is canonical.
 - Do not skip conformance vector tests when changing signature verification.
 - Do not put decision logic, policy or request flow in an adapter, and do not fix a rule in one gateway only: it belongs in `core/`.
-- Do not add JS/TS backend code (the standing rule); the TypeScript Worker is retiring.
+- Do not add JS/TS backend code (the standing rule); the TypeScript Worker is superseded and retires after the cutover. `worker/tests` is test code, `worker/package.json` carries wrangler and the harness only.
 - Do not hardcode secrets — all config is env-var / wrangler secrets.
 
 ---

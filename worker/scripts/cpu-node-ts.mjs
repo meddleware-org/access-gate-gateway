@@ -1,5 +1,5 @@
 // Same CPU measurement as cpu-node.cjs, for the existing TypeScript Worker's verification path: a scratch
-// Worker (see README) whose /bench?scheme= calls gateway-workers' verifyPersonalMessageSignature over the
+// Worker (see docs/SPIKE-FINDINGS.md: a scratch Worker outside the repo) whose /bench?scheme= calls gateway-workers' verifyPersonalMessageSignature over the
 // shared vectors and reports thread/process CPU around the verification calls, bundled by
 // `wrangler deploy --dry-run --outdir`. Module load CPU is measured outside, as in the Rust harness.
 //   node scripts/cpu-node-ts.mjs <bundle.js> [iterations]

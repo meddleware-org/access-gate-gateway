@@ -12,11 +12,13 @@
   AUDIT_TEMPLATE_PROXY.md (2026-10-08)
 **Deployment status:**
 
-- **This Worker will be replaced by a Rust Worker (workers-rs) built on the shared `nft-gate-core` crate** — status: **in progress**
-  (decision 2026-10-19: the standing rule is no JS/TS backend code; a feasibility spike returned GO). The shared core and the native gateway
-  on it are committed locally as 0.0.26 (no change to this Worker's code); the Worker adapter is next, then a shadow deploy, and the cutover gate is the CPU-time
-  p99 in Workers analytics (the maintainer deploys). This TypeScript Worker stays live, and is the rollback, until then. The Workers KV nonce
-  backend (F2) is not carried over. See the `gateway-rust` audit F49 and F50.
+- **This Worker is to be replaced by a Rust Worker (workers-rs, `worker/`) built on the shared `nft-gate-core` crate** — status: **built, shadow not yet
+  deployed** (0.0.27, committed locally, 2026-10-19; decision 2026-10-19: the standing rule is no JS/TS backend code; a feasibility spike returned GO). The Rust
+  Worker replaces this one 1:1 (same Worker name, Durable Object class `NonceRateState`, migration tag `v1` and SQLite schema), is covered by black-box workerd suites
+  that port every behavioural case of this Worker's tests and by a differential run that asserts identical status, body, headers and upstream requests against this
+  Worker (`worker/README.md`, test map). Not done: the shadow deploy and the CPU-time p99/p99.9 gate in Workers analytics (maintainer: `OPERATOR_TASKS.md`), then the
+  cutover. **This TypeScript Worker stays live, and is the rollback; this audit file stays canonical until the cutover.** The Workers KV nonce backend (F2) is not carried
+  over. The Rust Worker's own findings are F51–F57 below; `gateway-rust` audit F49 and F50 cover the shared core.
 - **Live on testnet** at route `sui-walrus-relay-testnet.meddleware.co.uk/*` (zone
   `meddleware.co.uk`, route ID `63427e4d…7551`). The Worker was redeployed from `main` on 2026-10-09:
   `Deploy Workers` run of 2026-10-09T17:49Z on `367e673` succeeded (the run of 14:13Z on `574fe70`, the
@@ -73,6 +75,8 @@
   1 DEFERRED, 6 Positive (47 findings). OQ3 and OQ4 decided and the plan work of 2026-10-19 (0.0.25, committed
   locally, unreleased, not deployed; F48 added): 30 RESOLVED, 3 MITIGATED, 5 ADJUDICATED, 4 ACCEPTED-RISK,
   0 DEFERRED, 6 Positive (48 findings). Rust-port note of 2026-10-19 (0.0.26, committed locally, no change to this Worker's code): counts unchanged.
+  The Rust Worker (0.0.27, built, not deployed) adds F51–F57, dispositioned separately (F51 MITIGATED, F52 ACCEPTED-RISK, F53 MITIGATED, F54 MITIGATED, F55 MITIGATED,
+  F56 Positive, F57 MITIGATED); the counts above are this TypeScript Worker's until the cutover closes this audit.
 
 **Wrangler / compatibility:** wrangler `^4.143.0` (lockfile 4.151.0 on 2026-10-19, workerd 1.20260815.1);
   `compatibility_date = "2026-06-01"`; `compatibility_flags = ["nodejs_compat"]`; `workers_dev = false`,
@@ -210,13 +214,14 @@ launch on Free), verify the live API token's scope (F31), and obtain an external
 its first run after the release.
 
 
-**Replacement by the Rust Worker (in progress, 2026-10-19).** The maintainer's standing rule is no JS/TS backend code, so this Worker is to be rebuilt in Rust
-(workers-rs) on `nft-gate-core`, the decision logic that `gateway-rust` now shares (`gateway-rust` audit F49: one implementation of proof, signatures, decision, Sui
-reads, state machines, header / path / config policy and the request flow). The spike (`spike-workers-rs/FINDINGS.md`) measured the wasm bundle (0.29 MiB gzip), a
-first verification of 4 ms against 17 ms here, a SQLite Durable Object that passes the same 39-step scenario as the pure model, and a 90 MiB streamed body with flat
-memory. Open until the port lands: the Worker adapter itself, a shadow deploy, and the CPU-time p99 in Workers analytics as the cutover gate. The Durable Object
-class `NonceRateState` and its migration tag must be kept under the same Worker name, or the redemption store starts empty (a replay window). Until the cutover this Worker and
-these findings stay current; afterwards they are closed with the TypeScript source.
+**Replacement by the Rust Worker (built, shadow not yet deployed, 2026-10-19).** The maintainer's standing rule is no JS/TS backend code, so this Worker is rebuilt in Rust
+(workers-rs) on `nft-gate-core`, the decision logic that `gateway-rust` shares (`gateway-rust` audit F49: one implementation of proof, signatures, decision, Sui
+reads, state machines, header / path / config policy and the request flow). The adapter exists as `worker/` (0.0.27): Durable Object state (same class, tag and schema), a streamed `fetch` upstream,
+CORS, the quota guard, a `nft-gate-ci` helper that replaces `check-upstream-auth.mjs` and `origin-lock.ts`, and the workflows `deploy-worker-rust.yml` (shadow, then cutover) and a `worker` CI job
+(clippy with the panic lints, wasm build, a 1.5 MiB gzip size gate, the workerd suites, the differential run against this Worker). Of this Worker's 251 tests, 237 are ported, 2 replaced by instruments,
+3 skipped before and after, and 9 removed with a stated reason (`worker/README.md`). Measured locally: wasm 0.93 MiB raw, 358 KiB gzip dry-run total (this Worker: 137 KiB), first
+verification 4 ms (17 ms here), the 90 MiB streamed body with flat wasm memory. Open until the cutover: the shadow deploy and the **CPU-time p99 ≤ 5 ms / p99.9 ≤ 10 ms over a week on Free** gate (F55; the maintainer
+deploys and reads the analytics). Until then this Worker and these findings stay current; afterwards they are closed with the TypeScript source, and F51–F57 move to a Rust Worker audit.
 ---
 
 ## Threat model / trust boundaries
@@ -1493,6 +1498,95 @@ meters, warn and degrade thresholds in both modes, the GraphQL-error case, the s
 datasets follow the Cloudflare docs examples but were not run against the live API (the guard is not
 enabled); an unknown field now fails loudly.
 
+### F51 — Rust Worker: a panic is an uncatchable wasm trap (Rust Worker, built, not deployed)
+
+**Severity:** Low   **Disposition:** MITIGATED (0.0.27; commit pending)
+**Where:** `worker/Cargo.toml` (`[lints.clippy]`), `worker/scripts/lint-canary.sh`, `worker/tests/panic.test.mjs`, `.github/workflows/rust-ci.yml` (`worker` job).
+
+**Issue:** On wasm32 a Rust panic is a trap: it cannot be caught and turned into the JSON + CORS answer every other failure gets. The TypeScript Worker has a
+top-level `catch`; the Rust Worker cannot.
+
+**Impact:** A panic returns the runtime's generic 500 text with no CORS grant (a browser cannot read it) and forwards nothing (fails closed). Measured with the test-only
+`/__test/panic` route: the runtime answers `500`, and `worker-build`'s trap recovery re-instantiates the module, so the next request is served normally.
+
+**Remediation / evidence:** The request path is linted free of the constructs that panic: `clippy::unwrap_used`, `expect_used`, `panic` and `indexing_slicing` are `deny` for the crate (tests excepted, the
+test-only hooks module allows the last two with a comment), CI runs clippy `-D warnings` natively and for `wasm32-unknown-unknown`, with and without the test feature, and `lint-canary.sh`
+fails the build if a throw-away module using all four is accepted. Every error path is a value mapped to the JSON + CORS shape (`respond` in `lib.rs`; a JS exception becomes `502 bad gateway`).
+Residual: arithmetic overflow aborts (`overflow-checks = true`, as in the native gateway) and a dependency panic; both fail closed as above.
+
+### F52 — Rust Worker: workers-rs, wasm-bindgen and worker-build are 0.x and move together (Rust Worker, built, not deployed)
+
+**Severity:** Low   **Disposition:** ACCEPTED-RISK (0.0.27; commit pending)
+**Where:** `worker/Cargo.toml`, `worker/README.md` ("Toolchain"), `.github/dependabot.yml`.
+
+**Issue:** workers-rs is 0.x (its MSRV rose in a patch release), the `wasm-bindgen` CLI that `worker-build` runs must equal the crate exactly, and the generated JS glue (about 32 KB, build output) ships in the bundle.
+
+**Impact:** A careless bump breaks the build or, worse, the deployed glue; an upstream regression reaches the paywall only through a deploy the maintainer chooses.
+
+**Remediation / evidence:** Every member of the set is pinned exactly (`=0.8.7`, `=0.2.129`, `=0.4.79`, `=0.3.106`), `worker-build 0.8.7` is installed `--locked`, Dependabot ignores the set (bumped by hand in one change), `rust-version = "1.91"` is declared for
+this crate only (core and gateway-rust stay at 1.88; the `msrv` job keeps checking those). The TypeScript Worker is the rollback until retirement. Accepted by the maintainer (generated glue is acceptable).
+
+### F53 — Rust Worker: build-time downloads of wasm-bindgen, Binaryen and esbuild (Rust Worker, built, not deployed)
+
+**Severity:** Low   **Disposition:** MITIGATED (0.0.27; commit pending)
+**Where:** `worker/scripts/fetch-build-tools.sh`, `rust-ci.yml`, `deploy-worker-rust.yml`.
+
+**Issue:** `worker-build` downloads three binaries at build time without verifying them.
+
+**Impact:** A compromised download would put attacker code into the Worker that gates the paywall.
+
+**Remediation / evidence:** CI downloads the same three artifacts itself, verifies a pinned SHA-256 for each (esbuild's also equals the npm registry's `dist.integrity`), and points `worker-build` at them with
+`WASM_BINDGEN_BIN`, `WASM_OPT_BIN`, `ESBUILD_BIN`. The deploy workflow does the same before building. Residual: the checksums are trust-on-first-use of the release assets; locally `worker-build` still fetches its own unless the script is used.
+
+### F54 — Rust Worker: Durable Object continuity across the cutover (Rust Worker, built, not deployed)
+
+**Severity:** Medium   **Disposition:** MITIGATED (0.0.27; commit pending)
+**Where:** `worker/src/do_state.rs`, `worker/wrangler.toml`, `worker/tests/state.test.mjs`, `deploy-worker-rust.yml`.
+
+**Issue:** A deploy under a different script name, class or migration tag starts with empty Durable Object storage: the 30-day redemption record is lost, so every spent consume becomes redeemable once more (a replay window bounded by the 5-day consume age, F24).
+
+**Impact:** Paid uses could be redeemed twice within the window.
+
+**Remediation / evidence:** The Rust Worker keeps the Worker name `nft-gate-gateway`, the class `NonceRateState`, the migration tag `v1`, the instance names (`nonce:<shard>`, `nonce:redeem`), the key prefixes and the exact SQLite schema, including the
+`ALTER TABLE ADD COLUMN token` upgrade (tested against a table that predates it, rows kept). `core/tests/scenario.json` runs against the real SQL (39 steps) and 100-way atomicity is asserted. The cutover mode of
+`deploy-worker-rust.yml` is hard-wired to the live name and needs `confirm=cutover`; the shadow mode refuses the live name and, by design, uses a new empty namespace. Residual: the first real cutover (maintainer) is the proof; rollback to the
+TypeScript Worker keeps working because both read the same tables.
+
+### F55 — Rust Worker: CPU time of the wasm Worker on Free is not measurable locally (Rust Worker, built, not deployed)
+
+**Severity:** Medium   **Disposition:** MITIGATED (0.0.27; commit pending) — the edge percentiles are read after the shadow deploy (as F11)
+**Where:** `worker/README.md` ("Runbook", "Measurements"), `worker/scripts/coldstart.mjs`.
+
+**Issue:** The Free plan allows 10 ms of CPU per request. workerd exposes no CPU clock; whether the platform charges wasm instantiation to the first request can only be read from a deployment.
+
+**Impact:** A p99 near 10 ms would fail requests on Free (fail closed).
+
+**Remediation / evidence:** Local wall-clock figures (workerd 2026-10-12): first request in a fresh process 19 ms median including process-level effects (compare the TypeScript Worker only on the same machine), warm verification 0.56 / 0.64 / 2.06 ms
+(ed25519 / secp256k1 / secp256r1), first verification in a fresh isolate 4 ms (17 ms for the TypeScript Worker). The cutover is gated on **p99 ≤ 5 ms and p99.9 ≤ 10 ms in Workers analytics over a week of real traffic on the Free plan**
+for the shadow Worker; if it fails, the options are listed (opt-level, bundle size, Workers Paid with `[limits] cpu_ms`). Residual: the gate itself, an operator item.
+
+### F56 — Positive: the Rust Worker is held to the TypeScript Worker's behaviour by a differential run and ports of its tests
+
+**Severity:** Positive
+
+- `worker/tests/differential.test.mjs` runs the same scenarios against this Worker and the Rust Worker under workerd and fails on any difference in status, body bytes, headers or the requests the upstream
+  receives: routes and CORS on every path class, the 508 guard, public paths and the edge cache, the challenge/public/pre-auth budgets and IPv6 /64 keying, the single-use flow (success, replay, redeemed, leased, release on failure,
+  denials, chain faults), the proxy (cap, framing, header policy, unsafe paths), ownership mode, an unreachable upstream and six startup misconfigurations.
+- Of this Worker's 251 tests, 237 are ported, 2 replaced by measurement instruments, 3 skipped before and after, 9 removed with a reason (the map is `worker/README.md`).
+- The shared conformance vectors run natively (core) and as wasm in workerd (golden signatures, golden proof tokens end to end, audience mismatches).
+
+### F57 — Rust Worker: the test-hooks build is a different binary from the deployed one (Rust Worker, built, not deployed)
+
+**Severity:** Low   **Disposition:** MITIGATED (0.0.27; commit pending)
+**Where:** `worker/src/hooks.rs`, `worker/Cargo.toml` (`[features] test-hooks`), `worker/tests/panic.test.mjs`.
+
+**Issue:** Seams the suites need (the Durable Object with a pinned clock, fault injection, a signature benchmark, the quota GraphQL URL override, a panic route) exist only under the cargo feature `test-hooks`, so part of the suites run on a build that is not the deployed one.
+
+**Impact:** A seam that leaked into the deployed build would be a backdoor (a clock override in the redemption store, a redirect for the analytics token).
+
+**Remediation / evidence:** The deployed build (`build/`, the size gate, `wrangler deploy`) never enables the feature; `panic.test.mjs` asserts the deployed build serves none of the `/__test/*` routes; every behavioural suite (router, proxy,
+redemption, config, limits, chain, differential) runs on the feature-less build, and only the Durable-Object-direct, fault-injection, quota, conformance-benchmark and streaming-memory cases use the feature build.
+
 ---
 
 ## Section A — Invariant verification matrix
@@ -1824,6 +1918,8 @@ PROXY lens §C:
 - [x] upstream credentials never follow redirects — F4
 - [x] admission-state tests (stale holder, lapsed lease, store error) green; sibling passes the shared
   vectors — F3, I25
+- [x] Rust Worker (`worker/`, 0.0.27, replacing this Worker): panic lints enforced with a canary, wasm build with a 1.5 MiB gzip size gate, the workerd suites and the differential
+  run against this Worker in CI (`rust-ci.yml` `worker` job), build tools checksummed — F51, F53, F56, F57 (commit pending)
 
 ### pre-mainnet
 
@@ -1833,6 +1929,8 @@ PROXY lens §C:
   Free at launch) and the body cap set to the zone limit exactly (0.0.25); CPU benchmarked locally (warm
   verification ≤ 2.2 ms wall in workerd). Open: the operator reads CPU p99 and `exceededCpu` from Workers
   analytics after deploying 0.0.25
+- [ ] Rust Worker shadow-deployed, CPU time p99 ≤ 5 ms and p99.9 ≤ 10 ms read from Workers analytics over a week on Free, then cut over (same name, class and migration tag) and this Worker
+  retired — F54, F55 (maintainer: `OPERATOR_TASKS.md`; `worker/README.md` "Runbook")
 - [ ] deploys gated on CI **and** a protected environment (reviewers configured or the choice
   recorded); token scopes minimal — branch policy done; reviewer choice recorded (OQ4 (a), F16 RESOLVED);
   open: the operator verifies the live token's scope and expiry (F31, `OPERATOR_TASKS.md`)
@@ -2116,10 +2214,10 @@ PROXY lens:
 - **Workers Free limits.** At launch a cold isolate's first verification can exceed the 10 ms CPU limit
   (measured locally, F11), and past 100,000 Worker or DO requests a day gated uploads fail until 00:00 UTC
   (about 12,500 uploads a day, workspace cost model §5). Both fail closed; the switch to Paid is the remedy.
-- **A rewrite in flight (2026-10-19).** The Rust Worker replaces this one. Risks of the move, not of this code: workers-rs is 0.x (worker, wasm-bindgen
-  and worker-build move together; pin exactly and keep this Worker as the rollback), wasm instantiate time may count against the 10 ms Free CPU limit of the first request
-  (only Workers analytics after a real deploy can tell, so the cutover is gated on the p99), and a new Worker script name would start with an empty redemption store (keep
-  the name, the `NonceRateState` class and the migration tag). A panic in the Rust Worker returns the runtime's generic 500 without CORS, which fails closed.
+- **A rewrite awaiting its cutover (2026-10-19).** The Rust Worker replaces this one and is built, not deployed. Risks of the move, not of this code (F51–F57): workers-rs is 0.x (worker, wasm-bindgen
+  and worker-build move together; pinned exactly, this Worker stays the rollback), wasm instantiate time may count against the 10 ms Free CPU limit of the first request
+  (only Workers analytics after a real deploy can tell, so the cutover is gated on the p99/p99.9), a deploy under a new script name would start with an empty redemption store (the cutover mode is hard-wired to the
+  live name, class and tag), and a panic returns the runtime's generic 500 without CORS (fails closed; linted out of the request path).
 
 ---
 
@@ -2240,6 +2338,14 @@ PROXY lens:
     Where the Rust and TypeScript configuration rules differed the stricter rule is the shared one (`core/README.md`), so `config.ts` is now the looser of the two until it retires
     (the lease check ignores the body-read time; loopback `http://` needs no flag; hosts in `ALLOWED_ORIGINS` are not restricted to lower-case ASCII).
   - Measured 2026-10-19 (Node 26): `vitest run` 251 tests (248 passed, 3 skipped), unchanged; `scripts/check-versions.sh` passes (0.0.26). Counts unchanged: **30 RESOLVED, 3 MITIGATED, 5 ADJUDICATED, 4 ACCEPTED-RISK, 0 DEFERRED**; 6 Positive. 48 findings.
+
+- 2026-10-19 (Part E, 0.0.27) — The Rust Worker is built (`worker/`); this Worker's code is unchanged.
+  - Added F51–F57 for the Rust Worker (F51 MITIGATED, F52 ACCEPTED-RISK, F53 MITIGATED, F54 MITIGATED, F55 MITIGATED, F56 Positive, F57 MITIGATED), counted separately from this Worker's 48 (counts above unchanged);
+    Section D gains one ticked and one unticked (cutover) row; the Risks bullet and the Deployment status are updated. This file stays canonical until the cutover.
+  - Measured (Node 26, workerd 2026-10-12, wrangler 4.151.0): this Worker's `tsc --noEmit`, `eslint .`, `vitest run` (251 tests, 248 passed, 3 skipped) and `npm audit --audit-level=high` (0) unchanged;
+    `scripts/check-versions.sh` passes (0.0.27, now also covering `worker/` and `ci/`). Rust: 218 (+3 ignored) native tests, 177 workerd/Node tests including the differential run against this Worker,
+    clippy `-D warnings` (native and wasm32, with and without `test-hooks`), `cargo deny check`, `cargo +1.88 check` of core and gateway-rust, lint canary, size gate (357.5 KiB gzip dry-run total, 978,002 B wasm).
+  - Not run: the shadow deploy, Workers analytics (CPU percentiles), the cutover, `deploy-worker-rust.yml` itself (the maintainer runs it), a Docker build of `gateway-rust` (the context was reproduced and `cargo check` run in it).
 
 ## Pre-save consistency checklist (this pass)
 

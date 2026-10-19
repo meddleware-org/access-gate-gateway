@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.27] - 2026-10-19
+
+Released with the Workers gateway 0.0.27 (one version for every artifact). Still undeployed. **Behaviour is unchanged.**
+
+### Changed
+
+- `nft-gate-core`: `StateStore::rate_check` returns `anyhow::Result<bool>`; a rate store that cannot answer (the Rust Worker's Durable Object) is answered `503 gateway state unavailable` instead of being waved through. The
+  in-memory limiter used here never errs. Test: `a_rate_store_that_cannot_answer_is_a_503_never_an_unmetered_pass`.
+- This crate now sits in a workspace with two more members, the Rust Cloudflare Worker `worker/` (`nft-gate-worker`, not published) and the CI helper `ci/` (`nft-gate-ci`, not published); the Docker build context keeps their manifests and sources.
+
+### Added
+
+- `nft-gate-core`: `quota` (the Workers quota guard's allowances, windows, GraphQL query and parsing, as pure functions, 11 tests) and two ownership-cache tests (TTL expiry, size bound).
+
 ## [0.0.26] - 2026-10-19
 
 Released with the Workers gateway 0.0.26 (one version for every artifact). Still undeployed. **Behaviour is unchanged** except the

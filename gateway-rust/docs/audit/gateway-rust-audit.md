@@ -1537,7 +1537,7 @@ a flag); `ALLOWED_ORIGINS` hosts are lower-case ASCII (TypeScript accepted any h
 whitespace or a backslash in a URL is refused (TypeScript's `new URL` did; Rust did not). The TypeScript test cases of `config.test.ts` are carried into the core's tests.
 The Workers KV nonce backend is not carried over (it was refused with `SINGLE_USE=true` and only eventually consistent otherwise).
 
-**Not done / what remains:** the Rust Worker adapter (Durable Object state, streamed `fetch` upstream) and the measured cutover (CPU-time p99 in Workers analytics on a shadow
+**Not done / what remains:** the Rust Worker adapter is built (0.0.27, `worker/`; Durable Object state, streamed `fetch` upstream); what remains is the shadow deploy and the measured cutover (CPU-time p99/p99.9 in Workers analytics on a shadow
 deploy, which the maintainer runs); until then the TypeScript Worker stays the live implementation and its tests (248 passed, 3 skipped on 2026-10-19) keep consuming the
 shared vectors. This finding closes when it is retired. Two operator notes: `nft-gate-core` is a new crate to publish (its crates.io trusted publisher is a maintainer step, `crates-publish.yml` publishes it first), and the
 Docker build context is now the repository root.
@@ -1725,7 +1725,7 @@ N/A — the gateway builds no PTBs. The coupling it does have is read-side:
 
 ### B.SC-3 Cross-implementation parity
 
-Since 0.0.26 the Rust side is one implementation (`nft-gate-core`, F49): parity between this gateway and the future Rust Worker holds by construction, and
+Since 0.0.26 the Rust side is one implementation (`nft-gate-core`, F49): parity between this gateway and the Rust Worker (`worker/`, 0.0.27) holds by construction, and
 the table below concerns the TypeScript Worker until it retires.
 
 The parity table's home is `gateway-workers-audit.md` §B.SC-3; it covers both implementations, so it
@@ -2325,6 +2325,14 @@ PROXY lens:
     4 MITIGATED** (F10, F27, F29, F49), **6 ADJUDICATED, 3 ACCEPTED-RISK** (F11, F25, F34), **3 DEFERRED** (F30, F31, F32); 8 Positive.
   - **Not done / not verified here:** the Rust Worker adapter and the measured cutover; the new crate's crates.io trusted publisher (maintainer); a CI run of the new `core` job and of the image build on
     GitHub (run locally instead); the cosign steps. Coverage 2026-10-19: 92.0 % of lines, 91.3 % of functions (C.1).
+
+- 2026-10-19 (Part E, 0.0.27) — The Rust Worker adapter is built on the core (F49); one core change touches this crate.
+  - **Done:** `StateStore::rate_check` is fallible (`anyhow::Result<bool>`): a rate store that cannot answer (the Worker's Durable Object) is a `503 gateway state unavailable`, never an unmetered pass; the in-memory
+    limiter here never errs, so behaviour is unchanged (one new core test pins the 503 on every path class). The core gains the pure quota-guard logic (`core/src/quota.rs`) and two ownership-cache tests
+    (TTL expiry, bound). The workspace gains `worker` (`nft-gate-worker`, rust-version 1.91 for that crate only) and `ci` (`nft-gate-ci`); `scripts/check-versions.sh` covers them; the Docker context keeps their manifests and sources.
+  - **Measured 2026-10-19:** `cargo fmt --check` clean; `cargo clippy --all-targets --locked --workspace -- -D warnings` clean; `cargo test --locked --workspace` 218 passed, 0 failed, 3 ignored (core 125, gateway-rust 65, worker glue 12, ci 16); `cargo +1.88 check --locked -p nft-gate-core -p nft-gate-gateway` passes;
+    `cargo deny check` green; `scripts/check-versions.sh` passes (0.0.27). Counts of this audit unchanged.
+  - **Not done / not verified here:** the shadow deploy and the cutover (maintainer); a GitHub run of the `worker` job and of `deploy-worker-rust.yml`.
 
 ## Pre-save consistency checklist (this pass)
 

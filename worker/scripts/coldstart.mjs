@@ -1,7 +1,7 @@
 // Cold-start / first-verification measurement under real workerd, one fresh workerd process per sample.
 //   node scripts/coldstart.mjs rust <dir with index.js + index_bg.wasm> [samples]
 //   node scripts/coldstart.mjs ts   <esbuild bundle .js>                [samples]
-//   env WORKERD=<path to workerd> (default: gateway-workers/node_modules/@cloudflare/workerd-linux-64/bin/workerd)
+//   env WORKERD=<path to workerd> (default: worker/node_modules/@cloudflare/workerd-linux-64/bin/workerd; the rust sample dir is build-hooks/, which has the /__test/bench route)
 //
 // Method and its limits: workerd exposes no CPU clock to a Worker. Per sample we spawn workerd and report
 //   spawnToListenMs  process start until the TCP port accepts (workerd + config load),

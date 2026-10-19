@@ -21,7 +21,12 @@ nft-gate/
 │   │   ├── headers.rs, forward.rs, net.rs, origin.rs   # header / path / CORS / forwarding / client-IP / origin policy
 │   │   └── config.rs           # Env port + the validated GatewayConfig
 │   └── tests/                  # conformance vectors, real-signature decisions, scenario.json, scripted Transport
-├── gateway-workers/            # Cloudflare Workers gateway (TypeScript; live; being replaced by a Rust Worker on the core)
+├── worker/                     # the Rust Cloudflare Worker (workers-rs) on the core: built, shadow not yet deployed; replaces gateway-workers 1:1
+│   ├── src/                    # lib.rs, state.rs + do_state.rs (Durable Object), upstream.rs (streamed proxy), transport.rs, config.rs, quota_guard.rs ...
+│   ├── tests/                  # black-box workerd suites + the differential run against gateway-workers (Node, test code only)
+│   └── scripts/                # build, checksummed tool download, size gate, lint canary, shadow config, cold-start instruments
+├── ci/                         # nft-gate-ci: UPSTREAM_AUTH_HEADERS check and origin-lock verdicts for the workflows
+├── gateway-workers/            # Cloudflare Workers gateway (TypeScript; LIVE; superseded pending cutover, not deleted: it is the rollback)
 │   ├── src/                    # index.ts, config.ts, verify.ts, chain.ts, proxy.ts, quota.ts, state/ (DO + KV) ...
 │   ├── test/                   # vitest unit + cloudflare-integration tests
 │   ├── wrangler.toml           # Cloudflare Workers config (edit routes here)
@@ -30,7 +35,6 @@ nft-gate/
 │   ├── src/                    # main.rs, config.rs, state.rs, challenge.rs, proxy.rs, headers.rs, grpc.rs, sui_rpc.rs, http_client.rs
 │   ├── Dockerfile              # build context = the repository root
 │   └── Cargo.toml              # nft-gate-gateway (version from the workspace)
-├── spike-workers-rs/           # feasibility spike + measurement harness for the Rust Worker (own workspace; not released)
 └── README.md                   # Top-level quickstart + wire protocol docs
 ```
 
@@ -47,6 +51,9 @@ cd gateway-workers && npm run test:all
 
 # Rust: core + gateway-rust (unit, router, scripted ports, conformance vectors)
 cargo test --locked --workspace
+
+# The Rust Worker: build both variants, size gate, every workerd suite, the differential run (needs `npm ci` in gateway-workers too)
+cd worker && npm ci && bash scripts/build.sh all && bash scripts/size-gate.sh && npm test
 
 # The core alone, and its wasm32 build (the Worker's target)
 cargo test --locked -p nft-gate-core

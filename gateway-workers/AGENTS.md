@@ -1,5 +1,9 @@
 # AGENTS.md — gateway-workers
 
+## Status
+
+Superseded, pending cutover (0.0.27): the Rust Worker `../worker` replaces this package; keep it working (it is live and the rollback), add nothing. See `../worker/README.md`.
+
 ## Package
 
 `@meddleware/nft-gate-gateway` — Cloudflare Workers implementation of the nft-gate gateway.

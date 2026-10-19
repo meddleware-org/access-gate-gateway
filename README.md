@@ -14,13 +14,16 @@ deployment target:
 
 | Implementation | Directory | Distributed as | Deploy target | State backend |
 | --- | --- | --- | --- | --- |
-| Cloudflare Workers | [`gateway-workers/`](gateway-workers/) | [npm package](https://www.npmjs.com/package/@meddleware/nft-gate-gateway) | Wrangler deploy | Durable Objects or KV |
+| Cloudflare Workers (live, TypeScript; superseded pending cutover) | [`gateway-workers/`](gateway-workers/) | [npm package](https://www.npmjs.com/package/@meddleware/nft-gate-gateway) | Wrangler deploy | Durable Objects or KV |
+| Cloudflare Workers (Rust; built, shadow not yet deployed) | [`worker/`](worker/) | built from source (`worker-build`) | `deploy-worker-rust.yml` (shadow, then cutover) | Durable Objects |
 | Rust / Axum | [`gateway-rust/`](gateway-rust/) | [crates.io](https://crates.io/crates/nft-gate-gateway) / Docker | Docker / k8s | In-memory or Redis |
 
-The Workers gateway is currently TypeScript and is **being replaced by a Rust Worker (workers-rs) built on the
-same core** (in progress: the core is shared and compiles for `wasm32-unknown-unknown`; the Worker adapter
-follows, with the TypeScript gateway kept as the live rollback until a measured cutover). When that lands the
-TypeScript backend is retired and there is one implementation of the logic on both platforms.
+The live Workers gateway is still TypeScript (`gateway-workers/`) and is **superseded, pending cutover, by a Rust
+Worker (workers-rs) built on the same core**: [`worker/`](worker/) (0.0.27) is built and tested (workerd suites that
+port every behavioural case of the TypeScript tests, plus a differential run against it), but not yet deployed. The
+maintainer deploys it as a shadow first and cuts over after reading the CPU-time p99 in Workers analytics; the
+TypeScript gateway stays as the rollback until then and is retired afterwards, leaving one implementation of the
+logic on both platforms. See [worker/README.md](worker/README.md) (build, test map, runbook).
 
 Both gateways serve the same wire protocol and verify the same [conformance vectors](conformance/).
 
@@ -140,15 +143,17 @@ Meddleware's own deployment decision (audit OQ9, 2026-10-19): the Rust gateway *
 ```bash
 cargo fmt --check
 cargo clippy --all-targets --locked --workspace -- -D warnings
-cargo test --locked --workspace                      # core + gateway-rust
+cargo test --locked --workspace                      # core + gateway-rust + worker (glue) + ci
 cargo build -p nft-gate-core --target wasm32-unknown-unknown   # the Worker's target
-(cd gateway-workers && npm ci && npm run test:all)   # the TypeScript Workers gateway
+(cd worker && npm ci && bash scripts/build.sh all && npm test)  # the Rust Worker: wasm build, workerd suites, differential
+(cd gateway-workers && npm ci && npm run test:all)   # the TypeScript Workers gateway (until it is retired)
 bash scripts/check-versions.sh                       # one version for every artifact
 ```
 
 The Rust crates form one Cargo workspace at the repository root (`Cargo.toml`, `Cargo.lock`, `deny.toml`):
-`core/` and `gateway-rust/`. `spike-workers-rs/` is the feasibility spike and measurement harness for the Rust
-Worker (its own workspace, newer toolchain; not part of any release).
+`core/`, `gateway-rust/`, `worker/` (the Cloudflare Worker; rust-version 1.91 for this crate only) and `ci/` (the
+helper the deploy and origin-lock workflows call). The feasibility spike's findings are kept in
+[docs/SPIKE-FINDINGS.md](docs/SPIKE-FINDINGS.md).
 
 ## License
 
