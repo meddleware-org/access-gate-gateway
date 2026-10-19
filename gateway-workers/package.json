@@ -32,15 +32,15 @@
     "sync:vectors": "node ../scripts/sync-vectors.mjs"
   },
   "dependencies": {
-    "@meddleware/access-gate-client": "^0.0.6",
+    "@meddleware/access-gate-client": "^0.0.9",
     "@meddleware/nft-gate-client": "^0.0.17",
     "@mysten/sui": "^2.33.1",
     "@noble/curves": "~2.4.0",
     "@noble/hashes": "~2.4.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "~0.22.0",
-    "@cloudflare/workers-types": "~5.20261005.1",
+    "@cloudflare/vitest-pool-workers": "~0.23.0",
+    "@cloudflare/workers-types": "~5.20261015.1",
     "eslint": "^10.11.0",
     "jiti": "^2.7.0",
     "typescript": "^6.0.0",
