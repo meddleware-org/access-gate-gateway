@@ -1,4 +1,4 @@
-// Runs scripts/scenario.json against the real SQLite-backed Durable Object served by `wrangler dev`
+// Runs core/tests/scenario.json against the real SQLite-backed Durable Object served by `wrangler dev`
 // (TEST_CLOCK=1 lets the scenario pin the DO's clock). Each section uses a fresh DO shard.
 //   node scripts/differential.mjs http://127.0.0.1:8799
 import fs from 'node:fs'
@@ -6,7 +6,7 @@ import path from 'node:path'
 import assert from 'node:assert/strict'
 
 const base = process.argv[2] ?? 'http://127.0.0.1:8799'
-const scenario = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, 'scenario.json'), 'utf8'))
+const scenario = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '../../core/tests/scenario.json'), 'utf8'))
 const run = Math.random().toString(36).slice(2, 8)
 let steps = 0
 for (const [si, section] of scenario.sections.entries()) {

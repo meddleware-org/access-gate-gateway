@@ -125,7 +125,7 @@ impl Rig {
         tweak(&mut cfg);
         let http = HttpClient::new().unwrap();
         let state = Arc::new(AppState {
-            chain: SuiRpc::new(
+            chain: crate::sui_rpc::new_sui_rpc(
                 http.clone(),
                 cfg.sui_rpc_url.clone(),
                 0,

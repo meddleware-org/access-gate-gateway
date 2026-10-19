@@ -16,7 +16,7 @@ crate-type = ["cdylib"]
 bench = []
 
 [dependencies]
-nft-gate-core = { path = "../core" }
+nft-gate-core = { path = "../../core" }
 worker = { version = "=0.8.7", features = ["http"] }
 wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "=0.4.79"

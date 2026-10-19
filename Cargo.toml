@@ -1,0 +1,25 @@
+# Cargo workspace for the Rust side of nft-gate: ONE implementation of the decision logic
+# (`core`, compiled natively AND to wasm32 for the Cloudflare Worker) plus the hyper/axum adapter
+# (`gateway-rust`). The Worker crate joins the workspace when the Rust port reaches it; until then
+# `spike-workers-rs/` (its own workspace, newer toolchain) is the prototype and measurement harness.
+[workspace]
+members = ["core", "gateway-rust"]
+resolver = "2"
+
+# One version for every artifact (D16): core, gateway-rust, the image and the npm package move together.
+[workspace.package]
+version = "0.0.25"
+edition = "2021"
+# The dependency graph's floor (checked in CI by the `msrv` job for core and gateway-rust).
+rust-version = "1.88"
+license = "0BSD"
+repository = "https://github.com/meddleware-org/nft-gate"
+
+[profile.release]
+# Arithmetic overflow aborts instead of wrapping silently, even in release builds.
+overflow-checks = true
+# A panic stops the process (the supervisor restarts it with clean state) instead of leaving
+# poisoned locks behind in a half-alive server. On wasm32 it is the same fail-closed posture.
+panic = "abort"
+lto = true
+codegen-units = 1

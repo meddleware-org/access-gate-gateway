@@ -1,384 +1,48 @@
-//! Access verification: Sui personal-message signature checking (done directly, no heavy
-//! SDK) plus the allow/deny decision. The on-chain lookups are abstracted behind
-//! [`ChainQuery`] so the decision is unit-testable without a network.
+//! Access verification. The decision logic and the signature primitives live in `nft-gate-core`
+//! (shared with the Cloudflare Worker); this module adapts the native pieces to it: the
+//! `GatewayConfig` -> `VerifyParams` mapping and the `NonceStore` -> `NonceTake` adapter.
 
 use crate::challenge::NonceStore;
 use crate::config::GatewayConfig;
+#[allow(unused_imports)]
 use crate::proof::{decode_access_proof, is_tx_digest, personal_message, MessageContext};
+#[allow(unused_imports)]
 use base64::prelude::*;
-use blake2::digest::consts::U32;
-use blake2::{Blake2b, Digest};
 
-type Blake2b256 = Blake2b<U32>;
+pub use nft_gate_core::decision::{ChainQuery, Denied, Verified};
+use nft_gate_core::decision::{NonceTake, VerifyParams};
+#[allow(unused_imports)]
+pub use nft_gate_core::sig::{
+    consumed_event_type, derive_address, normalize_address, normalize_move_type, signing_digest,
+    verify_personal_message_signature, FLAG_ED25519, FLAG_MULTISIG, FLAG_SECP256K1, FLAG_SECP256R1,
+    FLAG_ZKLOGIN,
+};
 
-// Sui signature-scheme flag bytes (first byte of a serialized signature).
-pub(crate) const FLAG_ED25519: u8 = 0x00;
-const FLAG_SECP256K1: u8 = 0x01;
-const FLAG_SECP256R1: u8 = 0x02;
-const FLAG_MULTISIG: u8 = 0x03;
-const FLAG_ZKLOGIN: u8 = 0x05;
-
-/// Compute the 32-byte Blake2b-256 digest of `data`.
-fn blake2b256(data: &[u8]) -> [u8; 32] {
-    let mut h = Blake2b256::new();
-    h.update(data);
-    h.finalize().into()
-}
-
-/// Append `v` to `out` in unsigned LEB-128 encoding. Used to BCS-encode the message-length
-/// prefix in the Sui personal-message signing digest.
-fn write_uleb128(out: &mut Vec<u8>, mut v: u64) {
-    loop {
-        let mut byte = (v & 0x7f) as u8;
-        v >>= 7;
-        if v != 0 {
-            byte |= 0x80;
-        }
-        out.push(byte);
-        if v == 0 {
-            break;
-        }
+impl NonceTake for NonceStore {
+    async fn take_if_valid(&self, nonce: &str) -> anyhow::Result<bool> {
+        NonceStore::take_if_valid(self, nonce).await
     }
 }
 
-/// blake2b256( intent(PersonalMessage,V0,Sui) || bcs(Vec<u8> message) ). This is exactly
-/// what a Sui wallet signs for a personal message.
-pub(crate) fn signing_digest(message: &[u8]) -> [u8; 32] {
-    let mut data = vec![3u8, 0, 0]; // IntentScope::PersonalMessage, V0, AppId::Sui
-    write_uleb128(&mut data, message.len() as u64);
-    data.extend_from_slice(message);
-    blake2b256(&data)
-}
-
-/// Sui address for a scheme: blake2b256(flag || pubkey), hex, 0x-prefixed. `pubkey` is the
-/// 32-byte ed25519 key or the 33-byte SEC1-compressed secp256k1/r1 key.
-pub(crate) fn derive_address(flag: u8, pk: &[u8]) -> String {
-    let mut d = Vec::with_capacity(1 + pk.len());
-    d.push(flag);
-    d.extend_from_slice(pk);
-    format!("0x{}", hex::encode(blake2b256(&d)))
-}
-
-/// Normalise a Sui address to lowercase, 0x-prefixed, zero-padded to 64 hex digits.
-pub fn normalize_address(a: &str) -> String {
-    let s = a.trim().trim_start_matches("0x").to_lowercase();
-    format!("0x{s:0>64}")
-}
-
-/// Normalise the package address of a `<pkg>::<module>::<name>` type string so the short and
-/// long (gRPC) address forms compare equal.
-pub fn normalize_move_type(t: &str) -> String {
-    match t.split_once("::") {
-        Some((pkg, rest)) if !pkg.is_empty() => format!("{}::{rest}", normalize_address(pkg)),
-        _ => t.to_string(),
+fn params(cfg: &GatewayConfig) -> VerifyParams {
+    VerifyParams {
+        single_use: cfg.single_use,
+        gateway_origin: cfg.gateway_origin.clone(),
+        gate_id: cfg.gate_id.clone(),
+        network: cfg.network.clone(),
+        nft_type: cfg.nft_type.clone(),
+        consume_max_age_secs: cfg.consume_max_age_secs,
     }
 }
 
-/// The exact `AccessConsumedEvent` type of the access_gate package that `nft_type` names. Matching
-/// the full type (not a `::access_gate::AccessConsumedEvent` suffix) stops a look-alike package
-/// from emitting a forged consume event. Event and NFT types both carry the package's original id.
-pub fn consumed_event_type(nft_type: &str) -> String {
-    let pkg = nft_type.split("::").next().unwrap_or_default();
-    format!(
-        "{}::access_gate::AccessConsumedEvent",
-        normalize_address(pkg)
-    )
-}
-
-/// Verify a Sui personal-message signature recovers `address` over `message`, dispatching on
-/// the scheme flag byte. Serialized layout: `flag(1) || signature || pubkey` (base64).
-///
-/// Supported: **ed25519** (0x00), **secp256k1** (0x01), **secp256r1** (0x02) — the schemes used
-/// by every current Sui browser/hardware wallet keypair. **multisig** (0x03) and **zkLogin**
-/// (0x05) are recognised but not yet verified here (they require the official Sui verifier —
-/// see the gateway audit F1 integration plan) and fail **closed**.
-pub fn verify_personal_message_signature(
-    address: &str,
-    message: &[u8],
-    signature_b64: &str,
-) -> bool {
-    let raw = match BASE64_STANDARD.decode(signature_b64.trim()) {
-        Ok(r) => r,
-        Err(_) => return false,
-    };
-    match raw.first().copied() {
-        Some(FLAG_ED25519) => verify_ed25519(address, message, &raw[1..]),
-        Some(FLAG_SECP256K1) => verify_secp256k1(address, message, &raw[1..]),
-        Some(FLAG_SECP256R1) => verify_secp256r1(address, message, &raw[1..]),
-        Some(FLAG_MULTISIG) | Some(FLAG_ZKLOGIN) => {
-            tracing::warn!(
-                flag = raw[0],
-                "multisig/zkLogin signature presented but not yet supported by the gateway \
-                 verifier (fails closed); see gateway audit F1"
-            );
-            false
-        }
-        _ => false,
-    }
-}
-
-/// ed25519 (flag 0x00): body = `sig(64) || pubkey(32)`. Verified under **ZIP-215** — the rule
-/// Sui validators apply (and the Workers gateway's `zip215: true`) — so the gateway accepts
-/// exactly the signatures the chain accepts; pinned by the conformance `zip215` vector.
-fn verify_ed25519(address: &str, message: &[u8], body: &[u8]) -> bool {
-    use ed25519_consensus::{Signature, VerificationKey};
-    if body.len() != 96 {
-        return false;
-    }
-    let sig_bytes: [u8; 64] = match body[0..64].try_into() {
-        Ok(b) => b,
-        Err(_) => return false,
-    };
-    let pk_bytes: [u8; 32] = match body[64..96].try_into() {
-        Ok(b) => b,
-        Err(_) => return false,
-    };
-    let vk = match VerificationKey::try_from(pk_bytes) {
-        Ok(k) => k,
-        Err(_) => return false,
-    };
-    let digest = signing_digest(message);
-    if vk.verify(&Signature::from(sig_bytes), &digest).is_err() {
-        return false;
-    }
-    normalize_address(address) == derive_address(FLAG_ED25519, &pk_bytes)
-}
-
-/// secp256k1 (flag 0x01): body = `sig(64, compact r||s) || pubkey(33, SEC1-compressed)`.
-/// Sui signs `SHA256(blake2b256(intent||msg))` with ECDSA-secp256k1. `k256`'s `Verifier::verify`
-/// applies the SHA256 step internally, so we pass the blake2b digest and let k256 do the rest.
-fn verify_secp256k1(address: &str, message: &[u8], body: &[u8]) -> bool {
-    use k256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
-    if body.len() != 97 {
-        return false;
-    }
-    let sig = match Signature::from_slice(&body[0..64]) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    // Sui requires low-S; reject the high-S twin explicitly (k256 also does, but do not rely on
-    // a library default for a consensus rule).
-    if sig.normalize_s().is_some() {
-        return false;
-    }
-    let pk_bytes = &body[64..97];
-    let vk = match VerifyingKey::from_sec1_bytes(pk_bytes) {
-        Ok(k) => k,
-        Err(_) => return false,
-    };
-    let digest = signing_digest(message);
-    if vk.verify(&digest, &sig).is_err() {
-        return false;
-    }
-    normalize_address(address) == derive_address(FLAG_SECP256K1, pk_bytes)
-}
-
-/// secp256r1 (flag 0x02): as secp256k1 but over the NIST P-256 curve. Same SHA256-over-blake2b
-/// signing hash; `p256`'s `Verifier::verify` applies SHA256 internally.
-fn verify_secp256r1(address: &str, message: &[u8], body: &[u8]) -> bool {
-    use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
-    if body.len() != 97 {
-        return false;
-    }
-    let sig = match Signature::from_slice(&body[0..64]) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    // Sui requires low-S for secp256r1 too; `p256` does NOT enforce it on verify, so without this
-    // check the gateway would accept the malleable high-S twin the chain and Workers reject.
-    if sig.normalize_s().is_some() {
-        return false;
-    }
-    let pk_bytes = &body[64..97];
-    let vk = match VerifyingKey::from_sec1_bytes(pk_bytes) {
-        Ok(k) => k,
-        Err(_) => return false,
-    };
-    let digest = signing_digest(message);
-    if vk.verify(&digest, &sig).is_err() {
-        return false;
-    }
-    normalize_address(address) == derive_address(FLAG_SECP256R1, pk_bytes)
-}
-
-/// Abstraction over on-chain lookups needed to authorise a request. Implemented by
-/// [`crate::sui_rpc::SuiRpc`] in production and by a mock in tests. Kept as a generic trait
-/// (not `dyn`) so async methods are allowed without `Box<dyn Future>` wrappers.
-#[allow(async_fn_in_trait)]
-pub trait ChainQuery {
-    /// Does `address` own ≥1 NFT of `nft_type` (optionally for `gate_id`)?
-    async fn owns_nft(
-        &self,
-        address: &str,
-        nft_type: &str,
-        gate_id: Option<&str>,
-    ) -> anyhow::Result<bool>;
-
-    /// Does `consume_digest` name a successful transaction that emitted an event of exactly
-    /// `consumed_event_type` (the configured package's `AccessConsumedEvent`) for `address` (the
-    /// sender) on `gate_id`, no older than `max_age_secs`? Digest-first and NOT bound to the
-    /// challenge nonce — single-use is enforced by the redemption store keying on the digest, so an
-    /// interrupted upload can resume with a fresh challenge while reusing the same consume. A digest
-    /// the node does not know is `Ok(false)` (denied); an RPC failure is `Err` (`ChainError`).
-    async fn consume_tx_valid(
-        &self,
-        consume_digest: &str,
-        address: &str,
-        consumed_event_type: &str,
-        gate_id: Option<&str>,
-        max_age_secs: u64,
-    ) -> anyhow::Result<bool>;
-
-    /// Is `gate_id` paused AND does its immutable `GatePolicy` have `pause_blocks_access`? Holders
-    /// are then denied until the gate is unpaused. `Err` (→ `ChainError`, denied) if the gate's JSON
-    /// is not the shape this version understands: a rendering change must never silently disable
-    /// an admin's pause.
-    async fn gate_access_blocked(&self, gate_id: &str) -> anyhow::Result<bool>;
-}
-
-/// Reason a request was rejected by [`verify_access_request`].
-#[derive(Debug, PartialEq, Eq)]
-pub enum Denied {
-    /// The proof token could not be decoded (not valid base64 JSON or missing required fields).
-    BadProof,
-    /// The signature does not recover the claimed address.
-    BadSignature,
-    /// The challenge nonce was not found, is expired, or has already been used.
-    NonceInvalid,
-    /// The address does not hold the required access NFT (ownership mode).
-    NotOwner,
-    /// No matching on-chain single-use consume event was found (single-use mode).
-    ConsumeMissing,
-    /// The gate is paused and its policy has `pause_blocks_access`.
-    GatePaused,
-    /// An on-chain query failed; the gateway returns 502 for this variant.
-    ChainError,
-    /// The gateway's own state store failed; the gateway returns 503 (never a conflict).
-    StateUnavailable,
-}
-
-impl Denied {
-    /// A short, client-visible description of why access was denied.
-    pub fn reason(&self) -> &'static str {
-        match self {
-            Denied::BadProof => "malformed access proof",
-            Denied::BadSignature => "signature does not recover address",
-            Denied::NonceInvalid => "challenge nonce invalid, expired, or already used",
-            Denied::NotOwner => "address does not hold the required access NFT",
-            Denied::ConsumeMissing => "no matching single-use consume for this address",
-            Denied::GatePaused => "the gate is paused",
-            Denied::ChainError => "on-chain verification failed",
-            Denied::StateUnavailable => "gateway state unavailable",
-        }
-    }
-}
-
-/// A successful verification: the recovered address, plus (single-use mode) the `consume_digest`
-/// the dispatcher leases/commits so a use is only spent on a successful upload.
-#[derive(Debug)]
-pub struct Verified {
-    pub address: String,
-    pub redemption_key: Option<String>,
-}
-
-/// Authorise a request from its base64 proof token. Returns the verified address on success.
-/// The nonce is consumed (single-use at the gateway) as part of a successful signature check,
-/// so a replay presents an already-used nonce and is rejected.
+/// Authorise a request from its base64 proof token (see `nft_gate_core::decision`).
 pub async fn verify_access_request<C: ChainQuery>(
     cfg: &GatewayConfig,
     store: &NonceStore,
     token: &str,
     chain: &C,
 ) -> Result<Verified, Denied> {
-    let proof = decode_access_proof(token).map_err(|_| Denied::BadProof)?;
-
-    // Single-use gateways need the consume digest before anything else (it is part of the signed
-    // message); ownership gateways build the message without one, so a signature made for the other
-    // mode, another gateway, gate or network simply fails to verify.
-    if cfg.single_use && proof.consume_digest.is_none() {
-        return Err(Denied::ConsumeMissing);
-    }
-    let message = personal_message(&MessageContext {
-        origin: &cfg.gateway_origin,
-        gate_id: &normalize_address(&cfg.gate_id),
-        network: &cfg.network,
-        nonce: &proof.nonce,
-        consume_digest: if cfg.single_use {
-            proof.consume_digest.as_deref()
-        } else {
-            None
-        },
-    })
-    .map_err(|_| Denied::BadProof)?;
-    if !verify_personal_message_signature(&proof.address, &message, &proof.signature) {
-        return Err(Denied::BadSignature);
-    }
-
-    // Canonicalise the address once the signature is proven, then use ONLY the normalised form for
-    // on-chain comparisons and the returned value. The client emits the raw caller address; on-chain
-    // owners are canonical (lower-case, 0x-prefixed, 64-hex), so comparing the raw string would
-    // fail-closed for a non-canonical input (e.g. missing leading zeros). Owning canonicalisation
-    // here — the security boundary — keeps the client wire format unchanged. (See conformance
-    // vectors `addressNormalization`; matched by the Workers gateway.)
-    let address = normalize_address(&proof.address);
-
-    // Consume the nonce exactly once (fresh, unexpired, unused).
-    if !store
-        .take_if_valid(&proof.nonce)
-        .await
-        .map_err(|_| Denied::StateUnavailable)?
-    {
-        return Err(Denied::NonceInvalid);
-    }
-
-    // A gate whose policy has `pause_blocks_access` admits no one while paused. Checked before the
-    // single-use lease, so a consume made just before a pause stays redeemable after unpausing.
-    let blocked = chain
-        .gate_access_blocked(&cfg.gate_id)
-        .await
-        .map_err(|_| Denied::ChainError)?;
-    if blocked {
-        return Err(Denied::GatePaused);
-    }
-
-    if cfg.single_use {
-        // A single-use client MUST first submit an on-chain consume and include its digest;
-        // its absence signals a misconfigured/replaying client.
-        let Some(digest) = proof.consume_digest.as_deref().filter(|d| is_tx_digest(d)) else {
-            return Err(Denied::ConsumeMissing);
-        };
-        let ok = chain
-            .consume_tx_valid(
-                digest,
-                &address,
-                &consumed_event_type(&cfg.nft_type),
-                Some(cfg.gate_id.as_str()),
-                cfg.consume_max_age_secs,
-            )
-            .await
-            .map_err(|_| Denied::ChainError)?;
-        if !ok {
-            return Err(Denied::ConsumeMissing);
-        }
-        // The consume is valid on-chain; the dispatcher leases/commits this digest so the use is
-        // spent only on a successful upload (and a duplicate can't double-spend it).
-        return Ok(Verified {
-            address,
-            redemption_key: Some(digest.to_string()),
-        });
-    }
-
-    let ok = chain
-        .owns_nft(&address, &cfg.nft_type, Some(cfg.gate_id.as_str()))
-        .await
-        .map_err(|_| Denied::ChainError)?;
-    if !ok {
-        return Err(Denied::NotOwner);
-    }
-    Ok(Verified {
-        address,
-        redemption_key: None,
-    })
+    nft_gate_core::decision::verify_access_request(&params(cfg), store, token, chain).await
 }
 
 #[cfg(test)]

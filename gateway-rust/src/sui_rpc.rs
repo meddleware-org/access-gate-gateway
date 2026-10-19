@@ -1,434 +1,52 @@
-//! Production [`ChainQuery`] implementation over the Sui **gRPC** API (`sui.rpc.v2`), via the
-//! hand-rolled gRPC-web client in [`crate::grpc`] (no `tonic`/`prost`). Public JSON-RPC is
-//! deprecated; this replaces it. The pure response-parse helpers are unit-tested; the network
-//! round-trips are covered by the localnet/integration loop.
-//!
-//! Single-use verification is **digest-first**, mirroring the Workers gateway: the proof carries
-//! the `access_gate::consume` transaction digest, so we fetch that transaction and confirm it
-//! emitted an `AccessConsumedEvent` for this sender + gate. It is NOT bound to the challenge nonce,
-//! so an interrupted upload can resume with a fresh challenge while reusing the same consume.
+//! Production [`ChainQuery`]: the chain logic moved to `nft-gate-core::chain` (generic over a
+//! `Transport`, shared with the Cloudflare Worker); this module binds it to the hyper client.
 
+pub use nft_gate_core::chain::*;
+#[allow(unused_imports)]
+pub use nft_gate_core::decision::ChainQuery;
+
+use crate::config::AuthHeader;
+use crate::grpc::HyperTransport;
+use crate::http_client::HttpClient;
+use std::time::Duration;
+
+#[cfg(test)]
+#[allow(unused_imports)]
 use crate::grpc::{
     field_bytes, field_str, value_as_bool, value_field, value_find_string, Field, GrpcStatus,
-    GrpcWeb, ProtoReader, ProtoWriter, GRPC_NOT_FOUND,
+    ProtoReader, ProtoWriter, GRPC_NOT_FOUND,
 };
-use crate::http_client::{HttpClient, TimedOut};
-use crate::verify::{normalize_address, normalize_move_type, ChainQuery};
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
 
-// ── pinned sui.rpc.v2 field numbers (validated against live responses) ───────────────────────
-const LEDGER_GET_TRANSACTION: &str = "sui.rpc.v2.LedgerService/GetTransaction";
-const STATE_LIST_OWNED_OBJECTS: &str = "sui.rpc.v2.StateService/ListOwnedObjects";
-const LEDGER_GET_OBJECT: &str = "sui.rpc.v2.LedgerService/GetObject";
-
-// GetObjectRequest { object_id = 1; version = 2; FieldMask read_mask = 3 }
-const GO_OBJECT_ID: u32 = 1;
-const GO_READ_MASK: u32 = 3;
-// GetObjectResponse { Object object = 1 }
-const GO_OBJECT: u32 = 1;
-
-// GetTransactionRequest { digest = 1; FieldMask read_mask = 2 { repeated string paths = 1 } }
-const REQ_DIGEST: u32 = 1;
-const REQ_READ_MASK: u32 = 2;
-const FIELDMASK_PATHS: u32 = 1;
-// GetTransactionResponse { ExecutedTransaction transaction = 1 }
-const RESP_TRANSACTION: u32 = 1;
-// ExecutedTransaction { ... TransactionEffects effects = 4; TransactionEvents events = 5 }
-const EXECUTED_EFFECTS: u32 = 4;
-const EXECUTED_EVENTS: u32 = 5;
-// TransactionEffects { ... ExecutionStatus status = 4 }; ExecutionStatus { optional bool success = 1 }
-const EFFECTS_STATUS: u32 = 4;
-const STATUS_SUCCESS: u32 = 1;
-// TransactionEvents { ... repeated Event events = 3 }
-const EVENTS_EVENTS: u32 = 3;
-// Event { package_id=1; module=2; sender=3; event_type=4; Bcs contents=5; Value json=6 }
-const EVENT_SENDER: u32 = 3;
-const EVENT_TYPE: u32 = 4;
-const EVENT_JSON: u32 = 6;
-
-// ListOwnedObjectsRequest { owner=1; uint32 page_size=2; bytes page_token=3; FieldMask read_mask=4;
-// object_type=5 }
-const LOO_OWNER: u32 = 1;
-const LOO_PAGE_SIZE: u32 = 2;
-const LOO_PAGE_TOKEN: u32 = 3;
-const LOO_READ_MASK: u32 = 4;
-const LOO_OBJECT_TYPE: u32 = 5;
-// ListOwnedObjectsResponse { repeated Object objects = 1; bytes next_page_token = 2 }
-const LOO_OBJECTS: u32 = 1;
-const LOO_NEXT_PAGE_TOKEN: u32 = 2;
-// Object { ... Value json = 100 }
-const OBJECT_JSON: u32 = 100;
-
-/// Objects requested per `ListOwnedObjects` page.
-const OWNED_PAGE_SIZE: u64 = 50;
-/// Pages read before the ownership list is judged too long to decide (the Workers gateway's
-/// `MAX_OWNED_PAGES`: the same pass is admitted or refused by both). With 50 per page, 5,000 objects
-/// of the pass type; past it the check errors (→ 502, denied) instead of guessing.
-pub const MAX_OWNED_PAGES: usize = 100;
-/// `GetTransaction` attempts while the node still reports the digest as unknown (indexing lag).
-const TX_FETCH_ATTEMPTS: u32 = 4;
-/// Entries kept by the ownership cache; the oldest is dropped past it.
-const MAX_CACHE_ENTRIES: usize = 10_000;
-/// Clock skew tolerated between a consume event's timestamp and this host's clock.
-const CLOCK_SKEW_MS: u64 = 60_000;
-/// Delay between `GetTransaction` attempts.
-const TX_FETCH_RETRY: Duration = Duration::from_millis(500);
-
-/// A cached result of an ownership query.
-struct CacheEntry {
-    owns: bool,
-    expiry: Instant,
-}
-
-/// Production [`ChainQuery`] backed by the Sui gRPC API (gRPC-web transport).
-pub struct SuiRpc {
-    grpc: GrpcWeb,
-    /// Deadline for one gated ownership check (all of its pages), as for each other call.
-    timeout: Duration,
-    cache_ttl: Duration,
-    cache: Mutex<HashMap<String, CacheEntry>>,
-}
-
-impl SuiRpc {
-    /// Create a new client. `rpc_url` is the full-node origin (gRPC-web is served there). Set
-    /// `cache_ttl_ms` to `0` to disable the ownership cache (default — every gated check is live).
-    pub fn new(
-        client: HttpClient,
-        rpc_url: String,
-        cache_ttl_ms: u64,
-        auth: Option<crate::config::AuthHeader>,
-        timeout: Duration,
-    ) -> Self {
-        Self {
-            grpc: GrpcWeb::new(client, rpc_url, auth, timeout),
-            timeout,
-            cache_ttl: Duration::from_millis(cache_ttl_ms),
-            cache: Mutex::new(HashMap::new()),
-        }
-    }
-
-    fn cache_key(address: &str, nft_type: &str, gate_id: Option<&str>) -> String {
-        format!("{address}|{nft_type}|{}", gate_id.unwrap_or("-"))
-    }
-
-    /// Uncached, live ownership query via `StateService/ListOwnedObjects`, bounded by one deadline
-    /// for all pages.
-    async fn owns_nft_live(
-        &self,
-        address: &str,
-        nft_type: &str,
-        gate_id: Option<&str>,
-    ) -> anyhow::Result<bool> {
-        tokio::time::timeout(self.timeout, self.scan_owned(address, nft_type, gate_id))
-            .await
-            .map_err(|_| anyhow::Error::new(TimedOut))?
-    }
-
-    /// Read the owner's objects of `nft_type` page by page (at most [`MAX_OWNED_PAGES`]) and stop at
-    /// the first usable pass for the gate. Past the bound the answer is an error, never "no": a
-    /// holder's pass may sit on a page that was not read, and guessing either way is wrong.
-    async fn scan_owned(
-        &self,
-        address: &str,
-        nft_type: &str,
-        gate_id: Option<&str>,
-    ) -> anyhow::Result<bool> {
-        let mut page_token: Option<Vec<u8>> = None;
-        for _ in 0..MAX_OWNED_PAGES {
-            let resp = self
-                .grpc
-                .call(
-                    STATE_LIST_OWNED_OBJECTS,
-                    build_list_owned(address, nft_type, page_token.as_deref()),
-                )
-                .await?;
-            if response_has_owned(&resp, gate_id) {
-                return Ok(true);
-            }
-            match field_bytes(&resp, LOO_NEXT_PAGE_TOKEN).filter(|t| !t.is_empty()) {
-                Some(token) => page_token = Some(token.to_vec()),
-                None => return Ok(false),
-            }
-        }
-        anyhow::bail!(
-            "owned-object list exceeds {MAX_OWNED_PAGES} pages; refusing to decide ownership"
-        )
-    }
-}
-
-/// Build one `ListOwnedObjectsRequest` page for `address`, continuing from `page_token`.
-fn build_list_owned(address: &str, nft_type: &str, page_token: Option<&[u8]>) -> Vec<u8> {
-    let mut mask = ProtoWriter::new();
-    mask.string_field(FIELDMASK_PATHS, "object_type");
-    mask.string_field(FIELDMASK_PATHS, "json");
-    let mut req = ProtoWriter::new();
-    req.string_field(LOO_OWNER, address);
-    req.uint_field(LOO_PAGE_SIZE, OWNED_PAGE_SIZE);
-    if let Some(token) = page_token {
-        req.bytes_field(LOO_PAGE_TOKEN, token);
-    }
-    req.bytes_field(LOO_READ_MASK, &mask.into_bytes());
-    req.string_field(LOO_OBJECT_TYPE, nft_type);
-    req.into_bytes()
-}
-
-/// True if a `Gate`'s JSON (`google.protobuf.Value`) is paused AND its `policy` has
-/// `pause_blocks_access`. Fails closed: JSON without a boolean `paused` and a `policy` with a boolean
-/// `pause_blocks_access` is not understood and is an error (→ deny), never "not paused" — a rendering
-/// change must not silently disable an admin's pause.
-pub fn gate_blocks_access(json: &[u8]) -> anyhow::Result<bool> {
-    let unrecognised = || anyhow::anyhow!("gate JSON has an unrecognised shape");
-    let paused = value_field(json, "paused")
-        .and_then(value_as_bool)
-        .ok_or_else(unrecognised)?;
-    let blocks = value_field(json, "policy")
-        .and_then(|p| value_field(p, "pause_blocks_access"))
-        .and_then(value_as_bool)
-        .ok_or_else(unrecognised)?;
-    Ok(paused && blocks)
-}
-
-/// Parse a `GetObjectResponse` for a gate; errors (fail closed) if the object or its JSON is absent.
-fn response_gate_blocks_access(resp: &[u8]) -> anyhow::Result<bool> {
-    let object =
-        field_bytes(resp, GO_OBJECT).ok_or_else(|| anyhow::anyhow!("gate object not found"))?;
-    let json = field_bytes(object, OBJECT_JSON)
-        .ok_or_else(|| anyhow::anyhow!("gate object has no json"))?;
-    gate_blocks_access(json)
-}
-
-/// Build the `GetTransactionRequest` for `digest`, requesting only the execution status and events.
-fn build_get_transaction(digest: &str) -> Vec<u8> {
-    let mut mask = ProtoWriter::new();
-    mask.string_field(FIELDMASK_PATHS, "effects.status");
-    mask.string_field(FIELDMASK_PATHS, "events");
-    let mut req = ProtoWriter::new();
-    req.string_field(REQ_DIGEST, digest);
-    req.bytes_field(REQ_READ_MASK, &mask.into_bytes());
-    req.into_bytes()
-}
-
-/// True if the event's `timestamp_ms` is at most `max_age_secs` old and not in the future (beyond
-/// clock skew). A missing or malformed timestamp is not recent: fail closed. The age bound keeps a
-/// consume from becoming redeemable again once the redemption store has forgotten it.
-pub fn event_is_recent(event_json: &[u8], now_ms: u64, max_age_secs: u64) -> bool {
-    let Some(ts) = value_find_string(event_json, "timestamp_ms")
-        .filter(|t| !t.is_empty() && t.len() <= 16 && t.bytes().all(|b| b.is_ascii_digit()))
-        .and_then(|t| t.parse::<u64>().ok())
-    else {
-        return false;
-    };
-    ts <= now_ms.saturating_add(CLOCK_SKEW_MS)
-        && now_ms.saturating_sub(ts) <= max_age_secs.saturating_mul(1000)
-}
-
-/// True if an access NFT's JSON describes a usable pass: an unlimited pass, or a single-use pass
-/// with uses left. The variant is read as a full node renders the `AccessVariant` enum
-/// (`{ "@variant": "SingleUse", "uses_remaining": "8" }`); an unknown tag or a missing or non-u64
-/// count is not usable (fail closed), so an exhausted receipt never grants access.
-pub fn pass_is_usable(nft_json: &[u8]) -> bool {
-    match value_find_string(nft_json, "@variant").as_deref() {
-        Some("UnlimitedPass") => true,
-        Some("SingleUse") => value_find_string(nft_json, "uses_remaining")
-            .filter(|n| !n.is_empty() && n.len() <= 20 && n.bytes().all(|b| b.is_ascii_digit()))
-            .and_then(|n| n.parse::<u64>().ok())
-            .is_some_and(|n| n > 0),
-        _ => false,
-    }
-}
-
-/// Milliseconds since the Unix epoch.
+#[cfg(test)]
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64)
 }
+#[cfg(test)]
+#[allow(unused_imports)]
+use crate::http_client::TimedOut;
+#[cfg(test)]
+#[allow(unused_imports)]
+use crate::verify::{normalize_address, normalize_move_type};
 
-/// True if `a` and `b` name the same address (normalised form).
-fn same_address(a: Option<&str>, b: &str) -> bool {
-    a.is_some_and(|a| normalize_address(a) == normalize_address(b))
-}
+/// The native chain client.
+pub type SuiRpc = nft_gate_core::chain::SuiRpc<HyperTransport>;
 
-/// True if the executed transaction's effects report success. The status is decided from the
-/// effects, as the Workers gateway does (`status.success`), not inferred from the presence of
-/// events: a missing effects block, status or `success` field, or `success = false`, is a failure.
-fn effects_succeeded(tx: &[u8]) -> bool {
-    field_bytes(tx, EXECUTED_EFFECTS)
-        .and_then(|effects| field_bytes(effects, EFFECTS_STATUS))
-        .is_some_and(|status| {
-            ProtoReader::new(status).any(|f| matches!(f, Field::Varint(STATUS_SUCCESS, 1)))
-        })
-}
-
-/// True if a `GetTransactionResponse` is a SUCCESSFUL transaction (effects status) containing an
-/// event of exactly `consumed_type` sent by `address` for `gate_id` (when constrained).
-fn response_has_consume(
-    resp: &[u8],
-    address: &str,
-    consumed_type: &str,
-    gate_id: Option<&str>,
-    now_ms: u64,
-    max_age_secs: u64,
-) -> bool {
-    let want_type = normalize_move_type(consumed_type);
-    let Some(tx) = field_bytes(resp, RESP_TRANSACTION) else {
-        return false;
-    };
-    if !effects_succeeded(tx) {
-        return false;
-    }
-    let Some(events) = field_bytes(tx, EXECUTED_EVENTS) else {
-        return false;
-    };
-    for f in ProtoReader::new(events) {
-        let Field::Len(EVENTS_EVENTS, ev) = f else {
-            continue;
-        };
-        let is_consume =
-            field_str(ev, EVENT_TYPE).is_some_and(|t| normalize_move_type(t) == want_type);
-        if !is_consume || !same_address(field_str(ev, EVENT_SENDER), address) {
-            continue;
-        }
-        let json = field_bytes(ev, EVENT_JSON).unwrap_or(&[]);
-        if !event_is_recent(json, now_ms, max_age_secs) {
-            continue;
-        }
-        match gate_id {
-            None => return true,
-            Some(g) => {
-                if same_address(value_find_string(json, "gate_id").as_deref(), g) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-/// True if a `ListOwnedObjectsResponse` contains a USABLE owned pass (see [`pass_is_usable`])
-/// matching `gate_id` (when constrained). The object type is already constrained by the request's
-/// `object_type` filter.
-fn response_has_owned(resp: &[u8], gate_id: Option<&str>) -> bool {
-    for f in ProtoReader::new(resp) {
-        let Field::Len(LOO_OBJECTS, obj) = f else {
-            continue;
-        };
-        let json = field_bytes(obj, OBJECT_JSON).unwrap_or(&[]);
-        if !pass_is_usable(json) {
-            continue;
-        }
-        match gate_id {
-            None => return true,
-            Some(g) => {
-                if same_address(value_find_string(json, "gate_id").as_deref(), g) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-impl ChainQuery for SuiRpc {
-    async fn owns_nft(
-        &self,
-        address: &str,
-        nft_type: &str,
-        gate_id: Option<&str>,
-    ) -> anyhow::Result<bool> {
-        // Cache is OFF by default (cache_ttl == 0) so a gated action is confirmed live.
-        if !self.cache_ttl.is_zero() {
-            let key = Self::cache_key(address, nft_type, gate_id);
-            if let Some(e) = self.cache.lock().unwrap().get(&key) {
-                if e.expiry > Instant::now() {
-                    return Ok(e.owns);
-                }
-            }
-            let owns = self.owns_nft_live(address, nft_type, gate_id).await?;
-            let now = Instant::now();
-            let mut cache = self.cache.lock().unwrap();
-            cache.retain(|_, e| e.expiry > now); // drop expired entries
-            if cache.len() >= MAX_CACHE_ENTRIES {
-                // Past the cap: drop the soonest-to-expire entry.
-                if let Some(oldest) = cache
-                    .iter()
-                    .min_by_key(|(_, e)| e.expiry)
-                    .map(|(k, _)| k.clone())
-                {
-                    cache.remove(&oldest);
-                }
-            }
-            cache.insert(
-                key,
-                CacheEntry {
-                    owns,
-                    expiry: now + self.cache_ttl,
-                },
-            );
-            return Ok(owns);
-        }
-        self.owns_nft_live(address, nft_type, gate_id).await
-    }
-
-    async fn gate_access_blocked(&self, gate_id: &str) -> anyhow::Result<bool> {
-        // Live read (not cached) so pausing takes effect on the next request.
-        let mut mask = ProtoWriter::new();
-        mask.string_field(FIELDMASK_PATHS, "json");
-        let mut req = ProtoWriter::new();
-        req.string_field(GO_OBJECT_ID, gate_id);
-        req.bytes_field(GO_READ_MASK, &mask.into_bytes());
-        let resp = self.grpc.call(LEDGER_GET_OBJECT, req.into_bytes()).await?;
-        response_gate_blocks_access(&resp)
-    }
-
-    async fn consume_tx_valid(
-        &self,
-        consume_digest: &str,
-        address: &str,
-        consumed_event_type: &str,
-        gate_id: Option<&str>,
-        max_age_secs: u64,
-    ) -> anyhow::Result<bool> {
-        // Only "not found" is retried (a node can lag behind the client's finality wait: 4 attempts,
-        // 500 ms apart, the same policy as the Workers gateway); the final not-found is `Ok(false)`
-        // (denied, 403). Any other failure (network, auth, server, timeout) is returned at once as a
-        // chain error (502): no amplification, and never a silent "no consume".
-        let mut attempt = 1;
-        let resp = loop {
-            match self
-                .grpc
-                .call(
-                    LEDGER_GET_TRANSACTION,
-                    build_get_transaction(consume_digest),
-                )
-                .await
-            {
-                Ok(resp) => break resp,
-                Err(e)
-                    if e.downcast_ref::<GrpcStatus>()
-                        .is_some_and(|s| s.0 == GRPC_NOT_FOUND) =>
-                {
-                    if attempt >= TX_FETCH_ATTEMPTS {
-                        return Ok(false);
-                    }
-                    tracing::debug!(attempt, "GetTransaction not found; retrying");
-                    tokio::time::sleep(TX_FETCH_RETRY).await;
-                    attempt += 1;
-                }
-                Err(e) => return Err(e),
-            }
-        };
-        Ok(response_has_consume(
-            &resp,
-            address,
-            consumed_event_type,
-            gate_id,
-            now_ms(),
-            max_age_secs,
-        ))
-    }
+/// Create a new client. `rpc_url` is the full-node origin; `cache_ttl_ms` `0` disables the ownership cache.
+pub fn new_sui_rpc(
+    client: HttpClient,
+    rpc_url: String,
+    cache_ttl_ms: u64,
+    auth: Option<AuthHeader>,
+    timeout: Duration,
+) -> SuiRpc {
+    nft_gate_core::chain::SuiRpc::new(
+        HyperTransport::new(client, auth, timeout),
+        rpc_url,
+        cache_ttl_ms,
+        timeout.as_millis() as u64,
+    )
 }
 
 #[cfg(test)]
@@ -664,7 +282,7 @@ mod tests {
     const PASS_TYPE: &str = "0xabc::access_gate::SoulboundAccessNFT";
 
     fn rpc_for(stub: &Stub) -> SuiRpc {
-        SuiRpc::new(
+        new_sui_rpc(
             HttpClient::new().unwrap(),
             stub.url.clone(),
             0,
@@ -1021,7 +639,7 @@ mod tests {
     // Unset DIGEST: the test says so and returns without asserting.
 
     fn live_rpc() -> SuiRpc {
-        SuiRpc::new(
+        new_sui_rpc(
             HttpClient::new().unwrap(),
             std::env::var("NFT_GATE_LIVE_RPC")
                 .unwrap_or_else(|_| "https://fullnode.testnet.sui.io:443".to_string()),

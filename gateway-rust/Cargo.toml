@@ -1,12 +1,11 @@
 [package]
 name = "nft-gate-gateway"
-version = "0.0.25"
-edition = "2021"
-# The dependency graph's floor (checked in CI by the `msrv` job).
-rust-version = "1.88"
-license = "0BSD"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 description = "Generic NFT-gated reverse-proxy: verifies wallet-signed access proofs against on-chain NFT ownership, then forwards to any upstream."
-repository = "https://github.com/meddleware-org/nft-gate"
+repository.workspace = true
 documentation = "https://github.com/meddleware-org/nft-gate/tree/main/gateway-rust"
 readme = "README.md"
 keywords = ["nft", "sui", "gateway", "access-control", "reverse-proxy"]
@@ -17,6 +16,7 @@ name = "nft-gate-gateway"
 path = "src/main.rs"
 
 [dependencies]
+nft-gate-core = { version = "=0.0.25", path = "../core" }
 axum = "0.7"
 # In-flight request cap + load shedding (MAX_CONCURRENT_REQUESTS); same tower as axum 0.7.
 tower = { version = "0.5", features = ["limit", "load-shed"] }
@@ -54,12 +54,3 @@ ed25519-dalek = "3"
 futures-util = { version = "0.3", default-features = false }
 # Property tests for the hand-rolled protobuf / gRPC-web readers (no panics on any input).
 proptest = "1"
-
-[profile.release]
-# Arithmetic overflow aborts instead of wrapping silently, even in release builds.
-overflow-checks = true
-# A panic stops the process (the supervisor restarts it with clean state) instead of leaving
-# poisoned locks behind in a half-alive server.
-panic = "abort"
-lto = true
-codegen-units = 1

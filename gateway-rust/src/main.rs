@@ -378,7 +378,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(?cfg.bind_addr, nft_type = %cfg.nft_type, single_use = cfg.single_use, "starting nft-gate-gateway");
 
     let http = HttpClient::new()?;
-    let chain = SuiRpc::new(
+    let chain = sui_rpc::new_sui_rpc(
         http.clone(),
         cfg.sui_rpc_url.clone(),
         cfg.ownership_cache_ttl_ms,
@@ -630,7 +630,7 @@ mod tests {
         cfg.max_concurrent_requests = 1;
         let http = HttpClient::new().unwrap();
         let state = Arc::new(AppState {
-            chain: SuiRpc::new(
+            chain: sui_rpc::new_sui_rpc(
                 http.clone(),
                 cfg.sui_rpc_url.clone(),
                 0,
@@ -661,7 +661,7 @@ mod tests {
         let cfg = tests_support::test_cfg();
         let http = HttpClient::new().unwrap();
         build_router(Arc::new(AppState {
-            chain: SuiRpc::new(
+            chain: sui_rpc::new_sui_rpc(
                 http.clone(),
                 cfg.sui_rpc_url.clone(),
                 0,
@@ -848,7 +848,7 @@ mod tests {
         cfg.gated_preauth_rate_limit_per_min = 3;
         let http = HttpClient::new().unwrap();
         let app = build_router(Arc::new(AppState {
-            chain: SuiRpc::new(
+            chain: sui_rpc::new_sui_rpc(
                 http.clone(),
                 cfg.sui_rpc_url.clone(),
                 0,

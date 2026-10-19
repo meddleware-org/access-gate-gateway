@@ -1,0 +1,32 @@
+[package]
+name = "nft-gate-core"
+description = "The nft-gate decision logic in one place: proof, Sui signature verification, gRPC-web chain reads, redemption/nonce/rate state machines, header and config policy, and the request orchestration. No hyper, no tokio; builds natively and for wasm32-unknown-unknown."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation = "https://github.com/meddleware-org/nft-gate/tree/main/core"
+readme = "README.md"
+keywords = ["nft", "sui", "gateway", "access-control", "wasm"]
+categories = ["authentication", "wasm", "web-programming"]
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+hex = "0.4"
+# blake2 0.11 and ed25519-consensus: the same primitives Sui validators use (ZIP-215 for ed25519).
+blake2 = "0.11"
+ed25519-consensus = "2"
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+serde_json = "1"
+
+[dev-dependencies]
+proptest = "1"
+pollster = "0.4"
+
+# rand_core 0.6 (pulled in by ed25519-consensus / elliptic-curve) enables getrandom 0.2, which has no
+# backend on wasm32-unknown-unknown unless "js" is set. Never called on the verify path.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }

@@ -1,7 +1,7 @@
 # EXPERIMENT (feasibility spike for a Rust/wasm Cloudflare Worker). Not part of any release.
 # See README.md and FINDINGS.md. Versions are pinned exactly.
 [workspace]
-members = ["core", "worker"]
+members = ["worker"]
 resolver = "2"
 
 [workspace.package]

@@ -242,7 +242,7 @@ fn params() -> VerifyParams {
 #[test]
 fn full_single_use_decision_over_a_stub_transport() {
     let v: serde_json::Value =
-        serde_json::from_str(include_str!("../../../conformance/vectors.json")).unwrap();
+        serde_json::from_str(include_str!("../../conformance/vectors.json")).unwrap();
     let vec = v["signatures"]
         .as_array()
         .unwrap()

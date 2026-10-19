@@ -6,7 +6,7 @@ use nft_gate_core::origin::is_canonical_origin;
 use nft_gate_core::proof::{decode_access_proof, personal_message, MessageContext};
 use nft_gate_core::sig::{normalize_address, verify_personal_message_signature};
 
-const VECTORS: &str = include_str!("../../../conformance/vectors.json");
+const VECTORS: &str = include_str!("../../conformance/vectors.json");
 
 fn message_of(ctx: &serde_json::Value) -> anyhow::Result<Vec<u8>> {
     personal_message(&MessageContext {
