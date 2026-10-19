@@ -105,7 +105,7 @@
 **Images:** `quay.io/meddleware-org/nft-gate-gateway:<semver>` (0.0.23 = `@sha256:0d0be82a…535a`, read 2026-10-19; 0.0.22 = `@sha256:e207add6…b23d`, read 2026-10-18;
   0.0.21 = `@sha256:f7d627eb…9281`) and `docker.io/<DOCKERHUB_NAMESPACE>/nft-gate-gateway:<semver>`
   (multi-arch index, signed at the index digest by the workflow; not re-verified here); best-effort
-  `<PRIVATE_REGISTRY>/<PRIVATE_NAMESPACE>/nft-gate-gateway:<sha>-<arch>` (unsigned)
+  `<PRIVATE_REGISTRY>/<PRIVATE_NAMESPACE>/nft-gate-gateway:<semver>` (the same index digest, copied by `mirror-private`; it was an unsigned `<sha>-<arch>` rebuild before 2026-10-19)
 **Base images:** build `rust:1-slim@sha256:4cd82946…71ab7`; runtime
   `gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d…f1c2` on `main` (Dependabot `5c34762`, 2026-10-09;
   the 0.0.21 image was built on `sha256:54df941e…3f97`)
@@ -1040,8 +1040,8 @@ instead of `dtolnay/rust-toolchain`, whose only reference is a moving `master` b
 **Severity:** Low   **Disposition:** MITIGATED (0.0.22; commit `40a7e89`; the private mirror and licence notices need OQ8)
 **Where:**
 
-- `.github/workflows/docker-publish.yml` (Trivy image scan before signing, merge job); `build-docker-*-private`
-  jobs: `continue-on-error: true`, no cosign, no SBOM (open, OQ8).
+- `.github/workflows/docker-publish.yml` (Trivy image scan before signing, merge job); `mirror-private`
+  job: `continue-on-error: true`, copies the signed public index by digest (no rebuild; 2026-10-19; was `build-docker-*-private`, no cosign, no SBOM; OQ8 now only decides whether the cluster pulls from it).
 - `gateway-rust/Dockerfile` (`Cargo.lock` copied into the runtime stage), `gateway-rust/.dockerignore`.
 **Issue:**
 
@@ -1060,9 +1060,8 @@ rather than the Debian base alone (the SBOM content has not been re-fetched; 0.0
 `.env*`, `*.pem`, `*.key`, `docs/` and itself; the README publishes the `cosign verify` and
 `verify-attestation` commands pinned to the `docker-publish.yml` tag identity, and says the mirror is
 unsigned. The scan step cannot be exercised without registry credentials (not run here; it ran in the `v0.0.22` publish run, 2026-10-10, and passed: run 38077120738, "Scan the published image (Trivy)" success, before "Sign images (keyless)"). Still open, all
-tied to OQ8 or a toolchain choice: the self-hosted mirror stays an unsigned best-effort copy
-(`build-docker-*-private`, `continue-on-error`) until the maintainer decides the cluster pulls from quay.io by
-digest; licence notices for the compiled crates are not shipped; CI compiles with `stable`, the image with the
+tied to OQ8 or a toolchain choice: the self-hosted mirror is a best-effort digest-preserving copy
+(`mirror-private`, `continue-on-error`; the unsigned rebuild jobs were replaced 2026-10-19) until the maintainer decides which registry the cluster pulls from; licence notices for the compiled crates are not shipped; CI compiles with `stable`, the image with the
 digest-pinned `rust:1-slim`, and the two are not compared.
 
 ### F30 — Registry credentials are long-lived tokens without a recorded inventory
@@ -1525,7 +1524,7 @@ unavailable or the token is rejected, the gateway returns 502 (closed); an Acces
 | crates.io publish | `crates-publish.yml` (tag `v*`) | GitHub OIDC → crates.io trusted publishing | crate releases | n/a (no token) |
 | quay.io push | `QUAY_USERNAME`/`QUAY_TOKEN` secrets | GitHub Actions secrets | image releases | **not recorded (F30, `OPERATOR_TASKS.md`)** |
 | Docker Hub push | `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` | GitHub Actions secrets | image releases | **not recorded (F30)** |
-| Private registry push | `PRIVATE_REGISTRY_USERNAME`/`PRIVATE_REGISTRY_TOKEN` | GitHub Actions secrets | best-effort mirror | **not recorded (F30)** |
+| Private registry push | `PRIVATE_REGISTRY_USERNAME`/`PRIVATE_REGISTRY_TOKEN` | GitHub Actions secrets | best-effort digest-preserving mirror | **not recorded (F30)** |
 | cosign keyless identity | Fulcio cert for the workflow | GitHub OIDC | image signatures, SBOM, provenance | n/a |
 | `UPSTREAM_AUTH_HEADERS` | operator → pod env (when deployed) | k8s Secret (manifest not in repo) | upstream origin lock | nothing held today; write at deployment (F31) |
 | `SUI_RPC_AUTH_HEADER` | operator → pod env (when deployed) | k8s Secret | RPC quota | same (F31) |
@@ -1567,7 +1566,7 @@ On-chain capabilities: none (the gateway holds no `AdminCap` and signs nothing).
 | SBOM as a signed attestation | Yes (attestation step succeeded in the `v0.0.22` run; content not re-fetched) | `anchore/sbom-action` SPDX → `cosign attest --type spdxjson`; the image now carries `Cargo.lock`, so the crates are listed (F29) |
 | Build provenance | Yes | `actions/attest-build-provenance` ×2, `push-to-registry: true` |
 | No `continue-on-error` on these steps | Yes | the merge job has none; only the private-mirror jobs carry it |
-| Best-effort mirrors listed | Yes (here) | self-hosted registry, unsigned (F29) |
+| Best-effort mirrors listed | Yes (here) | self-hosted registry, digest-preserving copy (F29) |
 | Scan before sign (`trivy image`) | Yes (0.0.22; exercised and green in the `v0.0.22` publish run) | `docker-publish.yml` "Scan the published image (Trivy)" precedes "Sign images" |
 | Published `cosign verify` command pinning the workflow identity | Yes (0.0.22) | `gateway-rust/README.md` "Verify a published image" |
 
@@ -2109,6 +2108,7 @@ PROXY lens:
   - **Declined majors:** axum 0.8, redis 1.x and base64 0.23 are now `ignore` rules in `.github/dependabot.yml` (policy 2026-10-19); they are migration work for when OQ9 is decided.
   - **Findings and gates:** no change. **Not verified here:** the cosign signature, SBOM and provenance of the 0.0.23 image (no `cosign`); test counts were not re-run.
   - Dependabot policy encoded in .github/dependabot.yml (majors declined); open PRs merged 2026-10-19
+  - `docker-publish.yml`: the private rebuild jobs are replaced by one `mirror-private` job that copies the published quay.io image (and its cosign artifacts) to the self-hosted registry by digest and fails unless the digest and the signature match (build once, promote by digest; committed locally, not yet released; the `PRIVATE_REGISTRY_*` credentials are still unset).
 - **2026-10-18 (later) — `cargo deny` caught new advisories; fixed.** After the audits were pushed, `Rust CI` on `main` went red:
   RUSTSEC-2026-0346 (`Debug` impls for client session values expose TLS secrets), RUSTSEC-2026-0347 (buffered application data
   sent to the outer server after ECH rejection) and a Brotli-certificate-decompression advisory (up to 1 GiB allocated before

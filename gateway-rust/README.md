@@ -240,4 +240,4 @@ cosign verify-attestation --type spdxjson quay.io/meddleware-org/nft-gate-gatewa
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-The best-effort self-hosted registry mirror is unsigned; deploy from the signed public images by digest.
+The best-effort self-hosted registry copy is the same image by digest (`mirror-private`, no rebuild, signature verified on the copy), so its digest equals the public one.
