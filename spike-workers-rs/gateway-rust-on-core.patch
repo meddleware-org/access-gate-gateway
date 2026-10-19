@@ -1,0 +1,1864 @@
+diff -ruN -x target -x Cargo.lock a/gateway-rust/Cargo.toml b/gateway-rust/Cargo.toml
+--- a/gateway-rust/Cargo.toml	2026-10-19 20:58:21.821958468 +0100
++++ b/gateway-rust/Cargo.toml	2026-10-19 20:58:21.827416920 +0100
+@@ -17,6 +17,7 @@
+ path = "src/main.rs"
+ 
+ [dependencies]
++nft-gate-core = { path = "../spike-workers-rs/core" }
+ axum = "0.7"
+ # In-flight request cap + load shedding (MAX_CONCURRENT_REQUESTS); same tower as axum 0.7.
+ tower = { version = "0.5", features = ["limit", "load-shed"] }
+diff -ruN -x target -x Cargo.lock a/gateway-rust/src/grpc.rs b/gateway-rust/src/grpc.rs
+--- a/gateway-rust/src/grpc.rs	2026-10-19 20:58:21.819116785 +0100
++++ b/gateway-rust/src/grpc.rs	2026-10-19 20:58:21.825879281 +0100
+@@ -1,562 +1,41 @@
+-//! Minimal hand-rolled gRPC-web client for the Sui full-node gRPC API (`sui.rpc.v2`), layered on
+-//! the shared hyper [`HttpClient`] — with **no** `tonic`/`prost`/`sui-rpc` dependency, preserving
+-//! this crate's deliberately lightweight build (see CLAUDE.md).
+-//!
+-//! Public Sui JSON-RPC is deprecated and GraphQL is unavailable, so the gateway speaks gRPC-web
+-//! (`application/grpc-web+proto`, HTTP/1.1) with hand-written protobuf encode/decode of just the two
+-//! messages it needs (`GetTransaction`, `ListOwnedObjects`). Only the fields actually read are
+-//! decoded; all others are skipped. Field numbers are pinned from the `MystenLabs/sui-apis` protos
+-//! and validated against live responses.
+-
++//! gRPC-web codec and chain client: moved to `nft-gate-core` (shared with the Worker). This module keeps
++//! only the hyper-backed [`Transport`].
+ use crate::config::AuthHeader;
+-use crate::http_client::{HttpClient, MAX_RPC_RESPONSE_BYTES};
++use crate::http_client::HttpClient;
+ use bytes::Bytes;
+-use hyper::http::HeaderMap;
+-
+-/// Largest decoded gRPC message the gateway accepts (the HTTP body is capped at the same size).
+-pub const MAX_GRPC_MESSAGE_BYTES: usize = MAX_RPC_RESPONSE_BYTES;
+-/// Deepest `google.protobuf.Value` nesting [`value_find_string`] descends into. Move structs in
+-/// the responses the gateway reads are a few levels deep; the cap bounds hostile input.
+-const MAX_VALUE_DEPTH: usize = 32;
+-
+-// ── protobuf wire codec (varint + length-delimited + skipped fixed) ──────────────────────────
+-
+-/// A minimal protobuf message writer (only the wire types the gateway emits).
+-#[derive(Default)]
+-pub struct ProtoWriter {
+-    buf: Vec<u8>,
+-}
+-
+-impl ProtoWriter {
+-    pub fn new() -> Self {
+-        Self { buf: Vec::new() }
+-    }
+-
+-    fn varint(&mut self, mut n: u64) {
+-        loop {
+-            let b = (n & 0x7f) as u8;
+-            n >>= 7;
+-            if n != 0 {
+-                self.buf.push(b | 0x80);
+-            } else {
+-                self.buf.push(b);
+-                break;
+-            }
+-        }
+-    }
+-
+-    fn tag(&mut self, field: u32, wire: u8) {
+-        self.varint(((field as u64) << 3) | wire as u64);
+-    }
+-
+-    /// Write a length-delimited (wire type 2) field: string / bytes / embedded message.
+-    pub fn bytes_field(&mut self, field: u32, val: &[u8]) {
+-        self.tag(field, 2);
+-        self.varint(val.len() as u64);
+-        self.buf.extend_from_slice(val);
+-    }
++pub use nft_gate_core::grpc::*;
++use std::time::Duration;
+ 
+-    /// Write a string (length-delimited) field.
+-    pub fn string_field(&mut self, field: u32, val: &str) {
+-        self.bytes_field(field, val.as_bytes());
+-    }
+-
+-    /// Write a varint (wire type 0) field.
+-    pub fn uint_field(&mut self, field: u32, val: u64) {
+-        self.tag(field, 0);
+-        self.varint(val);
+-    }
+-
+-    pub fn into_bytes(self) -> Vec<u8> {
+-        self.buf
+-    }
+-}
+-
+-/// A borrowed protobuf field parsed from a message. Fixed-width fields are surfaced only so the
+-/// cursor advances past them; their numbers/values are never read by the gateway.
+-// A general-purpose codec surface: the gateway's two callers only read `Len` fields, but the other
+-// variants complete the reader (and are exercised by tests), so unread payloads are expected.
+-#[allow(dead_code)]
+-pub enum Field<'a> {
+-    Varint(u32, u64),
+-    Len(u32, &'a [u8]),
+-    Fixed64,
+-    Fixed32,
+-}
+-
+-/// A cursor that yields a message's top-level fields in order (a repeated field appears multiple
+-/// times). Malformed input simply ends iteration, so callers fail closed.
+-pub struct ProtoReader<'a> {
+-    buf: &'a [u8],
+-    pos: usize,
+-}
+-
+-impl<'a> ProtoReader<'a> {
+-    pub fn new(buf: &'a [u8]) -> Self {
+-        Self { buf, pos: 0 }
+-    }
+-
+-    fn read_varint(&mut self) -> Option<u64> {
+-        let mut shift = 0u32;
+-        let mut out = 0u64;
+-        loop {
+-            let b = *self.buf.get(self.pos)?;
+-            self.pos += 1;
+-            out |= ((b & 0x7f) as u64) << shift;
+-            if b & 0x80 == 0 {
+-                return Some(out);
+-            }
+-            shift += 7;
+-            if shift >= 64 {
+-                return None;
+-            }
+-        }
+-    }
+-}
+-
+-impl<'a> Iterator for ProtoReader<'a> {
+-    type Item = Field<'a>;
+-
+-    fn next(&mut self) -> Option<Field<'a>> {
+-        if self.pos >= self.buf.len() {
+-            return None;
+-        }
+-        let key = self.read_varint()?;
+-        let field = (key >> 3) as u32;
+-        match (key & 7) as u8 {
+-            0 => {
+-                let v = self.read_varint()?;
+-                Some(Field::Varint(field, v))
+-            }
+-            2 => {
+-                let len = self.read_varint()? as usize;
+-                let start = self.pos;
+-                let end = start.checked_add(len)?;
+-                if end > self.buf.len() {
+-                    return None;
+-                }
+-                self.pos = end;
+-                Some(Field::Len(field, &self.buf[start..end]))
+-            }
+-            1 => {
+-                self.pos = self.pos.checked_add(8)?;
+-                if self.pos > self.buf.len() {
+-                    return None;
+-                }
+-                Some(Field::Fixed64)
+-            }
+-            5 => {
+-                self.pos = self.pos.checked_add(4)?;
+-                if self.pos > self.buf.len() {
+-                    return None;
+-                }
+-                Some(Field::Fixed32)
+-            }
+-            _ => None,
+-        }
+-    }
+-}
+-
+-/// The bytes of the first length-delimited field `field` in `msg`.
+-pub fn field_bytes(msg: &[u8], field: u32) -> Option<&[u8]> {
+-    ProtoReader::new(msg).find_map(|f| match f {
+-        Field::Len(n, b) if n == field => Some(b),
+-        _ => None,
+-    })
+-}
+-
+-/// The UTF-8 string of the first length-delimited field `field` in `msg`.
+-pub fn field_str(msg: &[u8], field: u32) -> Option<&str> {
+-    field_bytes(msg, field).and_then(|b| std::str::from_utf8(b).ok())
+-}
+-
+-// ── google.protobuf.Value / Struct recursive lookup ──────────────────────────────────────────
+-// Value: string_value = 3, struct_value = 5, list_value = 6.
+-// Struct: fields = 1 (repeated map entry { key = 1 string, value = 2 Value }).
+-// ListValue: values = 1 (repeated Value).
+-// This finds the first `string_value` for a field named `key` at any depth — handling both a
+-// top-level `gate_id` (the event json) and one nested under `data` (the NFT json), order- and
+-// depth-independent, so it never assumes BCS field order.
+-
+-const VALUE_STRING: u32 = 3;
+-const VALUE_BOOL: u32 = 4;
+-const VALUE_STRUCT: u32 = 5;
+-const VALUE_LIST: u32 = 6;
+-const STRUCT_FIELDS: u32 = 1;
+-const ENTRY_KEY: u32 = 1;
+-const ENTRY_VALUE: u32 = 2;
+-const LIST_VALUES: u32 = 1;
+-
+-/// Find the `string_value` of the first field named `key` anywhere within a `google.protobuf.Value`
+-/// (at most [`MAX_VALUE_DEPTH`] levels deep; deeper input is not searched).
+-pub fn value_find_string(value: &[u8], key: &str) -> Option<String> {
+-    value_find_string_at(value, key, 0)
+-}
+-
+-fn value_find_string_at(value: &[u8], key: &str, depth: usize) -> Option<String> {
+-    if depth >= MAX_VALUE_DEPTH {
+-        return None;
+-    }
+-    for f in ProtoReader::new(value) {
+-        match f {
+-            Field::Len(VALUE_STRUCT, s) => {
+-                if let Some(v) = struct_find_string(s, key, depth + 1) {
+-                    return Some(v);
+-                }
+-            }
+-            Field::Len(VALUE_LIST, l) => {
+-                for lf in ProtoReader::new(l) {
+-                    if let Field::Len(LIST_VALUES, item) = lf {
+-                        if let Some(v) = value_find_string_at(item, key, depth + 1) {
+-                            return Some(v);
+-                        }
+-                    }
+-                }
+-            }
+-            _ => {}
+-        }
+-    }
+-    None
+-}
+-
+-fn struct_find_string(s: &[u8], key: &str, depth: usize) -> Option<String> {
+-    for f in ProtoReader::new(s) {
+-        if let Field::Len(STRUCT_FIELDS, entry) = f {
+-            let entry_key = field_str(entry, ENTRY_KEY);
+-            let entry_val = field_bytes(entry, ENTRY_VALUE);
+-            if let (Some(k), Some(v)) = (entry_key, entry_val) {
+-                if k == key {
+-                    if let Some(sv) = field_str(v, VALUE_STRING) {
+-                        return Some(sv.to_string());
+-                    }
+-                }
+-                // Recurse to reach a key nested deeper (e.g. an NFT's `data.gate_id`).
+-                if let Some(found) = value_find_string_at(v, key, depth) {
+-                    return Some(found);
+-                }
+-            }
+-        }
+-    }
+-    None
+-}
+-
+-/// The `Value` of the top-level field `key` of a Struct-valued `google.protobuf.Value` (no
+-/// recursion — for reading a known object's own fields, e.g. a `Gate`'s `paused` / `policy`).
+-pub fn value_field<'a>(value: &'a [u8], key: &str) -> Option<&'a [u8]> {
+-    let s = field_bytes(value, VALUE_STRUCT)?;
+-    ProtoReader::new(s).find_map(|f| match f {
+-        Field::Len(STRUCT_FIELDS, entry) if field_str(entry, ENTRY_KEY) == Some(key) => {
+-            field_bytes(entry, ENTRY_VALUE)
+-        }
+-        _ => None,
+-    })
+-}
+-
+-/// The `bool_value` of a `google.protobuf.Value`, if it holds one.
+-pub fn value_as_bool(value: &[u8]) -> Option<bool> {
+-    ProtoReader::new(value).find_map(|f| match f {
+-        Field::Varint(VALUE_BOOL, v) => Some(v != 0),
+-        _ => None,
+-    })
+-}
+-
+-// ── gRPC-web framing + transport ─────────────────────────────────────────────────────────────
+-
+-/// Frame a protobuf message as a single uncompressed gRPC-web data frame.
+-pub fn frame(msg: &[u8]) -> Vec<u8> {
+-    let mut out = Vec::with_capacity(5 + msg.len());
+-    out.push(0x00); // compression flag: uncompressed
+-    out.extend_from_slice(&(msg.len() as u32).to_be_bytes());
+-    out.extend_from_slice(msg);
+-    out
+-}
+-
+-/// Parse a `grpc-status` value.
+-fn parse_status(v: &str) -> Option<i64> {
+-    v.trim().parse::<i64>().ok()
+-}
+-
+-/// The protobuf message inside a single gRPC-web request frame (tests read what the client sent).
+-#[cfg(test)]
+-pub fn unframe_request_for_test(body: &[u8]) -> Vec<u8> {
+-    assert_eq!(body[0], 0, "uncompressed data frame");
+-    let len = u32::from_be_bytes([body[1], body[2], body[3], body[4]]) as usize;
+-    assert_eq!(body.len(), 5 + len, "exactly one frame");
+-    body[5..].to_vec()
+-}
+-
+-/// Unframe a gRPC-web response: concatenate data frames (high bit of the flag clear) into the
+-/// response message and read `grpc-status` from the trailer frame (high bit set) or, for a
+-/// trailers-only response (how full nodes answer errors such as NOT_FOUND), from the HTTP headers.
+-/// Fails closed on a non-zero status, a missing status, trailing garbage, malformed framing, or a
+-/// message over [`MAX_GRPC_MESSAGE_BYTES`].
+-pub fn unframe(headers: &HeaderMap, body: &[u8]) -> anyhow::Result<Vec<u8>> {
+-    let mut msg = Vec::new();
+-    let mut grpc_status: Option<i64> = headers
+-        .get("grpc-status")
+-        .and_then(|v| v.to_str().ok())
+-        .and_then(parse_status);
+-    let mut i = 0usize;
+-    while i + 5 <= body.len() {
+-        let flag = body[i];
+-        let len = u32::from_be_bytes([body[i + 1], body[i + 2], body[i + 3], body[i + 4]]) as usize;
+-        i += 5;
+-        let end = i
+-            .checked_add(len)
+-            .filter(|e| *e <= body.len())
+-            .ok_or_else(|| anyhow::anyhow!("gRPC-web frame overruns body"))?;
+-        let frame = &body[i..end];
+-        i = end;
+-        if flag & 0x80 != 0 {
+-            // Trailer frame: an HTTP-header block, e.g. "grpc-status:0\r\ngrpc-message:...".
+-            for line in String::from_utf8_lossy(frame).split("\r\n") {
+-                let line = line.trim();
+-                if line.len() > 12 && line[..12].eq_ignore_ascii_case("grpc-status:") {
+-                    grpc_status = parse_status(&line[12..]);
+-                }
+-            }
+-        } else {
+-            if flag != 0 {
+-                anyhow::bail!("compressed gRPC-web frames are not supported");
+-            }
+-            if msg.len() + frame.len() > MAX_GRPC_MESSAGE_BYTES {
+-                anyhow::bail!("gRPC message exceeds {MAX_GRPC_MESSAGE_BYTES} bytes");
+-            }
+-            msg.extend_from_slice(frame);
+-        }
+-    }
+-    if i != body.len() {
+-        anyhow::bail!("gRPC-web body has a truncated frame header");
+-    }
+-    match grpc_status {
+-        Some(0) => Ok(msg),
+-        Some(code) => Err(anyhow::Error::new(GrpcStatus(code))),
+-        None => anyhow::bail!("gRPC-web response carries no grpc-status"),
+-    }
+-}
+-
+-/// A non-zero gRPC status from the node, kept typed so callers can react to one code (a missing
+-/// transaction is `NOT_FOUND`, the only failure worth retrying) instead of matching message text.
+-#[derive(Debug)]
+-pub struct GrpcStatus(pub i64);
+-
+-/// gRPC `NOT_FOUND`.
+-pub const GRPC_NOT_FOUND: i64 = 5;
+-
+-impl std::fmt::Display for GrpcStatus {
+-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        write!(f, "gRPC status {}", self.0)
+-    }
+-}
+-
+-impl std::error::Error for GrpcStatus {}
+-
+-/// gRPC-web client bound to one Sui full-node base URL.
+-pub struct GrpcWeb {
++/// [`Transport`] over the shared hyper-rustls [`HttpClient`].
++pub struct HyperTransport {
+     http: HttpClient,
+-    base_url: String,
+     auth: Option<AuthHeader>,
+-    timeout: std::time::Duration,
++    timeout: Duration,
+ }
+ 
+-impl GrpcWeb {
+-    /// `base_url` is the full-node origin, e.g. `https://fullnode.testnet.sui.io:443`; `auth` is
+-    /// the optional `SUI_RPC_AUTH_HEADER`.
+-    pub fn new(
+-        http: HttpClient,
+-        base_url: String,
+-        auth: Option<AuthHeader>,
+-        timeout: std::time::Duration,
+-    ) -> Self {
+-        Self {
+-            http,
+-            base_url: base_url.trim_end_matches('/').to_string(),
+-            auth,
+-            timeout,
+-        }
++impl HyperTransport {
++    pub fn new(http: HttpClient, auth: Option<AuthHeader>, timeout: Duration) -> Self {
++        Self { http, auth, timeout }
+     }
++}
+ 
+-    /// Invoke `sui.rpc.v2.<service_method>` with a protobuf `request` message; returns the decoded
+-    /// (unframed) response message bytes.
+-    pub async fn call(&self, service_method: &str, request: Vec<u8>) -> anyhow::Result<Vec<u8>> {
+-        let url = format!("{}/{}", self.base_url, service_method);
+-        let (headers, body) = self
++impl Transport for HyperTransport {
++    async fn post_grpc_web(&self, url: &str, body: Vec<u8>) -> anyhow::Result<(Option<String>, Vec<u8>)> {
++        let (headers, bytes) = self
+             .http
+-            .post_grpc_web(
+-                &url,
+-                Bytes::from(frame(&request)),
+-                self.auth.as_ref(),
+-                self.timeout,
+-            )
++            .post_grpc_web(url, Bytes::from(body), self.auth.as_ref(), self.timeout)
+             .await?;
+-        unframe(&headers, &body)
+-    }
+-}
+-
+-#[cfg(test)]
+-mod proptests {
+-    use super::*;
+-    use proptest::prelude::*;
+-
+-    proptest! {
+-        // Arbitrary bytes never panic the readers, and every yielded field stays in bounds.
+-        #[test]
+-        fn proto_reader_never_panics(buf in proptest::collection::vec(any::<u8>(), 0..512)) {
+-            for f in ProtoReader::new(&buf) {
+-                if let Field::Len(_, b) = f {
+-                    prop_assert!(b.len() <= buf.len());
+-                }
+-            }
+-        }
+-
+-        #[test]
+-        fn value_lookup_never_panics(buf in proptest::collection::vec(any::<u8>(), 0..512)) {
+-            let _ = value_find_string(&buf, "gate_id");
+-            let _ = value_field(&buf, "paused").and_then(value_as_bool);
+-        }
+-
+-        #[test]
+-        fn unframe_never_panics_and_respects_the_cap(buf in proptest::collection::vec(any::<u8>(), 0..512)) {
+-            if let Ok(msg) = unframe(&HeaderMap::new(), &buf) {
+-                prop_assert!(msg.len() <= MAX_GRPC_MESSAGE_BYTES);
+-                prop_assert!(msg.len() <= buf.len());
+-            }
+-        }
+-
+-        // Anything the writer produces reads back identically.
+-        #[test]
+-        fn writer_reader_round_trip_any(field in 1u32..536_870_911, data in proptest::collection::vec(any::<u8>(), 0..256)) {
+-            let mut w = ProtoWriter::new();
+-            w.bytes_field(field, &data);
+-            let bytes = w.into_bytes();
+-            prop_assert_eq!(field_bytes(&bytes, field), Some(&data[..]));
+-        }
+-    }
+-}
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-
+-    #[test]
+-    fn writer_reader_round_trip() {
+-        let mut w = ProtoWriter::new();
+-        w.string_field(1, "hello");
+-        w.uint_field(2, 300);
+-        w.bytes_field(3, &[9, 8, 7]);
+-        let bytes = w.into_bytes();
+-
+-        assert_eq!(field_str(&bytes, 1), Some("hello"));
+-        assert_eq!(field_bytes(&bytes, 3), Some(&[9u8, 8, 7][..]));
+-        let v = ProtoReader::new(&bytes).find_map(|f| match f {
+-            Field::Varint(2, v) => Some(v),
+-            _ => None,
+-        });
+-        assert_eq!(v, Some(300));
+-    }
+-
+-    #[test]
+-    fn frame_unframe_round_trip() {
+-        let msg = b"\x08\x96\x01"; // arbitrary protobuf bytes
+-        let framed = frame(msg);
+-        assert_eq!(framed[0], 0x00);
+-        // Append a trailer frame carrying grpc-status:0.
+-        let trailer = b"grpc-status:0\r\n";
+-        let mut body = framed.clone();
+-        body.push(0x80);
+-        body.extend_from_slice(&(trailer.len() as u32).to_be_bytes());
+-        body.extend_from_slice(trailer);
+-        assert_eq!(unframe(&HeaderMap::new(), &body).unwrap(), msg);
+-    }
+-
+-    #[test]
+-    fn unframe_fails_closed_without_a_status() {
+-        // A data frame with no trailer and no grpc-status header is not a complete response.
+-        assert!(unframe(&HeaderMap::new(), &frame(b"msg")).is_err());
+-    }
+-
+-    #[test]
+-    fn unframe_reads_trailers_only_status_from_headers() {
+-        let mut h = HeaderMap::new();
+-        h.insert("grpc-status", "5".parse().unwrap()); // NOT_FOUND, empty body
+-        assert!(unframe(&h, &[]).is_err());
+-        h.insert("grpc-status", "0".parse().unwrap());
+-        assert_eq!(unframe(&h, &[]).unwrap(), Vec::<u8>::new());
+-    }
+-
+-    #[test]
+-    fn unframe_rejects_truncated_and_compressed_frames() {
+-        let mut ok_status = HeaderMap::new();
+-        ok_status.insert("grpc-status", "0".parse().unwrap());
+-        let mut body = frame(b"msg");
+-        body.extend_from_slice(&[0x00, 0x00]); // stray partial header
+-        assert!(unframe(&ok_status, &body).is_err());
+-        let mut compressed = frame(b"msg");
+-        compressed[0] = 0x01;
+-        assert!(unframe(&ok_status, &compressed).is_err());
+-    }
+-
+-    #[test]
+-    fn value_find_string_stops_at_the_depth_limit() {
+-        // Wrap a {gate_id} struct in 40 list levels: deeper than MAX_VALUE_DEPTH, so not found.
+-        let mut v = struct_value(&[("gate_id", "0xGATE")]);
+-        for _ in 0..40 {
+-            let mut list = ProtoWriter::new();
+-            list.bytes_field(LIST_VALUES, &v);
+-            let mut value = ProtoWriter::new();
+-            value.bytes_field(VALUE_LIST, &list.into_bytes());
+-            v = value.into_bytes();
+-        }
+-        assert_eq!(value_find_string(&v, "gate_id"), None);
+-    }
+-
+-    #[test]
+-    fn unframe_rejects_nonzero_status() {
+-        let mut body = frame(b"partial");
+-        let trailer = b"grpc-status:7\r\ngrpc-message:denied";
+-        body.push(0x80);
+-        body.extend_from_slice(&(trailer.len() as u32).to_be_bytes());
+-        body.extend_from_slice(trailer);
+-        assert!(unframe(&HeaderMap::new(), &body).is_err());
+-    }
+-
+-    /// Build a `google.protobuf.Value` wrapping a Struct with the given (key, string) entries.
+-    fn struct_value(entries: &[(&str, &str)]) -> Vec<u8> {
+-        let mut s = ProtoWriter::new();
+-        for (k, v) in entries {
+-            let mut val = ProtoWriter::new();
+-            val.string_field(VALUE_STRING, v);
+-            let mut entry = ProtoWriter::new();
+-            entry.string_field(ENTRY_KEY, k);
+-            entry.bytes_field(ENTRY_VALUE, &val.into_bytes());
+-            s.bytes_field(STRUCT_FIELDS, &entry.into_bytes());
+-        }
+-        let mut value = ProtoWriter::new();
+-        value.bytes_field(VALUE_STRUCT, &s.into_bytes());
+-        value.into_bytes()
++        let status = headers.get("grpc-status").and_then(|v| v.to_str().ok()).map(str::to_string);
++        Ok((status, bytes.to_vec()))
+     }
+ 
+-    #[test]
+-    fn value_find_string_top_level() {
+-        let v = struct_value(&[("gate_id", "0xGATE"), ("nft_id", "0xNFT")]);
+-        assert_eq!(value_find_string(&v, "gate_id").as_deref(), Some("0xGATE"));
+-        assert_eq!(value_find_string(&v, "missing"), None);
++    async fn sleep_ms(&self, ms: u64) {
++        tokio::time::sleep(Duration::from_millis(ms)).await;
+     }
+ 
+-    #[test]
+-    fn value_find_string_nested_under_data() {
+-        // Outer struct: { data: { gate_id: "0xGATE" } } — mirrors the NFT json shape.
+-        let inner = struct_value(&[("gate_id", "0xGATE")]);
+-        let mut entry = ProtoWriter::new();
+-        entry.string_field(ENTRY_KEY, "data");
+-        entry.bytes_field(ENTRY_VALUE, &inner);
+-        let mut s = ProtoWriter::new();
+-        s.bytes_field(STRUCT_FIELDS, &entry.into_bytes());
+-        let mut outer = ProtoWriter::new();
+-        outer.bytes_field(VALUE_STRUCT, &s.into_bytes());
+-        assert_eq!(
+-            value_find_string(&outer.into_bytes(), "gate_id").as_deref(),
+-            Some("0xGATE")
+-        );
++    fn now_ms(&self) -> u64 {
++        std::time::SystemTime::now()
++            .duration_since(std::time::UNIX_EPOCH)
++            .map_or(0, |d| d.as_millis() as u64)
+     }
+ }
+diff -ruN -x target -x Cargo.lock a/gateway-rust/src/main.rs b/gateway-rust/src/main.rs
+--- a/gateway-rust/src/main.rs	2026-10-19 20:58:21.819652630 +0100
++++ b/gateway-rust/src/main.rs	2026-10-19 20:58:21.825966473 +0100
+@@ -378,7 +378,7 @@
+     tracing::info!(?cfg.bind_addr, nft_type = %cfg.nft_type, single_use = cfg.single_use, "starting nft-gate-gateway");
+ 
+     let http = HttpClient::new()?;
+-    let chain = SuiRpc::new(
++    let chain = sui_rpc::new_sui_rpc(
+         http.clone(),
+         cfg.sui_rpc_url.clone(),
+         cfg.ownership_cache_ttl_ms,
+@@ -630,7 +630,7 @@
+         cfg.max_concurrent_requests = 1;
+         let http = HttpClient::new().unwrap();
+         let state = Arc::new(AppState {
+-            chain: SuiRpc::new(
++            chain: sui_rpc::new_sui_rpc(
+                 http.clone(),
+                 cfg.sui_rpc_url.clone(),
+                 0,
+@@ -661,7 +661,7 @@
+         let cfg = tests_support::test_cfg();
+         let http = HttpClient::new().unwrap();
+         build_router(Arc::new(AppState {
+-            chain: SuiRpc::new(
++            chain: sui_rpc::new_sui_rpc(
+                 http.clone(),
+                 cfg.sui_rpc_url.clone(),
+                 0,
+@@ -848,7 +848,7 @@
+         cfg.gated_preauth_rate_limit_per_min = 3;
+         let http = HttpClient::new().unwrap();
+         let app = build_router(Arc::new(AppState {
+-            chain: SuiRpc::new(
++            chain: sui_rpc::new_sui_rpc(
+                 http.clone(),
+                 cfg.sui_rpc_url.clone(),
+                 0,
+diff -ruN -x target -x Cargo.lock a/gateway-rust/src/proof.rs b/gateway-rust/src/proof.rs
+--- a/gateway-rust/src/proof.rs	2026-10-19 20:58:21.819707179 +0100
++++ b/gateway-rust/src/proof.rs	2026-10-19 20:58:21.826003214 +0100
+@@ -1,299 +1,2 @@
+-//! Access-proof wire format (protocol `nft-gate:access:v2`). MUST stay in sync with
+-//! `@meddleware/nft-gate-client`'s `proof.ts`; the shared conformance vectors
+-//! (`conformance/vectors.json`, published by that package) pin both.
+-//!
+-//! # Signed message
+-//!
+-//! ASCII, one `key:value` line each, no trailing newline. The gateway builds it from its OWN
+-//! configuration (origin, gate, network) plus the proof's nonce (and digest in single-use mode),
+-//! never from the token, so a signature made for another gateway, gate, network or consume is useless:
+-//!
+-//! ```text
+-//! nft-gate:access:v2
+-//! origin:<canonical origin>
+-//! gate:<0x + 64 lower-case hex>
+-//! network:<localnet|devnet|testnet|mainnet>
+-//! nonce:<nonce>
+-//! consume:<base58 digest>        (single-use gateways only)
+-//! ```
+-//!
+-//! # Proof token
+-//!
+-//! `base64(UTF-8 JSON)` of `{ "address", "nonce", "signature", "consumeDigest"? }` (camelCase
+-//! `consumeDigest`, normalised to `consume_digest` here). Every field is validated by the same
+-//! grammar the client applies when it encodes: address `0x` + 1-64 hex digits, nonce
+-//! `[A-Za-z0-9._~-]{1,128}`, signature base64 (at most 1024 characters), consume digest base58.
+-
+-use base64::prelude::*;
+-
+-/// First line of every signed access message.
+-pub const ACCESS_MESSAGE_VERSION: &str = "nft-gate:access:v2";
+-
+-/// The Sui networks a gateway can serve; part of the signed message.
+-pub const NETWORKS: [&str; 4] = ["localnet", "devnet", "testnet", "mainnet"];
+-
+-/// Decoded access-proof submitted by the client in the `Authorization: Bearer` (or
+-/// `X-Access-Proof`) header.
+-#[derive(Debug, Clone)]
+-pub struct AccessProof {
+-    /// The Sui address (0x-prefixed hex) that signed the challenge.
+-    pub address: String,
+-    /// The random nonce from `GET /v1/challenge`.
+-    pub nonce: String,
+-    /// Base64-encoded Sui personal-message signature (flag || sig || pubkey).
+-    pub signature: String,
+-    /// Single-use only: the digest of the on-chain consume (part of the signed message).
+-    pub consume_digest: Option<String>,
+-}
+-
+-/// Everything the signed message binds.
+-pub struct MessageContext<'a> {
+-    /// Canonical origin of this gateway (`scheme://host[:port]`).
+-    pub origin: &'a str,
+-    /// The guarded `Gate` id, `0x` + 64 lower-case hex digits.
+-    pub gate_id: &'a str,
+-    /// One of [`NETWORKS`].
+-    pub network: &'a str,
+-    /// The challenge nonce being answered.
+-    pub nonce: &'a str,
+-    /// Single-use gateways only.
+-    pub consume_digest: Option<&'a str>,
+-}
+-
+-/// `[A-Za-z0-9._~-]{1,128}`: a nonce a gateway may issue (no whitespace, so it cannot add a line).
+-pub fn is_nonce(s: &str) -> bool {
+-    (1..=128).contains(&s.len())
+-        && s.bytes()
+-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'~' | b'-'))
+-}
+-
+-/// A base58 Sui transaction digest: 32-44 characters of the Bitcoin alphabet (no `0 O I l`).
+-pub fn is_tx_digest(s: &str) -> bool {
+-    (32..=44).contains(&s.len())
+-        && s.bytes()
+-            .all(|b| b.is_ascii_alphanumeric() && !matches!(b, b'0' | b'O' | b'I' | b'l'))
+-}
+-
+-/// `0x` followed by 1-64 hex digits (either case).
+-fn is_address(s: &str) -> bool {
+-    s.strip_prefix("0x")
+-        .is_some_and(|h| (1..=64).contains(&h.len()) && h.bytes().all(|b| b.is_ascii_hexdigit()))
+-}
+-
+-/// `0x` followed by exactly 64 lower-case hex digits.
+-pub fn is_canonical_id(s: &str) -> bool {
+-    s.strip_prefix("0x").is_some_and(|h| {
+-        h.len() == 64
+-            && h.bytes()
+-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+-    })
+-}
+-
+-/// Standard base64 with optional padding, at most 1024 characters.
+-fn is_signature(s: &str) -> bool {
+-    let body = s.trim_end_matches('=');
+-    let pad = s.len() - body.len();
+-    (1..=1024 + 2).contains(&s.len())
+-        && pad <= 2
+-        && !body.is_empty()
+-        && body.len() <= 1024
+-        && body
+-            .bytes()
+-            .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
+-}
+-
+-/// The exact bytes a wallet signs to answer a challenge for `ctx`.
+-///
+-/// # Errors
+-///
+-/// Returns an error if a field is not in its canonical form (which also rules out line injection).
+-pub fn personal_message(ctx: &MessageContext<'_>) -> anyhow::Result<Vec<u8>> {
+-    if !is_canonical_id(ctx.gate_id) {
+-        anyhow::bail!("gate id must be 0x followed by 64 lower-case hex digits");
+-    }
+-    if !NETWORKS.contains(&ctx.network) {
+-        anyhow::bail!("unknown network");
+-    }
+-    if !is_nonce(ctx.nonce) {
+-        anyhow::bail!("nonce is not a valid challenge nonce");
+-    }
+-    if let Some(d) = ctx.consume_digest {
+-        if !is_tx_digest(d) {
+-            anyhow::bail!("consume digest is not a base58 transaction digest");
+-        }
+-    }
+-    if ctx.origin.is_empty() || !ctx.origin.is_ascii() || ctx.origin.bytes().any(|b| b <= b' ') {
+-        anyhow::bail!("origin is not a canonical gateway origin");
+-    }
+-    let mut lines = vec![
+-        ACCESS_MESSAGE_VERSION.to_string(),
+-        format!("origin:{}", ctx.origin),
+-        format!("gate:{}", ctx.gate_id),
+-        format!("network:{}", ctx.network),
+-        format!("nonce:{}", ctx.nonce),
+-    ];
+-    if let Some(d) = ctx.consume_digest {
+-        lines.push(format!("consume:{d}"));
+-    }
+-    Ok(lines.join("\n").into_bytes())
+-}
+-
+-/// Longest accepted token, checked before decoding. Mirror of the client's `MAX_TOKEN_BYTES`.
+-pub const MAX_TOKEN_BYTES: usize = 4096;
+-
+-/// Decode the base64(JSON) proof token, applying the client's field grammar.
+-///
+-/// # Errors
+-///
+-/// Returns an error if `token` is longer than [`MAX_TOKEN_BYTES`], is not valid base64, if the
+-/// decoded bytes are not a JSON object, or if any field breaks the grammar above.
+-pub fn decode_access_proof(token: &str) -> anyhow::Result<AccessProof> {
+-    if token.len() > MAX_TOKEN_BYTES {
+-        anyhow::bail!(
+-            "access proof token too large ({} > {MAX_TOKEN_BYTES})",
+-            token.len()
+-        );
+-    }
+-    let json = BASE64_STANDARD
+-        .decode(token.trim())
+-        .map_err(|e| anyhow::anyhow!("proof not base64: {e}"))?;
+-    let value: serde_json::Value = serde_json::from_slice(&json)?;
+-    let obj = value
+-        .as_object()
+-        .ok_or_else(|| anyhow::anyhow!("malformed access proof"))?;
+-    let text = |key: &str| -> anyhow::Result<String> {
+-        obj.get(key)
+-            .and_then(|v| v.as_str())
+-            .map(str::to_string)
+-            .ok_or_else(|| anyhow::anyhow!("malformed access proof"))
+-    };
+-    let address = text("address")?;
+-    let nonce = text("nonce")?;
+-    let signature = text("signature")?;
+-    if !(address.is_ascii() && nonce.is_ascii() && signature.is_ascii()) {
+-        anyhow::bail!("non-ASCII field in access proof");
+-    }
+-    if !is_address(&address) {
+-        anyhow::bail!("address must be 0x followed by 1-64 hex digits");
+-    }
+-    if !is_nonce(&nonce) {
+-        anyhow::bail!("nonce is not a valid challenge nonce");
+-    }
+-    if !is_signature(&signature) {
+-        anyhow::bail!("signature is not base64");
+-    }
+-    let consume_digest = match obj.get("consumeDigest") {
+-        None => None,
+-        Some(v) => {
+-            let d = v.as_str().filter(|d| is_tx_digest(d)).ok_or_else(|| {
+-                anyhow::anyhow!("consumeDigest is not a base58 transaction digest")
+-            })?;
+-            Some(d.to_string())
+-        }
+-    };
+-    Ok(AccessProof {
+-        address,
+-        nonce,
+-        signature,
+-        consume_digest,
+-    })
+-}
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-
+-    const DIGEST: &str = "5Wq9tE4gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL";
+-
+-    fn ctx<'a>(nonce: &'a str, digest: Option<&'a str>) -> MessageContext<'a> {
+-        MessageContext {
+-            origin: "https://gateway.example",
+-            gate_id: "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+-            network: "testnet",
+-            nonce,
+-            consume_digest: digest,
+-        }
+-    }
+-
+-    fn token(json: &str) -> String {
+-        BASE64_STANDARD.encode(json)
+-    }
+-
+-    #[test]
+-    fn personal_message_is_the_documented_multi_line_ascii() {
+-        let m =
+-            String::from_utf8(personal_message(&ctx("GOLDEN-NONCE-123", None)).unwrap()).unwrap();
+-        assert_eq!(
+-            m,
+-            format!(
+-                "nft-gate:access:v2\norigin:https://gateway.example\ngate:0x{}\nnetwork:testnet\nnonce:GOLDEN-NONCE-123",
+-                "a1".repeat(32)
+-            )
+-        );
+-        let single = personal_message(&ctx("n", Some(DIGEST))).unwrap();
+-        assert!(String::from_utf8(single)
+-            .unwrap()
+-            .ends_with(&format!("\nconsume:{DIGEST}")));
+-    }
+-
+-    #[test]
+-    fn personal_message_refuses_non_canonical_fields() {
+-        assert!(personal_message(&ctx("n\nconsume:x", None)).is_err());
+-        assert!(personal_message(&ctx("", None)).is_err());
+-        assert!(personal_message(&ctx("n", Some("DIGEST-1"))).is_err());
+-        let mut c = ctx("n", None);
+-        c.network = "testnet2";
+-        assert!(personal_message(&c).is_err());
+-        let mut c = ctx("n", None);
+-        c.gate_id = "0x1";
+-        assert!(personal_message(&c).is_err());
+-    }
+-
+-    #[test]
+-    fn decodes_with_and_without_consume_digest() {
+-        let p = decode_access_proof(&token(&format!(
+-            r#"{{"address":"0x1","nonce":"n","signature":"AAAA","consumeDigest":"{DIGEST}"}}"#
+-        )))
+-        .unwrap();
+-        assert_eq!(p.address, "0x1");
+-        assert_eq!(p.consume_digest.as_deref(), Some(DIGEST));
+-        let p = decode_access_proof(&token(
+-            r#"{"address":"0x1","nonce":"n","signature":"AAAA"}"#,
+-        ))
+-        .unwrap();
+-        assert!(p.consume_digest.is_none());
+-    }
+-
+-    #[test]
+-    fn rejects_an_oversized_token_before_decoding() {
+-        let err = decode_access_proof(&"A".repeat(MAX_TOKEN_BYTES + 1))
+-            .unwrap_err()
+-            .to_string();
+-        assert!(err.contains("too large"), "{err}");
+-    }
+-
+-    #[test]
+-    fn rejects_everything_outside_the_field_grammar() {
+-        for json in [
+-            r#"{"address":"0x1","nonce":"nönce","signature":"AAAA"}"#,
+-            "{\"address\":\"0x\u{e9}1\",\"nonce\":\"n\",\"signature\":\"AAAA\"}",
+-            r#"{"address":"","nonce":"n","signature":"AAAA"}"#,
+-            r#"{"address":"1234","nonce":"n","signature":"AAAA"}"#,
+-            r#"{"address":"0xzz","nonce":"n","signature":"AAAA"}"#,
+-            r#"{"address":"0x1","nonce":"","signature":"AAAA"}"#,
+-            r#"{"address":"0x1","nonce":"a b","signature":"AAAA"}"#,
+-            r#"{"address":"0x1","nonce":"n","signature":""}"#,
+-            r#"{"address":"0x1","nonce":"n","signature":"***"}"#,
+-            r#"{"address":"0x1","nonce":"n","signature":"AAAA","consumeDigest":"DIGEST-1"}"#,
+-            r#"{"address":"0x1","nonce":"n","signature":"AAAA","consumeDigest":""}"#,
+-            r#"{"address":"0x1","nonce":"n","signature":"AAAA","consumeDigest":7}"#,
+-            r#"{"address":"0x1","nonce":"n","signature":"AAAA","consumeDigest":null}"#,
+-            r#"["0x1"]"#,
+-            "null",
+-            r#"{"address":"0x1"}"#,
+-        ] {
+-            assert!(decode_access_proof(&token(json)).is_err(), "{json}");
+-        }
+-        assert!(decode_access_proof("!!!not-base64!!!").is_err());
+-    }
+-}
++//! Access-proof wire format: moved to `nft-gate-core::proof` (shared with the Worker).
++pub use nft_gate_core::proof::*;
+diff -ruN -x target -x Cargo.lock a/gateway-rust/src/router_tests.rs b/gateway-rust/src/router_tests.rs
+--- a/gateway-rust/src/router_tests.rs	2026-10-19 20:58:21.820121637 +0100
++++ b/gateway-rust/src/router_tests.rs	2026-10-19 20:58:21.826082210 +0100
+@@ -125,7 +125,7 @@
+         tweak(&mut cfg);
+         let http = HttpClient::new().unwrap();
+         let state = Arc::new(AppState {
+-            chain: SuiRpc::new(
++            chain: crate::sui_rpc::new_sui_rpc(
+                 http.clone(),
+                 cfg.sui_rpc_url.clone(),
+                 0,
+diff -ruN -x target -x Cargo.lock a/gateway-rust/src/sui_rpc.rs b/gateway-rust/src/sui_rpc.rs
+--- a/gateway-rust/src/sui_rpc.rs	2026-10-19 20:58:21.820180895 +0100
++++ b/gateway-rust/src/sui_rpc.rs	2026-10-19 20:58:21.826116495 +0100
+@@ -1,434 +1,52 @@
+-//! Production [`ChainQuery`] implementation over the Sui **gRPC** API (`sui.rpc.v2`), via the
+-//! hand-rolled gRPC-web client in [`crate::grpc`] (no `tonic`/`prost`). Public JSON-RPC is
+-//! deprecated; this replaces it. The pure response-parse helpers are unit-tested; the network
+-//! round-trips are covered by the localnet/integration loop.
+-//!
+-//! Single-use verification is **digest-first**, mirroring the Workers gateway: the proof carries
+-//! the `access_gate::consume` transaction digest, so we fetch that transaction and confirm it
+-//! emitted an `AccessConsumedEvent` for this sender + gate. It is NOT bound to the challenge nonce,
+-//! so an interrupted upload can resume with a fresh challenge while reusing the same consume.
++//! Production [`ChainQuery`]: the chain logic moved to `nft-gate-core::chain` (generic over a
++//! `Transport`, shared with the Cloudflare Worker); this module binds it to the hyper client.
+ 
++pub use nft_gate_core::chain::*;
++#[allow(unused_imports)]
++pub use nft_gate_core::decision::ChainQuery;
++
++use crate::config::AuthHeader;
++use crate::grpc::HyperTransport;
++use crate::http_client::HttpClient;
++use std::time::Duration;
++
++#[cfg(test)]
++#[allow(unused_imports)]
+ use crate::grpc::{
+     field_bytes, field_str, value_as_bool, value_field, value_find_string, Field, GrpcStatus,
+-    GrpcWeb, ProtoReader, ProtoWriter, GRPC_NOT_FOUND,
++    ProtoReader, ProtoWriter, GRPC_NOT_FOUND,
+ };
+-use crate::http_client::{HttpClient, TimedOut};
+-use crate::verify::{normalize_address, normalize_move_type, ChainQuery};
+-use std::collections::HashMap;
+-use std::sync::Mutex;
+-use std::time::{Duration, Instant};
+-
+-// ── pinned sui.rpc.v2 field numbers (validated against live responses) ───────────────────────
+-const LEDGER_GET_TRANSACTION: &str = "sui.rpc.v2.LedgerService/GetTransaction";
+-const STATE_LIST_OWNED_OBJECTS: &str = "sui.rpc.v2.StateService/ListOwnedObjects";
+-const LEDGER_GET_OBJECT: &str = "sui.rpc.v2.LedgerService/GetObject";
+-
+-// GetObjectRequest { object_id = 1; version = 2; FieldMask read_mask = 3 }
+-const GO_OBJECT_ID: u32 = 1;
+-const GO_READ_MASK: u32 = 3;
+-// GetObjectResponse { Object object = 1 }
+-const GO_OBJECT: u32 = 1;
+-
+-// GetTransactionRequest { digest = 1; FieldMask read_mask = 2 { repeated string paths = 1 } }
+-const REQ_DIGEST: u32 = 1;
+-const REQ_READ_MASK: u32 = 2;
+-const FIELDMASK_PATHS: u32 = 1;
+-// GetTransactionResponse { ExecutedTransaction transaction = 1 }
+-const RESP_TRANSACTION: u32 = 1;
+-// ExecutedTransaction { ... TransactionEffects effects = 4; TransactionEvents events = 5 }
+-const EXECUTED_EFFECTS: u32 = 4;
+-const EXECUTED_EVENTS: u32 = 5;
+-// TransactionEffects { ... ExecutionStatus status = 4 }; ExecutionStatus { optional bool success = 1 }
+-const EFFECTS_STATUS: u32 = 4;
+-const STATUS_SUCCESS: u32 = 1;
+-// TransactionEvents { ... repeated Event events = 3 }
+-const EVENTS_EVENTS: u32 = 3;
+-// Event { package_id=1; module=2; sender=3; event_type=4; Bcs contents=5; Value json=6 }
+-const EVENT_SENDER: u32 = 3;
+-const EVENT_TYPE: u32 = 4;
+-const EVENT_JSON: u32 = 6;
+-
+-// ListOwnedObjectsRequest { owner=1; uint32 page_size=2; bytes page_token=3; FieldMask read_mask=4;
+-// object_type=5 }
+-const LOO_OWNER: u32 = 1;
+-const LOO_PAGE_SIZE: u32 = 2;
+-const LOO_PAGE_TOKEN: u32 = 3;
+-const LOO_READ_MASK: u32 = 4;
+-const LOO_OBJECT_TYPE: u32 = 5;
+-// ListOwnedObjectsResponse { repeated Object objects = 1; bytes next_page_token = 2 }
+-const LOO_OBJECTS: u32 = 1;
+-const LOO_NEXT_PAGE_TOKEN: u32 = 2;
+-// Object { ... Value json = 100 }
+-const OBJECT_JSON: u32 = 100;
+-
+-/// Objects requested per `ListOwnedObjects` page.
+-const OWNED_PAGE_SIZE: u64 = 50;
+-/// Pages read before the ownership list is judged too long to decide (the Workers gateway's
+-/// `MAX_OWNED_PAGES`: the same pass is admitted or refused by both). With 50 per page, 5,000 objects
+-/// of the pass type; past it the check errors (→ 502, denied) instead of guessing.
+-pub const MAX_OWNED_PAGES: usize = 100;
+-/// `GetTransaction` attempts while the node still reports the digest as unknown (indexing lag).
+-const TX_FETCH_ATTEMPTS: u32 = 4;
+-/// Entries kept by the ownership cache; the oldest is dropped past it.
+-const MAX_CACHE_ENTRIES: usize = 10_000;
+-/// Clock skew tolerated between a consume event's timestamp and this host's clock.
+-const CLOCK_SKEW_MS: u64 = 60_000;
+-/// Delay between `GetTransaction` attempts.
+-const TX_FETCH_RETRY: Duration = Duration::from_millis(500);
+-
+-/// A cached result of an ownership query.
+-struct CacheEntry {
+-    owns: bool,
+-    expiry: Instant,
+-}
+-
+-/// Production [`ChainQuery`] backed by the Sui gRPC API (gRPC-web transport).
+-pub struct SuiRpc {
+-    grpc: GrpcWeb,
+-    /// Deadline for one gated ownership check (all of its pages), as for each other call.
+-    timeout: Duration,
+-    cache_ttl: Duration,
+-    cache: Mutex<HashMap<String, CacheEntry>>,
+-}
+-
+-impl SuiRpc {
+-    /// Create a new client. `rpc_url` is the full-node origin (gRPC-web is served there). Set
+-    /// `cache_ttl_ms` to `0` to disable the ownership cache (default — every gated check is live).
+-    pub fn new(
+-        client: HttpClient,
+-        rpc_url: String,
+-        cache_ttl_ms: u64,
+-        auth: Option<crate::config::AuthHeader>,
+-        timeout: Duration,
+-    ) -> Self {
+-        Self {
+-            grpc: GrpcWeb::new(client, rpc_url, auth, timeout),
+-            timeout,
+-            cache_ttl: Duration::from_millis(cache_ttl_ms),
+-            cache: Mutex::new(HashMap::new()),
+-        }
+-    }
+-
+-    fn cache_key(address: &str, nft_type: &str, gate_id: Option<&str>) -> String {
+-        format!("{address}|{nft_type}|{}", gate_id.unwrap_or("-"))
+-    }
+-
+-    /// Uncached, live ownership query via `StateService/ListOwnedObjects`, bounded by one deadline
+-    /// for all pages.
+-    async fn owns_nft_live(
+-        &self,
+-        address: &str,
+-        nft_type: &str,
+-        gate_id: Option<&str>,
+-    ) -> anyhow::Result<bool> {
+-        tokio::time::timeout(self.timeout, self.scan_owned(address, nft_type, gate_id))
+-            .await
+-            .map_err(|_| anyhow::Error::new(TimedOut))?
+-    }
+-
+-    /// Read the owner's objects of `nft_type` page by page (at most [`MAX_OWNED_PAGES`]) and stop at
+-    /// the first usable pass for the gate. Past the bound the answer is an error, never "no": a
+-    /// holder's pass may sit on a page that was not read, and guessing either way is wrong.
+-    async fn scan_owned(
+-        &self,
+-        address: &str,
+-        nft_type: &str,
+-        gate_id: Option<&str>,
+-    ) -> anyhow::Result<bool> {
+-        let mut page_token: Option<Vec<u8>> = None;
+-        for _ in 0..MAX_OWNED_PAGES {
+-            let resp = self
+-                .grpc
+-                .call(
+-                    STATE_LIST_OWNED_OBJECTS,
+-                    build_list_owned(address, nft_type, page_token.as_deref()),
+-                )
+-                .await?;
+-            if response_has_owned(&resp, gate_id) {
+-                return Ok(true);
+-            }
+-            match field_bytes(&resp, LOO_NEXT_PAGE_TOKEN).filter(|t| !t.is_empty()) {
+-                Some(token) => page_token = Some(token.to_vec()),
+-                None => return Ok(false),
+-            }
+-        }
+-        anyhow::bail!(
+-            "owned-object list exceeds {MAX_OWNED_PAGES} pages; refusing to decide ownership"
+-        )
+-    }
+-}
+-
+-/// Build one `ListOwnedObjectsRequest` page for `address`, continuing from `page_token`.
+-fn build_list_owned(address: &str, nft_type: &str, page_token: Option<&[u8]>) -> Vec<u8> {
+-    let mut mask = ProtoWriter::new();
+-    mask.string_field(FIELDMASK_PATHS, "object_type");
+-    mask.string_field(FIELDMASK_PATHS, "json");
+-    let mut req = ProtoWriter::new();
+-    req.string_field(LOO_OWNER, address);
+-    req.uint_field(LOO_PAGE_SIZE, OWNED_PAGE_SIZE);
+-    if let Some(token) = page_token {
+-        req.bytes_field(LOO_PAGE_TOKEN, token);
+-    }
+-    req.bytes_field(LOO_READ_MASK, &mask.into_bytes());
+-    req.string_field(LOO_OBJECT_TYPE, nft_type);
+-    req.into_bytes()
+-}
+-
+-/// True if a `Gate`'s JSON (`google.protobuf.Value`) is paused AND its `policy` has
+-/// `pause_blocks_access`. Fails closed: JSON without a boolean `paused` and a `policy` with a boolean
+-/// `pause_blocks_access` is not understood and is an error (→ deny), never "not paused" — a rendering
+-/// change must not silently disable an admin's pause.
+-pub fn gate_blocks_access(json: &[u8]) -> anyhow::Result<bool> {
+-    let unrecognised = || anyhow::anyhow!("gate JSON has an unrecognised shape");
+-    let paused = value_field(json, "paused")
+-        .and_then(value_as_bool)
+-        .ok_or_else(unrecognised)?;
+-    let blocks = value_field(json, "policy")
+-        .and_then(|p| value_field(p, "pause_blocks_access"))
+-        .and_then(value_as_bool)
+-        .ok_or_else(unrecognised)?;
+-    Ok(paused && blocks)
+-}
+-
+-/// Parse a `GetObjectResponse` for a gate; errors (fail closed) if the object or its JSON is absent.
+-fn response_gate_blocks_access(resp: &[u8]) -> anyhow::Result<bool> {
+-    let object =
+-        field_bytes(resp, GO_OBJECT).ok_or_else(|| anyhow::anyhow!("gate object not found"))?;
+-    let json = field_bytes(object, OBJECT_JSON)
+-        .ok_or_else(|| anyhow::anyhow!("gate object has no json"))?;
+-    gate_blocks_access(json)
+-}
+-
+-/// Build the `GetTransactionRequest` for `digest`, requesting only the execution status and events.
+-fn build_get_transaction(digest: &str) -> Vec<u8> {
+-    let mut mask = ProtoWriter::new();
+-    mask.string_field(FIELDMASK_PATHS, "effects.status");
+-    mask.string_field(FIELDMASK_PATHS, "events");
+-    let mut req = ProtoWriter::new();
+-    req.string_field(REQ_DIGEST, digest);
+-    req.bytes_field(REQ_READ_MASK, &mask.into_bytes());
+-    req.into_bytes()
+-}
+-
+-/// True if the event's `timestamp_ms` is at most `max_age_secs` old and not in the future (beyond
+-/// clock skew). A missing or malformed timestamp is not recent: fail closed. The age bound keeps a
+-/// consume from becoming redeemable again once the redemption store has forgotten it.
+-pub fn event_is_recent(event_json: &[u8], now_ms: u64, max_age_secs: u64) -> bool {
+-    let Some(ts) = value_find_string(event_json, "timestamp_ms")
+-        .filter(|t| !t.is_empty() && t.len() <= 16 && t.bytes().all(|b| b.is_ascii_digit()))
+-        .and_then(|t| t.parse::<u64>().ok())
+-    else {
+-        return false;
+-    };
+-    ts <= now_ms.saturating_add(CLOCK_SKEW_MS)
+-        && now_ms.saturating_sub(ts) <= max_age_secs.saturating_mul(1000)
+-}
+-
+-/// True if an access NFT's JSON describes a usable pass: an unlimited pass, or a single-use pass
+-/// with uses left. The variant is read as a full node renders the `AccessVariant` enum
+-/// (`{ "@variant": "SingleUse", "uses_remaining": "8" }`); an unknown tag or a missing or non-u64
+-/// count is not usable (fail closed), so an exhausted receipt never grants access.
+-pub fn pass_is_usable(nft_json: &[u8]) -> bool {
+-    match value_find_string(nft_json, "@variant").as_deref() {
+-        Some("UnlimitedPass") => true,
+-        Some("SingleUse") => value_find_string(nft_json, "uses_remaining")
+-            .filter(|n| !n.is_empty() && n.len() <= 20 && n.bytes().all(|b| b.is_ascii_digit()))
+-            .and_then(|n| n.parse::<u64>().ok())
+-            .is_some_and(|n| n > 0),
+-        _ => false,
+-    }
+-}
+ 
+-/// Milliseconds since the Unix epoch.
++#[cfg(test)]
+ fn now_ms() -> u64 {
+     std::time::SystemTime::now()
+         .duration_since(std::time::UNIX_EPOCH)
+         .map_or(0, |d| d.as_millis() as u64)
+ }
++#[cfg(test)]
++#[allow(unused_imports)]
++use crate::http_client::TimedOut;
++#[cfg(test)]
++#[allow(unused_imports)]
++use crate::verify::{normalize_address, normalize_move_type};
+ 
+-/// True if `a` and `b` name the same address (normalised form).
+-fn same_address(a: Option<&str>, b: &str) -> bool {
+-    a.is_some_and(|a| normalize_address(a) == normalize_address(b))
+-}
+-
+-/// True if the executed transaction's effects report success. The status is decided from the
+-/// effects, as the Workers gateway does (`status.success`), not inferred from the presence of
+-/// events: a missing effects block, status or `success` field, or `success = false`, is a failure.
+-fn effects_succeeded(tx: &[u8]) -> bool {
+-    field_bytes(tx, EXECUTED_EFFECTS)
+-        .and_then(|effects| field_bytes(effects, EFFECTS_STATUS))
+-        .is_some_and(|status| {
+-            ProtoReader::new(status).any(|f| matches!(f, Field::Varint(STATUS_SUCCESS, 1)))
+-        })
+-}
+-
+-/// True if a `GetTransactionResponse` is a SUCCESSFUL transaction (effects status) containing an
+-/// event of exactly `consumed_type` sent by `address` for `gate_id` (when constrained).
+-fn response_has_consume(
+-    resp: &[u8],
+-    address: &str,
+-    consumed_type: &str,
+-    gate_id: Option<&str>,
+-    now_ms: u64,
+-    max_age_secs: u64,
+-) -> bool {
+-    let want_type = normalize_move_type(consumed_type);
+-    let Some(tx) = field_bytes(resp, RESP_TRANSACTION) else {
+-        return false;
+-    };
+-    if !effects_succeeded(tx) {
+-        return false;
+-    }
+-    let Some(events) = field_bytes(tx, EXECUTED_EVENTS) else {
+-        return false;
+-    };
+-    for f in ProtoReader::new(events) {
+-        let Field::Len(EVENTS_EVENTS, ev) = f else {
+-            continue;
+-        };
+-        let is_consume =
+-            field_str(ev, EVENT_TYPE).is_some_and(|t| normalize_move_type(t) == want_type);
+-        if !is_consume || !same_address(field_str(ev, EVENT_SENDER), address) {
+-            continue;
+-        }
+-        let json = field_bytes(ev, EVENT_JSON).unwrap_or(&[]);
+-        if !event_is_recent(json, now_ms, max_age_secs) {
+-            continue;
+-        }
+-        match gate_id {
+-            None => return true,
+-            Some(g) => {
+-                if same_address(value_find_string(json, "gate_id").as_deref(), g) {
+-                    return true;
+-                }
+-            }
+-        }
+-    }
+-    false
+-}
+-
+-/// True if a `ListOwnedObjectsResponse` contains a USABLE owned pass (see [`pass_is_usable`])
+-/// matching `gate_id` (when constrained). The object type is already constrained by the request's
+-/// `object_type` filter.
+-fn response_has_owned(resp: &[u8], gate_id: Option<&str>) -> bool {
+-    for f in ProtoReader::new(resp) {
+-        let Field::Len(LOO_OBJECTS, obj) = f else {
+-            continue;
+-        };
+-        let json = field_bytes(obj, OBJECT_JSON).unwrap_or(&[]);
+-        if !pass_is_usable(json) {
+-            continue;
+-        }
+-        match gate_id {
+-            None => return true,
+-            Some(g) => {
+-                if same_address(value_find_string(json, "gate_id").as_deref(), g) {
+-                    return true;
+-                }
+-            }
+-        }
+-    }
+-    false
+-}
++/// The native chain client.
++pub type SuiRpc = nft_gate_core::chain::SuiRpc<HyperTransport>;
+ 
+-impl ChainQuery for SuiRpc {
+-    async fn owns_nft(
+-        &self,
+-        address: &str,
+-        nft_type: &str,
+-        gate_id: Option<&str>,
+-    ) -> anyhow::Result<bool> {
+-        // Cache is OFF by default (cache_ttl == 0) so a gated action is confirmed live.
+-        if !self.cache_ttl.is_zero() {
+-            let key = Self::cache_key(address, nft_type, gate_id);
+-            if let Some(e) = self.cache.lock().unwrap().get(&key) {
+-                if e.expiry > Instant::now() {
+-                    return Ok(e.owns);
+-                }
+-            }
+-            let owns = self.owns_nft_live(address, nft_type, gate_id).await?;
+-            let now = Instant::now();
+-            let mut cache = self.cache.lock().unwrap();
+-            cache.retain(|_, e| e.expiry > now); // drop expired entries
+-            if cache.len() >= MAX_CACHE_ENTRIES {
+-                // Past the cap: drop the soonest-to-expire entry.
+-                if let Some(oldest) = cache
+-                    .iter()
+-                    .min_by_key(|(_, e)| e.expiry)
+-                    .map(|(k, _)| k.clone())
+-                {
+-                    cache.remove(&oldest);
+-                }
+-            }
+-            cache.insert(
+-                key,
+-                CacheEntry {
+-                    owns,
+-                    expiry: now + self.cache_ttl,
+-                },
+-            );
+-            return Ok(owns);
+-        }
+-        self.owns_nft_live(address, nft_type, gate_id).await
+-    }
+-
+-    async fn gate_access_blocked(&self, gate_id: &str) -> anyhow::Result<bool> {
+-        // Live read (not cached) so pausing takes effect on the next request.
+-        let mut mask = ProtoWriter::new();
+-        mask.string_field(FIELDMASK_PATHS, "json");
+-        let mut req = ProtoWriter::new();
+-        req.string_field(GO_OBJECT_ID, gate_id);
+-        req.bytes_field(GO_READ_MASK, &mask.into_bytes());
+-        let resp = self.grpc.call(LEDGER_GET_OBJECT, req.into_bytes()).await?;
+-        response_gate_blocks_access(&resp)
+-    }
+-
+-    async fn consume_tx_valid(
+-        &self,
+-        consume_digest: &str,
+-        address: &str,
+-        consumed_event_type: &str,
+-        gate_id: Option<&str>,
+-        max_age_secs: u64,
+-    ) -> anyhow::Result<bool> {
+-        // Only "not found" is retried (a node can lag behind the client's finality wait: 4 attempts,
+-        // 500 ms apart, the same policy as the Workers gateway); the final not-found is `Ok(false)`
+-        // (denied, 403). Any other failure (network, auth, server, timeout) is returned at once as a
+-        // chain error (502): no amplification, and never a silent "no consume".
+-        let mut attempt = 1;
+-        let resp = loop {
+-            match self
+-                .grpc
+-                .call(
+-                    LEDGER_GET_TRANSACTION,
+-                    build_get_transaction(consume_digest),
+-                )
+-                .await
+-            {
+-                Ok(resp) => break resp,
+-                Err(e)
+-                    if e.downcast_ref::<GrpcStatus>()
+-                        .is_some_and(|s| s.0 == GRPC_NOT_FOUND) =>
+-                {
+-                    if attempt >= TX_FETCH_ATTEMPTS {
+-                        return Ok(false);
+-                    }
+-                    tracing::debug!(attempt, "GetTransaction not found; retrying");
+-                    tokio::time::sleep(TX_FETCH_RETRY).await;
+-                    attempt += 1;
+-                }
+-                Err(e) => return Err(e),
+-            }
+-        };
+-        Ok(response_has_consume(
+-            &resp,
+-            address,
+-            consumed_event_type,
+-            gate_id,
+-            now_ms(),
+-            max_age_secs,
+-        ))
+-    }
++/// Create a new client. `rpc_url` is the full-node origin; `cache_ttl_ms` `0` disables the ownership cache.
++pub fn new_sui_rpc(
++    client: HttpClient,
++    rpc_url: String,
++    cache_ttl_ms: u64,
++    auth: Option<AuthHeader>,
++    timeout: Duration,
++) -> SuiRpc {
++    nft_gate_core::chain::SuiRpc::new(
++        HyperTransport::new(client, auth, timeout),
++        rpc_url,
++        cache_ttl_ms,
++        timeout.as_millis() as u64,
++    )
+ }
+ 
+ #[cfg(test)]
+@@ -664,7 +282,7 @@
+     const PASS_TYPE: &str = "0xabc::access_gate::SoulboundAccessNFT";
+ 
+     fn rpc_for(stub: &Stub) -> SuiRpc {
+-        SuiRpc::new(
++        new_sui_rpc(
+             HttpClient::new().unwrap(),
+             stub.url.clone(),
+             0,
+@@ -1021,7 +639,7 @@
+     // Unset DIGEST: the test says so and returns without asserting.
+ 
+     fn live_rpc() -> SuiRpc {
+-        SuiRpc::new(
++        new_sui_rpc(
+             HttpClient::new().unwrap(),
+             std::env::var("NFT_GATE_LIVE_RPC")
+                 .unwrap_or_else(|_| "https://fullnode.testnet.sui.io:443".to_string()),
+diff -ruN -x target -x Cargo.lock a/gateway-rust/src/verify.rs b/gateway-rust/src/verify.rs
+--- a/gateway-rust/src/verify.rs	2026-10-19 20:58:21.820459662 +0100
++++ b/gateway-rust/src/verify.rs	2026-10-19 20:58:21.826191351 +0100
+@@ -1,384 +1,48 @@
+-//! Access verification: Sui personal-message signature checking (done directly, no heavy
+-//! SDK) plus the allow/deny decision. The on-chain lookups are abstracted behind
+-//! [`ChainQuery`] so the decision is unit-testable without a network.
++//! Access verification. The decision logic and the signature primitives live in `nft-gate-core`
++//! (shared with the Cloudflare Worker); this module adapts the native pieces to it: the
++//! `GatewayConfig` -> `VerifyParams` mapping and the `NonceStore` -> `NonceTake` adapter.
+ 
+ use crate::challenge::NonceStore;
+ use crate::config::GatewayConfig;
++#[allow(unused_imports)]
+ use crate::proof::{decode_access_proof, is_tx_digest, personal_message, MessageContext};
++#[allow(unused_imports)]
+ use base64::prelude::*;
+-use blake2::digest::consts::U32;
+-use blake2::{Blake2b, Digest};
+ 
+-type Blake2b256 = Blake2b<U32>;
++pub use nft_gate_core::decision::{ChainQuery, Denied, Verified};
++use nft_gate_core::decision::{NonceTake, VerifyParams};
++#[allow(unused_imports)]
++pub use nft_gate_core::sig::{
++    consumed_event_type, derive_address, normalize_address, normalize_move_type, signing_digest,
++    verify_personal_message_signature, FLAG_ED25519, FLAG_MULTISIG, FLAG_SECP256K1, FLAG_SECP256R1,
++    FLAG_ZKLOGIN,
++};
+ 
+-// Sui signature-scheme flag bytes (first byte of a serialized signature).
+-pub(crate) const FLAG_ED25519: u8 = 0x00;
+-const FLAG_SECP256K1: u8 = 0x01;
+-const FLAG_SECP256R1: u8 = 0x02;
+-const FLAG_MULTISIG: u8 = 0x03;
+-const FLAG_ZKLOGIN: u8 = 0x05;
+-
+-/// Compute the 32-byte Blake2b-256 digest of `data`.
+-fn blake2b256(data: &[u8]) -> [u8; 32] {
+-    let mut h = Blake2b256::new();
+-    h.update(data);
+-    h.finalize().into()
+-}
+-
+-/// Append `v` to `out` in unsigned LEB-128 encoding. Used to BCS-encode the message-length
+-/// prefix in the Sui personal-message signing digest.
+-fn write_uleb128(out: &mut Vec<u8>, mut v: u64) {
+-    loop {
+-        let mut byte = (v & 0x7f) as u8;
+-        v >>= 7;
+-        if v != 0 {
+-            byte |= 0x80;
+-        }
+-        out.push(byte);
+-        if v == 0 {
+-            break;
+-        }
+-    }
+-}
+-
+-/// blake2b256( intent(PersonalMessage,V0,Sui) || bcs(Vec<u8> message) ). This is exactly
+-/// what a Sui wallet signs for a personal message.
+-pub(crate) fn signing_digest(message: &[u8]) -> [u8; 32] {
+-    let mut data = vec![3u8, 0, 0]; // IntentScope::PersonalMessage, V0, AppId::Sui
+-    write_uleb128(&mut data, message.len() as u64);
+-    data.extend_from_slice(message);
+-    blake2b256(&data)
+-}
+-
+-/// Sui address for a scheme: blake2b256(flag || pubkey), hex, 0x-prefixed. `pubkey` is the
+-/// 32-byte ed25519 key or the 33-byte SEC1-compressed secp256k1/r1 key.
+-pub(crate) fn derive_address(flag: u8, pk: &[u8]) -> String {
+-    let mut d = Vec::with_capacity(1 + pk.len());
+-    d.push(flag);
+-    d.extend_from_slice(pk);
+-    format!("0x{}", hex::encode(blake2b256(&d)))
+-}
+-
+-/// Normalise a Sui address to lowercase, 0x-prefixed, zero-padded to 64 hex digits.
+-pub fn normalize_address(a: &str) -> String {
+-    let s = a.trim().trim_start_matches("0x").to_lowercase();
+-    format!("0x{s:0>64}")
+-}
+-
+-/// Normalise the package address of a `<pkg>::<module>::<name>` type string so the short and
+-/// long (gRPC) address forms compare equal.
+-pub fn normalize_move_type(t: &str) -> String {
+-    match t.split_once("::") {
+-        Some((pkg, rest)) if !pkg.is_empty() => format!("{}::{rest}", normalize_address(pkg)),
+-        _ => t.to_string(),
+-    }
+-}
+-
+-/// The exact `AccessConsumedEvent` type of the access_gate package that `nft_type` names. Matching
+-/// the full type (not a `::access_gate::AccessConsumedEvent` suffix) stops a look-alike package
+-/// from emitting a forged consume event. Event and NFT types both carry the package's original id.
+-pub fn consumed_event_type(nft_type: &str) -> String {
+-    let pkg = nft_type.split("::").next().unwrap_or_default();
+-    format!(
+-        "{}::access_gate::AccessConsumedEvent",
+-        normalize_address(pkg)
+-    )
+-}
+-
+-/// Verify a Sui personal-message signature recovers `address` over `message`, dispatching on
+-/// the scheme flag byte. Serialized layout: `flag(1) || signature || pubkey` (base64).
+-///
+-/// Supported: **ed25519** (0x00), **secp256k1** (0x01), **secp256r1** (0x02) — the schemes used
+-/// by every current Sui browser/hardware wallet keypair. **multisig** (0x03) and **zkLogin**
+-/// (0x05) are recognised but not yet verified here (they require the official Sui verifier —
+-/// see the gateway audit F1 integration plan) and fail **closed**.
+-pub fn verify_personal_message_signature(
+-    address: &str,
+-    message: &[u8],
+-    signature_b64: &str,
+-) -> bool {
+-    let raw = match BASE64_STANDARD.decode(signature_b64.trim()) {
+-        Ok(r) => r,
+-        Err(_) => return false,
+-    };
+-    match raw.first().copied() {
+-        Some(FLAG_ED25519) => verify_ed25519(address, message, &raw[1..]),
+-        Some(FLAG_SECP256K1) => verify_secp256k1(address, message, &raw[1..]),
+-        Some(FLAG_SECP256R1) => verify_secp256r1(address, message, &raw[1..]),
+-        Some(FLAG_MULTISIG) | Some(FLAG_ZKLOGIN) => {
+-            tracing::warn!(
+-                flag = raw[0],
+-                "multisig/zkLogin signature presented but not yet supported by the gateway \
+-                 verifier (fails closed); see gateway audit F1"
+-            );
+-            false
+-        }
+-        _ => false,
++impl NonceTake for NonceStore {
++    async fn take_if_valid(&self, nonce: &str) -> anyhow::Result<bool> {
++        NonceStore::take_if_valid(self, nonce).await
+     }
+ }
+ 
+-/// ed25519 (flag 0x00): body = `sig(64) || pubkey(32)`. Verified under **ZIP-215** — the rule
+-/// Sui validators apply (and the Workers gateway's `zip215: true`) — so the gateway accepts
+-/// exactly the signatures the chain accepts; pinned by the conformance `zip215` vector.
+-fn verify_ed25519(address: &str, message: &[u8], body: &[u8]) -> bool {
+-    use ed25519_consensus::{Signature, VerificationKey};
+-    if body.len() != 96 {
+-        return false;
++fn params(cfg: &GatewayConfig) -> VerifyParams {
++    VerifyParams {
++        single_use: cfg.single_use,
++        gateway_origin: cfg.gateway_origin.clone(),
++        gate_id: cfg.gate_id.clone(),
++        network: cfg.network.clone(),
++        nft_type: cfg.nft_type.clone(),
++        consume_max_age_secs: cfg.consume_max_age_secs,
+     }
+-    let sig_bytes: [u8; 64] = match body[0..64].try_into() {
+-        Ok(b) => b,
+-        Err(_) => return false,
+-    };
+-    let pk_bytes: [u8; 32] = match body[64..96].try_into() {
+-        Ok(b) => b,
+-        Err(_) => return false,
+-    };
+-    let vk = match VerificationKey::try_from(pk_bytes) {
+-        Ok(k) => k,
+-        Err(_) => return false,
+-    };
+-    let digest = signing_digest(message);
+-    if vk.verify(&Signature::from(sig_bytes), &digest).is_err() {
+-        return false;
+-    }
+-    normalize_address(address) == derive_address(FLAG_ED25519, &pk_bytes)
+ }
+ 
+-/// secp256k1 (flag 0x01): body = `sig(64, compact r||s) || pubkey(33, SEC1-compressed)`.
+-/// Sui signs `SHA256(blake2b256(intent||msg))` with ECDSA-secp256k1. `k256`'s `Verifier::verify`
+-/// applies the SHA256 step internally, so we pass the blake2b digest and let k256 do the rest.
+-fn verify_secp256k1(address: &str, message: &[u8], body: &[u8]) -> bool {
+-    use k256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
+-    if body.len() != 97 {
+-        return false;
+-    }
+-    let sig = match Signature::from_slice(&body[0..64]) {
+-        Ok(s) => s,
+-        Err(_) => return false,
+-    };
+-    // Sui requires low-S; reject the high-S twin explicitly (k256 also does, but do not rely on
+-    // a library default for a consensus rule).
+-    if sig.normalize_s().is_some() {
+-        return false;
+-    }
+-    let pk_bytes = &body[64..97];
+-    let vk = match VerifyingKey::from_sec1_bytes(pk_bytes) {
+-        Ok(k) => k,
+-        Err(_) => return false,
+-    };
+-    let digest = signing_digest(message);
+-    if vk.verify(&digest, &sig).is_err() {
+-        return false;
+-    }
+-    normalize_address(address) == derive_address(FLAG_SECP256K1, pk_bytes)
+-}
+-
+-/// secp256r1 (flag 0x02): as secp256k1 but over the NIST P-256 curve. Same SHA256-over-blake2b
+-/// signing hash; `p256`'s `Verifier::verify` applies SHA256 internally.
+-fn verify_secp256r1(address: &str, message: &[u8], body: &[u8]) -> bool {
+-    use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
+-    if body.len() != 97 {
+-        return false;
+-    }
+-    let sig = match Signature::from_slice(&body[0..64]) {
+-        Ok(s) => s,
+-        Err(_) => return false,
+-    };
+-    // Sui requires low-S for secp256r1 too; `p256` does NOT enforce it on verify, so without this
+-    // check the gateway would accept the malleable high-S twin the chain and Workers reject.
+-    if sig.normalize_s().is_some() {
+-        return false;
+-    }
+-    let pk_bytes = &body[64..97];
+-    let vk = match VerifyingKey::from_sec1_bytes(pk_bytes) {
+-        Ok(k) => k,
+-        Err(_) => return false,
+-    };
+-    let digest = signing_digest(message);
+-    if vk.verify(&digest, &sig).is_err() {
+-        return false;
+-    }
+-    normalize_address(address) == derive_address(FLAG_SECP256R1, pk_bytes)
+-}
+-
+-/// Abstraction over on-chain lookups needed to authorise a request. Implemented by
+-/// [`crate::sui_rpc::SuiRpc`] in production and by a mock in tests. Kept as a generic trait
+-/// (not `dyn`) so async methods are allowed without `Box<dyn Future>` wrappers.
+-#[allow(async_fn_in_trait)]
+-pub trait ChainQuery {
+-    /// Does `address` own ≥1 NFT of `nft_type` (optionally for `gate_id`)?
+-    async fn owns_nft(
+-        &self,
+-        address: &str,
+-        nft_type: &str,
+-        gate_id: Option<&str>,
+-    ) -> anyhow::Result<bool>;
+-
+-    /// Does `consume_digest` name a successful transaction that emitted an event of exactly
+-    /// `consumed_event_type` (the configured package's `AccessConsumedEvent`) for `address` (the
+-    /// sender) on `gate_id`, no older than `max_age_secs`? Digest-first and NOT bound to the
+-    /// challenge nonce — single-use is enforced by the redemption store keying on the digest, so an
+-    /// interrupted upload can resume with a fresh challenge while reusing the same consume. A digest
+-    /// the node does not know is `Ok(false)` (denied); an RPC failure is `Err` (`ChainError`).
+-    async fn consume_tx_valid(
+-        &self,
+-        consume_digest: &str,
+-        address: &str,
+-        consumed_event_type: &str,
+-        gate_id: Option<&str>,
+-        max_age_secs: u64,
+-    ) -> anyhow::Result<bool>;
+-
+-    /// Is `gate_id` paused AND does its immutable `GatePolicy` have `pause_blocks_access`? Holders
+-    /// are then denied until the gate is unpaused. `Err` (→ `ChainError`, denied) if the gate's JSON
+-    /// is not the shape this version understands: a rendering change must never silently disable
+-    /// an admin's pause.
+-    async fn gate_access_blocked(&self, gate_id: &str) -> anyhow::Result<bool>;
+-}
+-
+-/// Reason a request was rejected by [`verify_access_request`].
+-#[derive(Debug, PartialEq, Eq)]
+-pub enum Denied {
+-    /// The proof token could not be decoded (not valid base64 JSON or missing required fields).
+-    BadProof,
+-    /// The signature does not recover the claimed address.
+-    BadSignature,
+-    /// The challenge nonce was not found, is expired, or has already been used.
+-    NonceInvalid,
+-    /// The address does not hold the required access NFT (ownership mode).
+-    NotOwner,
+-    /// No matching on-chain single-use consume event was found (single-use mode).
+-    ConsumeMissing,
+-    /// The gate is paused and its policy has `pause_blocks_access`.
+-    GatePaused,
+-    /// An on-chain query failed; the gateway returns 502 for this variant.
+-    ChainError,
+-    /// The gateway's own state store failed; the gateway returns 503 (never a conflict).
+-    StateUnavailable,
+-}
+-
+-impl Denied {
+-    /// A short, client-visible description of why access was denied.
+-    pub fn reason(&self) -> &'static str {
+-        match self {
+-            Denied::BadProof => "malformed access proof",
+-            Denied::BadSignature => "signature does not recover address",
+-            Denied::NonceInvalid => "challenge nonce invalid, expired, or already used",
+-            Denied::NotOwner => "address does not hold the required access NFT",
+-            Denied::ConsumeMissing => "no matching single-use consume for this address",
+-            Denied::GatePaused => "the gate is paused",
+-            Denied::ChainError => "on-chain verification failed",
+-            Denied::StateUnavailable => "gateway state unavailable",
+-        }
+-    }
+-}
+-
+-/// A successful verification: the recovered address, plus (single-use mode) the `consume_digest`
+-/// the dispatcher leases/commits so a use is only spent on a successful upload.
+-#[derive(Debug)]
+-pub struct Verified {
+-    pub address: String,
+-    pub redemption_key: Option<String>,
+-}
+-
+-/// Authorise a request from its base64 proof token. Returns the verified address on success.
+-/// The nonce is consumed (single-use at the gateway) as part of a successful signature check,
+-/// so a replay presents an already-used nonce and is rejected.
++/// Authorise a request from its base64 proof token (see `nft_gate_core::decision`).
+ pub async fn verify_access_request<C: ChainQuery>(
+     cfg: &GatewayConfig,
+     store: &NonceStore,
+     token: &str,
+     chain: &C,
+ ) -> Result<Verified, Denied> {
+-    let proof = decode_access_proof(token).map_err(|_| Denied::BadProof)?;
+-
+-    // Single-use gateways need the consume digest before anything else (it is part of the signed
+-    // message); ownership gateways build the message without one, so a signature made for the other
+-    // mode, another gateway, gate or network simply fails to verify.
+-    if cfg.single_use && proof.consume_digest.is_none() {
+-        return Err(Denied::ConsumeMissing);
+-    }
+-    let message = personal_message(&MessageContext {
+-        origin: &cfg.gateway_origin,
+-        gate_id: &normalize_address(&cfg.gate_id),
+-        network: &cfg.network,
+-        nonce: &proof.nonce,
+-        consume_digest: if cfg.single_use {
+-            proof.consume_digest.as_deref()
+-        } else {
+-            None
+-        },
+-    })
+-    .map_err(|_| Denied::BadProof)?;
+-    if !verify_personal_message_signature(&proof.address, &message, &proof.signature) {
+-        return Err(Denied::BadSignature);
+-    }
+-
+-    // Canonicalise the address once the signature is proven, then use ONLY the normalised form for
+-    // on-chain comparisons and the returned value. The client emits the raw caller address; on-chain
+-    // owners are canonical (lower-case, 0x-prefixed, 64-hex), so comparing the raw string would
+-    // fail-closed for a non-canonical input (e.g. missing leading zeros). Owning canonicalisation
+-    // here — the security boundary — keeps the client wire format unchanged. (See conformance
+-    // vectors `addressNormalization`; matched by the Workers gateway.)
+-    let address = normalize_address(&proof.address);
+-
+-    // Consume the nonce exactly once (fresh, unexpired, unused).
+-    if !store
+-        .take_if_valid(&proof.nonce)
+-        .await
+-        .map_err(|_| Denied::StateUnavailable)?
+-    {
+-        return Err(Denied::NonceInvalid);
+-    }
+-
+-    // A gate whose policy has `pause_blocks_access` admits no one while paused. Checked before the
+-    // single-use lease, so a consume made just before a pause stays redeemable after unpausing.
+-    let blocked = chain
+-        .gate_access_blocked(&cfg.gate_id)
+-        .await
+-        .map_err(|_| Denied::ChainError)?;
+-    if blocked {
+-        return Err(Denied::GatePaused);
+-    }
+-
+-    if cfg.single_use {
+-        // A single-use client MUST first submit an on-chain consume and include its digest;
+-        // its absence signals a misconfigured/replaying client.
+-        let Some(digest) = proof.consume_digest.as_deref().filter(|d| is_tx_digest(d)) else {
+-            return Err(Denied::ConsumeMissing);
+-        };
+-        let ok = chain
+-            .consume_tx_valid(
+-                digest,
+-                &address,
+-                &consumed_event_type(&cfg.nft_type),
+-                Some(cfg.gate_id.as_str()),
+-                cfg.consume_max_age_secs,
+-            )
+-            .await
+-            .map_err(|_| Denied::ChainError)?;
+-        if !ok {
+-            return Err(Denied::ConsumeMissing);
+-        }
+-        // The consume is valid on-chain; the dispatcher leases/commits this digest so the use is
+-        // spent only on a successful upload (and a duplicate can't double-spend it).
+-        return Ok(Verified {
+-            address,
+-            redemption_key: Some(digest.to_string()),
+-        });
+-    }
+-
+-    let ok = chain
+-        .owns_nft(&address, &cfg.nft_type, Some(cfg.gate_id.as_str()))
+-        .await
+-        .map_err(|_| Denied::ChainError)?;
+-    if !ok {
+-        return Err(Denied::NotOwner);
+-    }
+-    Ok(Verified {
+-        address,
+-        redemption_key: None,
+-    })
++    nft_gate_core::decision::verify_access_request(&params(cfg), store, token, chain).await
+ }
+ 
+ #[cfg(test)]

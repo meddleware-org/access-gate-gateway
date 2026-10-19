@@ -1,0 +1,58 @@
+{
+  "description": "Deterministic nonce / rate / redemption scenarios with an explicit clock (ms). Consumed by core/tests/scenario.rs (pure RedemptionTable/NonceTable/RateTable) and by scripts/differential.mjs (the real SQLite Durable Object under workerd). `bind` names a lease token; `$NAME` refers to it. `max` is the entry cap.",
+  "sections": [
+    { "name": "nonce single use and expiry", "steps": [
+      { "op": "issue", "nonce": "n1", "now": 0, "ttl": 300, "max": 10, "expect": { "expiresAt": 300000 } },
+      { "op": "take", "nonce": "n1", "now": 1000, "expect": { "ok": true } },
+      { "op": "take", "nonce": "n1", "now": 1001, "expect": { "ok": false } },
+      { "op": "issue", "nonce": "n2", "now": 0, "ttl": 1, "max": 10, "expect": { "expiresAt": 1000 } },
+      { "op": "take", "nonce": "n2", "now": 1000, "expect": { "ok": false } },
+      { "op": "take", "nonce": "never-issued", "now": 0, "expect": { "ok": false } }
+    ]},
+    { "name": "nonce cap evicts the soonest to expire", "steps": [
+      { "op": "issue", "nonce": "a", "now": 0, "ttl": 10, "max": 2, "expect": { "expiresAt": 10000 } },
+      { "op": "issue", "nonce": "b", "now": 0, "ttl": 20, "max": 2, "expect": { "expiresAt": 20000 } },
+      { "op": "issue", "nonce": "c", "now": 0, "ttl": 30, "max": 2, "expect": { "expiresAt": 30000 } },
+      { "op": "take", "nonce": "a", "now": 1, "expect": { "ok": false } },
+      { "op": "take", "nonce": "b", "now": 1, "expect": { "ok": true } },
+      { "op": "take", "nonce": "c", "now": 1, "expect": { "ok": true } }
+    ]},
+    { "name": "fixed 60 s rate window", "steps": [
+      { "op": "rate", "addr": "k", "max": 2, "now": 0, "expect": { "ok": true } },
+      { "op": "rate", "addr": "k", "max": 2, "now": 1, "expect": { "ok": true } },
+      { "op": "rate", "addr": "k", "max": 2, "now": 2, "expect": { "ok": false } },
+      { "op": "rate", "addr": "k", "max": 2, "now": 60001, "expect": { "ok": true } },
+      { "op": "rate", "addr": "z", "max": 0, "now": 0, "expect": { "ok": true } }
+    ]},
+    { "name": "lease, wrong tokens, commit, redeemed, retention lapse", "steps": [
+      { "op": "lease", "key": "d1", "now": 0, "ttl": 900, "max": 10, "bind": "A", "expect": { "status": "ok" } },
+      { "op": "lease", "key": "d1", "now": 1, "ttl": 900, "max": 10, "expect": { "status": "leased" } },
+      { "op": "commit", "key": "d1", "token": "wrong", "now": 2, "retention": 100, "expect": { "result": "lost" } },
+      { "op": "release", "key": "d1", "token": "wrong", "now": 2 },
+      { "op": "lease", "key": "d1", "now": 3, "ttl": 900, "max": 10, "expect": { "status": "leased" } },
+      { "op": "commit", "key": "d1", "token": "$A", "now": 4, "retention": 100, "expect": { "result": "ok" } },
+      { "op": "release", "key": "d1", "token": "$A", "now": 5 },
+      { "op": "lease", "key": "d1", "now": 5, "ttl": 900, "max": 10, "expect": { "status": "redeemed" } },
+      { "op": "lease", "key": "d1", "now": 100004, "ttl": 900, "max": 10, "bind": "B", "expect": { "status": "ok" } }
+    ]},
+    { "name": "an expired lease is reclaimable and the old holder loses", "steps": [
+      { "op": "lease", "key": "d2", "now": 0, "ttl": 1, "max": 10, "bind": "A", "expect": { "status": "ok" } },
+      { "op": "lease", "key": "d2", "now": 2000, "ttl": 1, "max": 10, "bind": "B", "expect": { "status": "ok" } },
+      { "op": "commit", "key": "d2", "token": "$A", "now": 2001, "retention": 10, "expect": { "result": "lost" } },
+      { "op": "release", "key": "d2", "token": "$A", "now": 2001 },
+      { "op": "commit", "key": "d2", "token": "$B", "now": 2002, "retention": 10, "expect": { "result": "ok" } }
+    ]},
+    { "name": "release makes the consume retryable (a paid use is never lost)", "steps": [
+      { "op": "lease", "key": "d3", "now": 0, "ttl": 900, "max": 10, "bind": "R", "expect": { "status": "ok" } },
+      { "op": "release", "key": "d3", "token": "$R", "now": 1 },
+      { "op": "lease", "key": "d3", "now": 2, "ttl": 900, "max": 10, "expect": { "status": "ok" } }
+    ]},
+    { "name": "cap evicts leases, never commits", "steps": [
+      { "op": "lease", "key": "c1", "now": 0, "ttl": 900, "max": 2, "bind": "C1", "expect": { "status": "ok" } },
+      { "op": "commit", "key": "c1", "token": "$C1", "now": 1, "retention": 900, "expect": { "result": "ok" } },
+      { "op": "lease", "key": "c2", "now": 2, "ttl": 900, "max": 2, "expect": { "status": "ok" } },
+      { "op": "lease", "key": "c3", "now": 3, "ttl": 900, "max": 2, "expect": { "status": "ok" } },
+      { "op": "lease", "key": "c1", "now": 4, "ttl": 900, "max": 2, "expect": { "status": "redeemed" } }
+    ]}
+  ]
+}
