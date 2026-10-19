@@ -3,3 +3,4 @@ build/
 build-hooks/
 node_modules/
 .wrangler/
+wrangler.shadow.toml

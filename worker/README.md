@@ -84,7 +84,6 @@ upstream receives.
 | Stricter shared config: the lease must exceed `UPSTREAM_TIMEOUT_SECS + BODY_READ_TIMEOUT_SECS` (the latter is accepted and unused here), empty hosts/whitespace in URLs refused, origin hosts `[a-z0-9.-]` only, normalised request-loop comparison | core `config` table in `core/README.md`; the defaults satisfy all of them |
 | Workers KV nonce backend dropped: `NONCE_BACKEND=kv` is a startup error, no `NONCE_KV` binding, no `quota:degrade` flag | decided 2026-10-19; it was refused with `SINGLE_USE` and only eventually consistent otherwise. The quota guard therefore only warns |
 | A literal `..` path segment is refused (400) | one rule in the core; the Cloudflare URL parser resolves dot segments first, so never reachable on Workers |
-| Gated/ public `GET` with a huge `Content-Length`: no difference (the declared-length check is applied to body methods only, as before) | parity |
 | A missing Durable Object binding answers `500 gateway misconfigured` **with** the CORS allow-list (the config is known by then) | the TypeScript Worker lost the allow-list on any startup failure; no security impact |
 | Rate-store failure on a rate check is `503 gateway state unavailable` (core `StateStore::rate_check` is fallible since 0.0.27) | fail closed; the TypeScript Worker did the same through its `StoreError` wrapper |
 | `QUOTA_GRAPHQL_URL`, `TEST_FAIL_STATE`, the DO `now=` pin and `/__test/*` exist **only** in the `test-hooks` build, never in `build/` | test seams; `tests/panic.test.mjs` asserts the deployed build has no such routes |
