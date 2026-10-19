@@ -2,20 +2,31 @@
 
 ## What this crate is
 
-The Rust/Axum implementation of the nft-gate gateway. Wire-identical to `gateway-workers/` on the
+The Rust/Axum **adapter** of the nft-gate gateway. Wire-identical to `gateway-workers/` on the
 client-facing contract — same routes, status codes, proof format, and env-var config. Deployed as
 a Docker container or a Cargo binary; state backed by an in-memory store (single replica) or
 Redis/Dragonfly (horizontal scale-out).
 
+**One core, two adapters (0.0.26).** What the gateway decides and does is `nft-gate-core` (`../core`), shared with the
+Cloudflare Worker: `proof`, `sig`, `decision`, `grpc`/`chain`, `redemption`/`state`, `headers`, `forward`, `net`,
+`origin`, `config` and `gateway` (the request flow as a state machine over the ports `StateStore`, `ChainQuery`,
+`Upstream`, `Clock`, `Rng`, `Env`). **Change decision logic, header/path/config policy or the request flow in
+`../core`, once — never here.** This crate supplies I/O only: the hyper server and its limits (`main.rs`), the
+buffered `Upstream` (`proxy.rs`, `headers.rs`, `http_client.rs`), `HyperTransport` (`grpc.rs`, `sui_rpc.rs`),
+the nonce / redemption backends (`challenge.rs`: core's in-memory state machine or Redis), the system clock and
+OS entropy (`state.rs`), and `ServerConfig` (`config.rs`: the core's `GatewayConfig` plus the native-only
+variables). The build is the Cargo workspace at the repository root; the Docker build context is the root
+(`docker build -f gateway-rust/Dockerfile .`).
+
 ## Chain access: hand-rolled gRPC-web (no JSON-RPC, no tonic/prost)
 
-Public Sui full nodes deprecated JSON-RPC and the GraphQL endpoints are unavailable, so `sui_rpc.rs`
-queries the chain over **gRPC-web** (`application/grpc-web+proto`, HTTP/1.1) via a minimal
-hand-rolled client in `grpc.rs` — deliberately **without** `tonic`/`prost`/`sui-rpc`, to keep the
+Public Sui full nodes deprecated JSON-RPC and the GraphQL endpoints are unavailable, so the core
+(`../core/src/chain.rs`) queries the chain over **gRPC-web** (`application/grpc-web+proto`, HTTP/1.1) via a minimal
+hand-rolled client in `../core/src/grpc.rs` — deliberately **without** `tonic`/`prost`/`sui-rpc`, to keep the
 lightweight build (same rationale as avoiding `reqwest`; see the HTTP-client note). `grpc.rs` is a
-tiny protobuf writer/reader + gRPC-web framing over the shared `HttpClient`; only the fields the
-gateway reads are decoded. Field numbers are pinned from `MystenLabs/sui-apis` and pinned by hermetic
-gRPC-web fixtures in `sui_rpc.rs` (literal field numbers, no network) and checked against a real node by
+tiny protobuf writer/reader + gRPC-web framing over the platform's `Transport` (here `HyperTransport` over the
+shared `HttpClient`); only the fields the gateway reads are decoded. Field numbers are pinned from
+`MystenLabs/sui-apis` and pinned by hermetic gRPC-web fixtures in `sui_rpc.rs` (literal field numbers, no network) and checked against a real node by
 the optional `--ignored live_` tests, which take a fresh consume from `NFT_GATE_LIVE_*` env vars
 (public fullnodes prune old transactions, so no digest is fixed in the source).
 
@@ -32,8 +43,8 @@ the optional `--ignored live_` tests, which take a fresh consume from `NFT_GATE_
 ## Single-use redemption (a consumed use is never lost)
 
 The permanent on-chain `consumeDigest` is the one-time token, exactly as in the Workers gateway.
-`verify_access_request` returns `Verified { address, redemption_key }`; for single-use the dispatcher
-(`main.rs`) leases the digest (`NonceStore::try_lease_redemption`, which returns an owner token), proxies, then `commit`s with
+`verify_access_request` (core) returns `Verified { address, redemption_key }`; for single-use the core's
+`Gateway::redeem_and_forward` leases the digest (`StateStore::try_lease_redemption`, which returns an owner token), proxies, then `commit`s with
 the token on a 2xx upstream response or `release`s with it on failure (Lua compare-and-set in Redis) — so an interrupted upload leaves the consume redeemable
 while a duplicate can't double-spend it. Redis keys use the `nftgate:redeem:` prefix; the in-memory
 store mirrors the semantics (and `SINGLE_USE=true` requires Redis unless `ALLOW_VOLATILE_REDEMPTIONS`).
@@ -44,9 +55,9 @@ A commit failure after a 2xx upstream is `502 redemption commit failed` with the
 but never loses a paid use. Same in `gateway-workers`.
 
 Loop marker (F43): `headers::upstream_request_headers` sets `Via: 1.1 nft-gate` after dropping the
-client's; `handle` answers `508 loop detected` to a request whose `Via` already names `nft-gate`
+client's; the core's `Gateway::handle` answers `508 loop detected` to a request whose `Via` already names `nft-gate`
 (after `/healthz` and the CORS preflight, before any state work). Foreign values pass. Parity table:
-`via_loop_table` in `src/headers.rs` = `VIA_TABLE` in `gateway-workers/test/proxy.test.ts`.
+`via_loop_table` in `../core/src/headers.rs` = `VIA_TABLE` in `gateway-workers/test/proxy.test.ts`.
 
 ## Hardening invariants
 
@@ -59,25 +70,26 @@ client's; `handle` answers `508 loop detected` to a request whose `Via` already 
 - CORS mirrors the Workers gateway (`cors.ts`): exact `ALLOWED_ORIGINS` match only, the same grants, `Vary: Origin`, preflight before auth, headers on error responses too.
 - The rate-limit client IP is the TCP peer unless `TRUSTED_PROXY_HOPS` says how many proxies to
   trust; never the leftmost `X-Forwarded-For` entry (client-controlled).
-- `GatewayConfig`'s `Debug` is hand-written to redact secrets — keep it that way when adding fields.
+- `GatewayConfig`'s (core) and `ServerConfig`'s `Debug` are hand-written to redact secrets — keep it that way when adding fields.
 
 ## Axum architecture
 
 `AppState` is the single shared object (`Arc<AppState>`) threaded through every request handler:
-- `cfg: GatewayConfig` — loaded from env vars at startup; immutable for the process lifetime.
-- `store: NonceStore` — in-memory or Redis, depending on `REDIS_URL`.
-- `limiter: RateLimiter` — `Mutex<HashMap>`, per-address fixed 60s window (post-auth); `ip_limiter` (challenge and public paths) and `preauth_limiter` (gated requests, before verification) are the same limiter keyed by client IP.
-- `chain: SuiRpc` — Sui gRPC-web client (`grpc.rs`; public fullnodes deprecated JSON-RPC); optional in-memory ownership cache.
+- `cfg: ServerConfig` — loaded from env vars at startup; immutable for the process lifetime. `cfg.gateway` is the core's shared `GatewayConfig`.
+- `store: NonceStore` — in-memory (the core's `MemoryStore` on the system clock) or Redis, depending on `REDIS_URL`.
+- `rates: MemoryRates<SystemClock>` — the core's fixed 60 s windows: per client IP for the challenge and public paths, per client IP for gated requests before verification, and per verified address (post-auth).
+- `chain: SuiRpc` — the core's Sui gRPC-web client over `HyperTransport`; optional in-memory ownership cache.
 - `http: HttpClient` — shared `hyper` client used by both the proxy and the RPC client.
 
-All routes are dispatched through a single `fallback` handler (`handle`). The router
-does not enumerate paths — the handler checks them in order: `/healthz` → `/v1/challenge`
-→ public paths → gated paths.
+All routes are dispatched through a single `fallback` handler (`handle`), which derives a `RequestHead`, builds a
+core `Gateway` over `NativeState` (the `StateStore`), `SuiRpc` and `AppState` (the `Upstream`) and renders the
+`Reply`. The router does not enumerate paths — the core checks them in order: `/healthz` (adapter) → loop guard →
+`/v1/challenge` → public paths → gated paths.
 
 ## Nonce store options
 
 **In-memory** (default; `REDIS_URL` unset)
-- `Mutex<HashMap<String, Entry>>` — correct at `replicas: 1`.
+- The core's `NonceTable` / `RedemptionTable` behind a `Mutex` (`nft_gate_core::state::MemoryStore`) — correct at `replicas: 1`.
 - Hard entry cap (`NONCE_MAX_ENTRIES`, default 1,000,000): when full, evict the soonest-to-expire
   entry before inserting (audit F3 — bounds memory independent of issue rate).
 - Background prune task (`NONCE_PRUNE_INTERVAL_SECS`, default 60s) drops expired entries.
@@ -118,17 +130,19 @@ live). Use with care on mainnet — a stolen/transferred NFT can still gate duri
 
 ## Invariants
 
-- `deny` always returns JSON `{"error": reason}`. Do not return plain-text error bodies.
-- `extract_proof_token` prefers `Authorization: Bearer` over `X-Access-Proof`. This order is
+- Every gateway-generated answer is JSON `{"error": reason}` (`JsonReply` in the core). Do not return plain-text error bodies.
+- `nft_gate_core::headers::extract_proof_token` prefers `Authorization: Bearer` over `X-Access-Proof`. This order is
   canonical — do not flip it without updating both impls and the client.
-- The Rust verification logic (`verify.rs`) is a direct port of the Workers `verify.ts`. Any
-  behavioural change in one must be reflected in the other; run conformance vectors to verify.
+- The verification logic is `../core/src/decision.rs` (and `sig.rs`), shared with the Rust Worker; the TypeScript
+  Workers `verify.ts` is the retiring twin. Any behavioural change is made in the core once and, until the
+  TypeScript Worker is retired, mirrored there; run the conformance vectors on both.
 - `decode_access_proof` normalises `consumeDigest` (camelCase from JS) to `consume_digest`
   (snake_case for serde) before deserialising. If the JSON key ever changes on the client side,
   this must change too.
 
 ## What NOT to do
 
+- Do not put decision logic, policy or request flow in this crate: it belongs in `../core` (the Worker needs it too).
 - Do not use `tokio::sync::Mutex` where `std::sync::Mutex` suffices — the nonce map and rate
   limiter only hold the lock for in-memory ops (no `.await` inside the critical section).
 - Do not add per-path routing in the router — the single `fallback` handler keeps the logic

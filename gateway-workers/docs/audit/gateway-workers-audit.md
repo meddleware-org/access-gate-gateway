@@ -12,6 +12,11 @@
   AUDIT_TEMPLATE_PROXY.md (2026-10-08)
 **Deployment status:**
 
+- **This Worker will be replaced by a Rust Worker (workers-rs) built on the shared `nft-gate-core` crate** — status: **in progress**
+  (decision 2026-10-19: the standing rule is no JS/TS backend code; a feasibility spike returned GO). The shared core and the native gateway
+  on it are committed locally as 0.0.26 (no change to this Worker's code); the Worker adapter is next, then a shadow deploy, and the cutover gate is the CPU-time
+  p99 in Workers analytics (the maintainer deploys). This TypeScript Worker stays live, and is the rollback, until then. The Workers KV nonce
+  backend (F2) is not carried over. See the `gateway-rust` audit F49 and F50.
 - **Live on testnet** at route `sui-walrus-relay-testnet.meddleware.co.uk/*` (zone
   `meddleware.co.uk`, route ID `63427e4d…7551`). The Worker was redeployed from `main` on 2026-10-09:
   `Deploy Workers` run of 2026-10-09T17:49Z on `367e673` succeeded (the run of 14:13Z on `574fe70`, the
@@ -54,7 +59,7 @@
   consumed, `nft-gate:access:v2` proof, upload through this Worker; the indexer shows minted=1
   consumed=1.
 
-**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release and deployment status 2026-10-19; decisions and F43 fix 2026-10-19; OQ3/OQ4 and the plan work 2026-10-19)
+**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release and deployment status 2026-10-19; decisions and F43 fix 2026-10-19; OQ3/OQ4 and the plan work 2026-10-19; Rust-port note 2026-10-19)
 **Reviewer:** Internal review
 **Severity ceiling:** High — the gateway is the only paywall in front of the operator's Walrus relay.
   A verification bypass gives unpaid uploads at the operator's cost, and a redemption flaw lets one
@@ -67,7 +72,7 @@
   2026-10-19 (0.0.24, released, not deployed): 28 RESOLVED, 3 MITIGATED, 5 ADJUDICATED, 4 ACCEPTED-RISK,
   1 DEFERRED, 6 Positive (47 findings). OQ3 and OQ4 decided and the plan work of 2026-10-19 (0.0.25, committed
   locally, unreleased, not deployed; F48 added): 30 RESOLVED, 3 MITIGATED, 5 ADJUDICATED, 4 ACCEPTED-RISK,
-  0 DEFERRED, 6 Positive (48 findings).
+  0 DEFERRED, 6 Positive (48 findings). Rust-port note of 2026-10-19 (0.0.26, committed locally, no change to this Worker's code): counts unchanged.
 
 **Wrangler / compatibility:** wrangler `^4.143.0` (lockfile 4.151.0 on 2026-10-19, workerd 1.20260815.1);
   `compatibility_date = "2026-06-01"`; `compatibility_flags = ["nodejs_compat"]`; `workers_dev = false`,
@@ -204,6 +209,14 @@ p99 and `exceededCpu` count from Workers analytics after deploying 0.0.25 (F11; 
 launch on Free), verify the live API token's scope (F31), and obtain an external review. The negative origin check is scheduled (F32); confirm
 its first run after the release.
 
+
+**Replacement by the Rust Worker (in progress, 2026-10-19).** The maintainer's standing rule is no JS/TS backend code, so this Worker is to be rebuilt in Rust
+(workers-rs) on `nft-gate-core`, the decision logic that `gateway-rust` now shares (`gateway-rust` audit F49: one implementation of proof, signatures, decision, Sui
+reads, state machines, header / path / config policy and the request flow). The spike (`spike-workers-rs/FINDINGS.md`) measured the wasm bundle (0.29 MiB gzip), a
+first verification of 4 ms against 17 ms here, a SQLite Durable Object that passes the same 39-step scenario as the pure model, and a 90 MiB streamed body with flat
+memory. Open until the port lands: the Worker adapter itself, a shadow deploy, and the CPU-time p99 in Workers analytics as the cutover gate. The Durable Object
+class `NonceRateState` and its migration tag must be kept under the same Worker name, or the redemption store starts empty (a replay window). Until the cutover this Worker and
+these findings stay current; afterwards they are closed with the TypeScript source.
 ---
 
 ## Threat model / trust boundaries
@@ -2103,6 +2116,10 @@ PROXY lens:
 - **Workers Free limits.** At launch a cold isolate's first verification can exceed the 10 ms CPU limit
   (measured locally, F11), and past 100,000 Worker or DO requests a day gated uploads fail until 00:00 UTC
   (about 12,500 uploads a day, workspace cost model §5). Both fail closed; the switch to Paid is the remedy.
+- **A rewrite in flight (2026-10-19).** The Rust Worker replaces this one. Risks of the move, not of this code: workers-rs is 0.x (worker, wasm-bindgen
+  and worker-build move together; pin exactly and keep this Worker as the rollback), wasm instantiate time may count against the 10 ms Free CPU limit of the first request
+  (only Workers analytics after a real deploy can tell, so the cutover is gated on the p99), and a new Worker script name would start with an empty redemption store (keep
+  the name, the `NonceRateState` class and the migration tag). A panic in the Rust Worker returns the runtime's generic 500 without CORS, which fails closed.
 
 ---
 
@@ -2215,6 +2232,14 @@ PROXY lens:
     14 in `quota.test.ts`, 1 in `config.test.ts`, 1 CPU benchmark in each pool); `npm audit --audit-level=high` 0
     vulnerabilities; `sync-vectors --check` and `scripts/check-versions.sh` pass (0.0.25). CPU figures and their method are in F11.
   - Not run: the Worker on the edge (deploy is the maintainer's), the quota guard against the live GraphQL API, `wrangler deploy --dry-run`.
+
+- 2026-10-19 (Part E, 0.0.26) — Replacement by the Rust Worker: note only (in progress).
+  - No change to this Worker's code. The version moves to 0.0.26 with the Cargo workspace (D16). The decision logic was extracted into `nft-gate-core` and `gateway-rust`
+    runs on it (`gateway-rust` audit F49, F50); the Rust Worker adapter, a shadow deploy and the CPU p99 cutover gate are next (the maintainer deploys). This Worker stays live as the rollback.
+  - The shared single implementation refuses a literal `..` path segment; `isSafePath` here lacks it (not exploitable on Workers, whose URL parser normalises dot segments first). Left as is: it retires with this Worker.
+    Where the Rust and TypeScript configuration rules differed the stricter rule is the shared one (`core/README.md`), so `config.ts` is now the looser of the two until it retires
+    (the lease check ignores the body-read time; loopback `http://` needs no flag; hosts in `ALLOWED_ORIGINS` are not restricted to lower-case ASCII).
+  - Measured 2026-10-19 (Node 26): `vitest run` 251 tests (248 passed, 3 skipped), unchanged; `scripts/check-versions.sh` passes (0.0.26). Counts unchanged: **30 RESOLVED, 3 MITIGATED, 5 ADJUDICATED, 4 ACCEPTED-RISK, 0 DEFERRED**; 6 Positive. 48 findings.
 
 ## Pre-save consistency checklist (this pass)
 

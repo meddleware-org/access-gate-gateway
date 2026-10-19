@@ -4,7 +4,24 @@
 
 A generic NFT-gated reverse proxy for the `access_gate` on-chain primitive. Any HTTP upstream —
 upload relay, website, game API — can be placed behind this gateway to restrict access to holders
-of an on-chain Meddleware access NFT. Two wire-identical implementations are provided.
+of an on-chain Meddleware access NFT.
+
+## Architecture: one core, two adapters
+
+The decision logic exists **once**: `core/` (crate `nft-gate-core`, Rust, no hyper / tokio / clock / RNG / logging, builds
+natively and for `wasm32-unknown-unknown`). It holds the proof, the signature schemes, the decision, the Sui reads, the nonce /
+rate / redemption state machines, the header / path / CORS / config policy and the request flow (`Gateway::handle`,
+`redeem_and_forward`) as a state machine over the ports `StateStore`, `ChainQuery`, `Upstream`, `Clock`, `Rng`, `Env`.
+A gateway is an adapter that supplies only I/O: `gateway-rust/` (hyper / axum / Redis) and the Cloudflare Worker.
+
+The maintainer's standing rule is **no JS/TS backend code**. The live Worker `gateway-workers/` (TypeScript) is therefore
+being replaced by a Rust Worker (workers-rs) on the same core. Status: in progress. Done: the shared core and the native adapter
+on it (0.0.26). Next: the Worker adapter (Durable Object state, streamed `fetch` upstream), a shadow deploy, and the
+CPU-time p99 in Workers analytics as the cutover gate (the maintainer deploys). The Workers KV nonce backend is not carried
+over (it was refused with `SINGLE_USE` and only eventually consistent otherwise). `spike-workers-rs/` is the feasibility
+spike and measurement harness (own workspace, newer toolchain); its `FINDINGS.md` has the measurements.
+
+**Where a change goes:** decision logic, policy or request flow → `core/`, once. I/O → the adapter. Never fix a rule in only one gateway.
 
 ## Architectural invariants
 
@@ -33,17 +50,20 @@ of an on-chain Meddleware access NFT. Two wire-identical implementations are pro
 ## Versioning
 
 One version for every artifact (D16): the npm package `@meddleware/nft-gate-gateway`
-(`gateway-workers/package.json`), the crate `nft-gate-gateway` (`gateway-rust/Cargo.toml`) and the
-image. Bump both files together, then tag `v<version>`. `scripts/check-versions.sh` runs in Node
-CI, Rust CI and every publish workflow. It fails when the two files differ, or when a tag does not
-match them.
+(`gateway-workers/package.json`), the Cargo workspace (`[workspace.package]` version in the root `Cargo.toml`, inherited by
+the crates `nft-gate-core` and `nft-gate-gateway`; the gateway pins `nft-gate-core` at exactly that version) and the
+image. Bump `package.json` (+ lockfile), the workspace version and that pin together, then tag `v<version>`.
+`scripts/check-versions.sh` runs in Node CI, Rust CI and every publish workflow. It fails when the npm and Cargo versions
+differ, when a crate does not inherit the workspace version, when the pin differs, or when a tag does not match. The tag's
+`crates-publish.yml` publishes `nft-gate-core` first, then `nft-gate-gateway`.
 
 ## Wire protocol coupling
 
-Both implementations MUST produce identical decisions for any given proof token. The coupling is
-enforced by the shared `conformance/vectors.json` golden vectors, which both test suites consume.
+Both gateways MUST produce identical decisions for any given proof token. For the Rust side this is by construction (the
+decision is `core/`); until the TypeScript Worker is retired the coupling is also enforced by the shared
+`conformance/vectors.json` golden vectors, which the core's tests and the TypeScript tests both consume.
 
-If you change any of the following, update BOTH implementations and regenerate the vectors:
+If you change any of the following, update the core AND (until it is retired) the TypeScript Worker, and regenerate the vectors:
 - The signed message (`nft-gate:access:v2` and its audience lines: origin, gate, network, nonce, consume)
 - The proof token format (`base64(JSON { address, nonce, signature, consumeDigest? })`)
 - The `Authorization: Bearer` / `X-Access-Proof` header preference logic
@@ -64,9 +84,8 @@ Covers:
 - `signatures[]` — one entry per signature scheme (ed25519, secp256k1, secp256r1) with a real
   Sui personal-message signature and the corresponding proof token
 
-Both `gateway-workers` tests (vitest) and `gateway-rust` tests (`cargo test`) load and verify
-`../../conformance/vectors.json`. A test failure here means the two impls have diverged on the
-wire format.
+The `gateway-workers` tests (vitest) and the core's tests (`cargo test -p nft-gate-core`, `core/tests/conformance.rs`) load and
+verify the vectors. A test failure here means the implementations have diverged on the wire format.
 
 ## Commission and access-gate economics
 
@@ -93,7 +112,7 @@ self-host, or Workers Free proving insufficient while Paid is unaffordable.
 
 > **Transport (2026-09):** both gateways query the chain over **gRPC** (public Sui fullnodes
 > deprecated JSON-RPC). `gateway-workers/` uses `@mysten/sui`'s `SuiGrpcClient`; `gateway-rust/`
-> uses a hand-rolled gRPC-web client (`grpc.rs`, no `tonic`/`prost`) to keep its lightweight build.
+> uses the core's hand-rolled gRPC-web client (`core/src/grpc.rs`, no `tonic`/`prost`) to keep its lightweight build.
 > Both are digest-first for single-use and implement consumeDigest **redemption** (a consumed use is
 > never lost). The client-facing wire contract (routes, proof format, status codes) is unchanged.
 
@@ -112,8 +131,8 @@ The gateway does NOT trust:
 ## Deferred / post-testnet
 
 - **gateway-rust gRPC migration + redemption — DONE (2026-09):** `gateway-rust/` now queries the
-  chain over hand-rolled gRPC-web (`grpc.rs`) with digest-first single-use verification and the
-  consumeDigest **redemption** store (`NonceStore` lease/commit/release, `main.rs` orchestration),
+  chain over hand-rolled gRPC-web (now `core/src/grpc.rs`) with digest-first single-use verification and the
+  consumeDigest **redemption** store (the `StateStore` lease/commit/release, orchestrated by `core/src/gateway.rs`),
   at parity with `gateway-workers/`. Validated by `cargo test` + a live testnet check
   (hermetic fixtures in `sui_rpc.rs`; the optional `--ignored live_` tests take a fresh consume from `NFT_GATE_LIVE_*`). It is buildable/deployable but not
   currently deployed — the live paywall still runs on the Workers gateway.
@@ -128,6 +147,8 @@ The gateway does NOT trust:
 - Do not move commission logic into the gateway — the on-chain contract handles economics.
 - Do not add custom auth flows — the whole point is the wire protocol is canonical.
 - Do not skip conformance vector tests when changing signature verification.
+- Do not put decision logic, policy or request flow in an adapter, and do not fix a rule in one gateway only: it belongs in `core/`.
+- Do not add JS/TS backend code (the standing rule); the TypeScript Worker is retiring.
 - Do not hardcode secrets — all config is env-var / wrangler secrets.
 
 ---

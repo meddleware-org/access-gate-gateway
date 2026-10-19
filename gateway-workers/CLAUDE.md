@@ -138,7 +138,7 @@ the background could lose it. Same in `gateway-rust`.
 Loop marker (F43): `upstreamRequestHeaders` sets `Via: 1.1 nft-gate` after dropping the client's;
 `handle` answers `508 loop detected` to a request whose `Via` already names `nft-gate` (after
 `/healthz` and the CORS preflight, before any state work). Foreign values pass. Parity table:
-`VIA_TABLE` in `test/proxy.test.ts` = `via_loop_table` in `gateway-rust/src/headers.rs`.
+`VIA_TABLE` in `test/proxy.test.ts` = `via_loop_table` in `core/src/headers.rs`.
 
 ## Conformance test workflow
 

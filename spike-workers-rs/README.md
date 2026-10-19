@@ -2,6 +2,12 @@
 
 **Status: experiment, not shipped, not part of any release. Nothing here is deployed.**
 
+**Update 2026-10-19 (0.0.26): the spike's `core/` was promoted to [`../core`](../core) and is now THE shared
+implementation** (the repository root is a Cargo workspace; `gateway-rust` runs on it; the config, header policy,
+state machines and the request flow `Gateway::handle` moved into it too). What stays here is the Worker prototype
+(`worker/`, built against `../../core`) and the measurement harnesses (`scripts/`), the starting point and the
+cutover instrument for the Rust Worker port. The shared `scenario.json` now lives in `../core/tests/`.
+
 ## Result in one table (2026-10-19; details and method in the spike report returned to the maintainer)
 
 | Question | Result |
@@ -23,21 +29,13 @@ The question: can the live Cloudflare Worker (`../gateway-workers`, TypeScript) 
 
 ```text
 spike-workers-rs/
-  Cargo.toml            workspace (core + worker), release profile, exact pins
+  Cargo.toml            workspace (worker only), release profile, exact pins
   rust-toolchain.toml   Rust 1.98.1 + wasm32-unknown-unknown (workers-rs 0.8.7 needs >= 1.91)
-  core/                 nft-gate-core: pure logic, no hyper/tokio/clock/RNG/logging; native AND wasm32
-    src/proof.rs        proof token + signed message (verbatim from gateway-rust)
-    src/sig.rs          ed25519 (ZIP-215) / secp256k1 / secp256r1, address helpers (verbatim)
-    src/decision.rs     ChainQuery, NonceTake, Denied, verify_access_request (verbatim, made generic)
-    src/grpc.rs         protobuf + gRPC-web codec (verbatim) + `Transport` trait + GrpcWeb<T>
-    src/chain.rs        Sui GetTransaction / ListOwnedObjects / GetObject over any Transport
-    src/redemption.rs   nonce / rate / lease-commit-release as pure state machines (explicit clock)
-    src/headers.rs      header-policy lists + predicates, Via loop check, safe-path rule
-    src/origin.rs       canonical-origin rule
-    tests/              conformance vectors, scripted-Transport chain tests, scenario.json runner
-  worker/               the Worker (cdylib, workers-rs): bench / DO / streaming proxy / chain / verify
+  worker/               the Worker (cdylib, workers-rs): bench / DO / streaming proxy / chain / verify; depends on ../../core
     wrangler.toml       production-shaped build          wrangler.bench.toml  adds --features bench
   scripts/              measurement + integration harnesses (Node; run against workerd)
+../core/                nft-gate-core (was spike-workers-rs/core): the shared implementation, native AND wasm32
+../core/tests/scenario.json   the 39-step scenario run against the pure state machines AND the Durable Object
 ```
 
 ## Build
@@ -58,9 +56,9 @@ for catch wrappers", workers-rs issue #1014) — leave stripping to `wasm-opt`; 
 ## Tests
 
 ```sh
-cargo test -p nft-gate-core            # 40+ tests: unit, conformance vectors, scripted Transport, scenario.json
+(cd .. && cargo test -p nft-gate-core)   # the core's tests: unit, conformance vectors, scripted Transport, scenario.json
 cd worker && wrangler dev -c wrangler.bench.toml --port 8799 --persist-to <tmp> &
-node scripts/differential.mjs  http://127.0.0.1:8799   # scenario.json against the real SQLite DO (39 steps)
+node scripts/differential.mjs  http://127.0.0.1:8799   # ../core/tests/scenario.json against the real SQLite DO (39 steps)
 node scripts/concurrency.mjs   http://127.0.0.1:8799   # atomicity: 100 concurrent takes / leases
 node scripts/stream.mjs        http://127.0.0.1:8799 90   # 90 MiB streamed through the proxy; 413 behaviour
 # end-to-end decision with a stub fullnode (restart wrangler dev with --var SUI_RPC_URL:http://127.0.0.1:18081):

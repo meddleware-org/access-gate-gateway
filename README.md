@@ -6,14 +6,23 @@
 
 A generic NFT-gated reverse proxy for the [access_gate](https://github.com/meddleware-org/access-gate-sui) primitive on Sui. Put it in front of any HTTP upstream — an upload relay, a website, a game API — to restrict access to holders of an on-chain access NFT.
 
-Two wire-identical implementations are provided. Choose one based on your deployment target:
+The decision logic exists **once**, in [`core/`](core/) (`nft-gate-core`, Rust): proof decoding, Sui signature
+verification, the allow / deny decision, the Sui reads, the nonce / rate / redemption state machines, the
+header, path and configuration policy, and the request flow itself. A gateway is a thin adapter around it that
+supplies only I/O (HTTP, state storage, clock, entropy). Two adapters exist; choose one based on your
+deployment target:
 
 | Implementation | Directory | Distributed as | Deploy target | State backend |
 | --- | --- | --- | --- | --- |
 | Cloudflare Workers | [`gateway-workers/`](gateway-workers/) | [npm package](https://www.npmjs.com/package/@meddleware/nft-gate-gateway) | Wrangler deploy | Durable Objects or KV |
 | Rust / Axum | [`gateway-rust/`](gateway-rust/) | [crates.io](https://crates.io/crates/nft-gate-gateway) / Docker | Docker / k8s | In-memory or Redis |
 
-Both implementations serve the same wire protocol and verify the same [conformance vectors](conformance/).
+The Workers gateway is currently TypeScript and is **being replaced by a Rust Worker (workers-rs) built on the
+same core** (in progress: the core is shared and compiles for `wasm32-unknown-unknown`; the Worker adapter
+follows, with the TypeScript gateway kept as the live rollback until a measured cutover). When that lands the
+TypeScript backend is retired and there is one implementation of the logic on both platforms.
+
+Both gateways serve the same wire protocol and verify the same [conformance vectors](conformance/).
 
 The client-side counterparts are on npm: the wire protocol (challenge fetching, proof construction) in
 [`@meddleware/nft-gate-client`](https://github.com/meddleware-org/nft-gate-client), and the `access_gate`
@@ -58,6 +67,9 @@ docker run -e UPSTREAM_URL=http://relay:8080 \
            -e NFT_TYPE=0x<pkg>::access_gate::AccessNFT \
            -e GATE_ID=0x<gate id> \
            -p 8080:8080 meddleware/nft-gate-gateway
+
+# From source (the image is built from the repository root, which is the Cargo workspace)
+docker build -f gateway-rust/Dockerfile -t nft-gate-gateway .
 
 # Or from crates.io (requires Rust stable)
 cargo install nft-gate-gateway
@@ -119,9 +131,24 @@ node scripts/sync-vectors.mjs --check  # CI: fail if the copy differs
 - You need Redis-backed nonce state for horizontal scale-out
 - You want the lowest possible latency on your own hardware
 
-Both expose the same endpoints, accept the same environment variables, and produce identical verification decisions for any given proof token. The Rust gateway buffers request bodies, so it is scoped to small-body upstreams (see its README, "Request body limit"); it is not a drop-in for a 100 MiB upload relay.
+Both expose the same endpoints, accept the same environment variables, and produce identical verification decisions for any given proof token (for the Rust gateway this is by construction: the decision is the shared core). The Rust gateway buffers request bodies, so it is scoped to small-body upstreams (see its README, "Request body limit"); it is not a drop-in for a 100 MiB upload relay.
 
 Meddleware's own deployment decision (audit OQ9, 2026-10-19): the Rust gateway **stays undeployed**. No Meddleware small-body upstream exists; the Workers gateway on Workers Free costs nothing, while self-hosting the relay path would need streaming bodies (audit F6) and a persistent, highly available Redis for the 30-day redemption records, which is more operations for a sole maintainer and weaker consistency than Durable Objects. It stays CI-green at parity as the self-host / white-label artefact. Revisit when a small-body upstream appears, a white-label customer must self-host, or Workers Free proves insufficient while Workers Paid is unaffordable (then streaming, F6, comes first).
+
+## Development
+
+```bash
+cargo fmt --check
+cargo clippy --all-targets --locked --workspace -- -D warnings
+cargo test --locked --workspace                      # core + gateway-rust
+cargo build -p nft-gate-core --target wasm32-unknown-unknown   # the Worker's target
+(cd gateway-workers && npm ci && npm run test:all)   # the TypeScript Workers gateway
+bash scripts/check-versions.sh                       # one version for every artifact
+```
+
+The Rust crates form one Cargo workspace at the repository root (`Cargo.toml`, `Cargo.lock`, `deny.toml`):
+`core/` and `gateway-rust/`. `spike-workers-rs/` is the feasibility spike and measurement harness for the Rust
+Worker (its own workspace, newer toolchain; not part of any release).
 
 ## License
 

@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.26] - 2026-10-19
+
+Released with the Workers gateway 0.0.26 (one version for every artifact). Still undeployed. **Behaviour is unchanged** except the
+stricter validations listed under Changed; the structure changes.
+
+### Added
+
+- `nft-gate-core` (`core/`, a new crate published at the same version): the one implementation of the gateway's decision logic, shared with the Rust
+  Cloudflare Worker that is replacing the TypeScript one. No hyper, tokio, clock, RNG or logging; builds natively and for `wasm32-unknown-unknown`.
+  It holds the proof and signature code and the Sui gRPC-web client moved out of this crate (from the spike), plus, moved in this release: the header
+  policy (hop-by-hop, strip lists, the `Via` loop marker, the safe-path rule, proof-token extraction, CORS grants), forwarding policy, client-IP keying, the origin check,
+  the configuration parsing and validation behind an `Env` trait, the nonce / rate / redemption state machines and their in-memory implementation, and
+  the request flow itself (`Gateway::handle`, `redeem_and_forward`) as a state machine over the ports `StateStore`, `ChainQuery`, `Upstream`, `Clock`, `Rng`.
+- Cargo workspace at the repository root (`Cargo.toml`, `Cargo.lock`, `deny.toml`): `core` and `gateway-rust`, one version. The Docker build context is the root
+  (`docker build -f gateway-rust/Dockerfile .`); `crates-publish.yml` publishes the core, then the gateway.
+- CI: a `core` job (`cargo test -p nft-gate-core` natively, then `cargo build -p nft-gate-core --target wasm32-unknown-unknown`); the Rust jobs are
+  workspace-aware (`--workspace`); `cargo deny` also covers the wasm32 target; the MSRV job checks both crates.
+- Tests: the core runs 111 (unit, shared vectors, real-signature decisions moved from this crate, the 39-step scenario, scripted-port tests of the whole request
+  flow); this crate keeps 65 (+ 3 ignored). Together 176 (+ 3 ignored), from 117 (+ 3 ignored).
+
+### Changed
+
+- This crate is an I/O adapter on the core: the hyper server and limits, the buffered upstream client, Redis, the system clock (anchored to a monotonic clock) and OS entropy,
+  and `ServerConfig` (the core's `GatewayConfig` plus `BIND_ADDR`, `REDIS_URL`, `TRUSTED_PROXY_HOPS` and the connection limits).
+- Stricter configuration where the Rust and TypeScript rules disagreed (the stricter rule won; `core/README.md` has the table): `UPSTREAM_URL` / `SUI_RPC_URL` with an empty
+  host, whitespace, a control character or a backslash are refused; the request-loop guard compares normalised origins (case and default port folded), so
+  `https://GATEWAY.example:443/x` is caught like `https://gateway.example/x`.
+- `is_safe_path` is unchanged here (a literal `..` segment was already refused); the TypeScript Worker lacked it, and the single implementation now settles it.
+- Rate windows and the in-memory store clamp their arithmetic (`saturating_*`): no panic on a clock read behind a window start.
+- Dependencies: `blake2`, `ed25519-consensus`, `k256`, `p256`, `hex` and `serde` are no longer direct dependencies of this crate (they are the core's).
+
 ## [0.0.25] - 2026-10-19
 
 Released with the Workers gateway 0.0.25 (one version for every artifact). No change to the Rust gateway's code.

@@ -50,3 +50,12 @@ and against the real SQLite DO under workerd, so the DO SQL and the core rules c
 - `Closure::forget` leaks one small closure per proxied request in the spike; store the closure in the port.
 - Pre-existing divergence found: `is_safe_path` rejects a literal `..` segment in Rust but not in TS (not exploitable on Workers, where the URL parser normalises dot segments).
 - Not tested: full-port request CPU, real edge and DO latency, many concurrent uploads on one isolate, `wrangler deploy` itself, a positive live-chain consume.
+
+## Follow-up (0.0.26, 2026-10-19): the "still to move" list is done
+
+`config.rs` (behind an `Env` trait, the stricter rule where Rust and TypeScript disagreed), the in-memory nonce / rate /
+redemption state (`core::state` over `core::redemption`), `headers.rs`, the origin check, `is_safe_path` (a literal `..`
+segment is now refused in the one implementation) and the `handle` / `redeem_and_forward` orchestration
+(`core::gateway`, a state machine over `StateStore`, `ChainQuery`, `Upstream`, `Clock`, `Rng`) now live in
+[`../core`](../core). `gateway-rust` is an I/O adapter on it: the 117 + 3 ignored tests are unchanged or moved to the core
+(176 + 3 ignored across the workspace). This directory keeps the Worker prototype and the measurement scripts.

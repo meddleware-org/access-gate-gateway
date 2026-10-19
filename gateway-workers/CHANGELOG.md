@@ -2,6 +2,17 @@
 
 All notable changes to `@meddleware/nft-gate-gateway` are documented here.
 
+## [0.0.26] - 2026-10-19
+
+No change to the Worker's code; the version moves with the Rust gateway (one version for every artifact).
+
+### Changed
+
+- Docs: the Worker is being replaced by a Rust Worker (workers-rs) built on `nft-gate-core`, the decision logic now shared with `gateway-rust` (maintainer's
+  standing rule: no JS/TS backend code). This TypeScript Worker stays the live deployment and the rollback until a measured cutover (CPU-time p99 on a shadow
+  deploy). The Workers KV nonce backend will not be carried over. The single implementation refuses a literal `..` path segment, which `isSafePath` here lacks (not
+  exploitable on Workers, whose URL parser normalises dot segments first).
+
 ## [0.0.25] - 2026-10-19
 
 ### Added

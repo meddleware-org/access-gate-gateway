@@ -2,41 +2,35 @@
 
 ## Repo layout
 
+One core (the decision logic, Rust, native + wasm32), two adapters.
+
 ```
 nft-gate/
+├── Cargo.toml, Cargo.lock      # Cargo workspace: core + gateway-rust (one version, D16)
+├── deny.toml                   # cargo-deny policy for the workspace (incl. the wasm32 target)
 ├── conformance/
-│   └── vectors.json            # Shared golden wire-format test vectors (both impls consume this)
-├── gateway-workers/            # Cloudflare Workers implementation (TypeScript)
+│   └── vectors.json            # Shared golden wire-format test vectors (core + TypeScript consume this)
+├── core/                       # nft-gate-core: ALL the decision logic (no hyper/tokio/clock/RNG/logging)
 │   ├── src/
-│   │   ├── index.ts            # Worker entry point (fetch + scheduled handlers)
-│   │   ├── config.ts           # Env binding types + config loading
-│   │   ├── verify.ts           # Signature verification + access decision
-│   │   ├── chain.ts            # Sui JSON-RPC ChainQuery implementation
-│   │   ├── crypto.ts           # Low-level hash + encoding helpers (@noble)
-│   │   ├── proxy.ts            # Reverse proxy to upstream
-│   │   ├── quota.ts            # Optional plan-aware quota guard (cron)
-│   │   ├── wire.ts             # Re-exports from @meddleware/nft-gate-client
-│   │   └── state/
-│   │       ├── types.ts        # NonceBackend interface + helpers
-│   │       ├── select.ts       # Backend selection (DO vs KV)
-│   │       ├── durable_object.ts  # Durable Object backend (SQLite, default)
-│   │       └── kv.ts           # Workers KV backend (fallback)
+│   │   ├── gateway.rs          # Gateway::handle / redeem_and_forward over the ports (the request flow)
+│   │   ├── decision.rs         # verify_access_request, ChainQuery, Denied
+│   │   ├── sig.rs, proof.rs    # signature schemes, proof token + signed message
+│   │   ├── grpc.rs, chain.rs   # gRPC-web codec + Transport port; Sui reads
+│   │   ├── redemption.rs       # nonce / rate / lease-commit-release state machines (explicit clock)
+│   │   ├── state.rs            # StateStore, Clock, Rng ports + in-memory implementation
+│   │   ├── headers.rs, forward.rs, net.rs, origin.rs   # header / path / CORS / forwarding / client-IP / origin policy
+│   │   └── config.rs           # Env port + the validated GatewayConfig
+│   └── tests/                  # conformance vectors, real-signature decisions, scenario.json, scripted Transport
+├── gateway-workers/            # Cloudflare Workers gateway (TypeScript; live; being replaced by a Rust Worker on the core)
+│   ├── src/                    # index.ts, config.ts, verify.ts, chain.ts, proxy.ts, quota.ts, state/ (DO + KV) ...
 │   ├── test/                   # vitest unit + cloudflare-integration tests
 │   ├── wrangler.toml           # Cloudflare Workers config (edit routes here)
-│   └── package.json            # @meddleware/nft-gate-gateway v0.0.2
-├── gateway-rust/               # Rust / Axum implementation
-│   ├── src/
-│   │   ├── main.rs             # Binary entry point + AppState + request dispatcher
-│   │   ├── config.rs           # GatewayConfig from env vars
-│   │   ├── verify.rs           # Signature verification + ChainQuery trait + access decision
-│   │   ├── challenge.rs        # NonceStore (in-memory | Redis)
-│   │   ├── proof.rs            # AccessProof wire format + decode
-│   │   ├── proxy.rs            # Reverse proxy to upstream
-│   │   ├── ratelimit.rs        # Per-address fixed-window rate limiter
-│   │   ├── sui_rpc.rs          # SuiRpc ChainQuery implementation
-│   │   └── http_client.rs      # Shared hyper/rustls HTTP client
-│   ├── Dockerfile
-│   └── Cargo.toml              # nft-gate-gateway v0.0.1
+│   └── package.json            # @meddleware/nft-gate-gateway
+├── gateway-rust/               # Rust / Axum adapter (I/O only: hyper server, hyper client, Redis, clock, entropy)
+│   ├── src/                    # main.rs, config.rs, state.rs, challenge.rs, proxy.rs, headers.rs, grpc.rs, sui_rpc.rs, http_client.rs
+│   ├── Dockerfile              # build context = the repository root
+│   └── Cargo.toml              # nft-gate-gateway (version from the workspace)
+├── spike-workers-rs/           # feasibility spike + measurement harness for the Rust Worker (own workspace; not released)
 └── README.md                   # Top-level quickstart + wire protocol docs
 ```
 
@@ -51,8 +45,12 @@ cd gateway-workers && npm test
 # Workers (all: unit + cloudflare integration)
 cd gateway-workers && npm run test:all
 
-# Rust (unit + conformance vectors)
-cd gateway-rust && cargo test
+# Rust: core + gateway-rust (unit, router, scripted ports, conformance vectors)
+cargo test --locked --workspace
+
+# The core alone, and its wasm32 build (the Worker's target)
+cargo test --locked -p nft-gate-core
+cargo build --locked -p nft-gate-core --target wasm32-unknown-unknown
 ```
 
 ### Type-check (Workers)
@@ -81,8 +79,8 @@ wrangler secret put UPSTREAM_URL
 ### Build and run Rust Docker image
 
 ```bash
-cd gateway-rust
-docker build -t nft-gate-gateway .
+# from the repository root (the Cargo workspace is the build context)
+docker build -f gateway-rust/Dockerfile -t nft-gate-gateway .
 docker run -e UPSTREAM_URL=http://relay:8080 \
            -e SUI_RPC_URL=https://fullnode.mainnet.sui.io:443 \
            -e NFT_TYPE=0x<pkg>::access_gate::AccessNFT \
@@ -92,7 +90,7 @@ docker run -e UPSTREAM_URL=http://relay:8080 \
 ### Build Rust binary locally
 
 ```bash
-cd gateway-rust && cargo build --release
+cargo build --release -p nft-gate-gateway
 UPSTREAM_URL=http://relay:8080 SUI_RPC_URL=https://... NFT_TYPE=0x... ./target/release/nft-gate-gateway
 ```
 
@@ -101,21 +99,25 @@ UPSTREAM_URL=http://relay:8080 SUI_RPC_URL=https://... NFT_TYPE=0x... ./target/r
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `UPSTREAM_URL` | Yes | — | Base URL of the upstream to protect |
-| `SUI_RPC_URL` | Yes | — | Sui JSON-RPC endpoint |
-| `NFT_TYPE` | Yes | — | Fully-qualified NFT type to gate on |
-| `GATE_ID` | No | — | Restrict to a specific gate object |
+| `GATEWAY_ORIGIN` | Yes | — | This gateway's canonical public origin (signed into every proof) |
+| `NETWORK` | Yes | — | `localnet` \| `devnet` \| `testnet` \| `mainnet` (signed into every proof) |
+| `SUI_RPC_URL` | Yes | — | Sui fullnode (gRPC-web) |
+| `NFT_TYPE` | Yes | — | `<pkg>::access_gate::AccessNFT` or `SoulboundAccessNFT` |
+| `GATE_ID` | Yes | — | The gate whose passes are accepted |
 | `SINGLE_USE` | No | `false` | Require on-chain single-use consume |
 | `PUBLIC_PATHS` | No | `/v1/tip-config` | Comma-separated public paths (no auth) |
 | `RATE_LIMIT_PER_MIN` | No | `30` | Per-address request budget per minute |
 | `CHALLENGE_TTL_SECS` | No | `300` | Nonce lifetime in seconds |
 
 Workers-only extras: `NONCE_BACKEND`, `NONCE_KV` binding, `NONCE_STATE` binding, `QUOTA_GUARD_ENABLED`, `WORKERS_PLAN`.  
-Rust-only extras: `REDIS_URL`, `BIND_ADDR`, `MAX_BODY_BYTES`, `NONCE_MAX_ENTRIES`.
+Rust-only extras: `REDIS_URL`, `BIND_ADDR`, `TRUSTED_PROXY_HOPS`, the connection limits.
 
 ## CI
 
-Both implementations have their own GitHub Actions CI:
-- `gateway-workers`: type-check + vitest unit tests + Trivy scan on push/PR to `main`
-- `gateway-rust`: `cargo test --release` + Trivy Docker scan on push/PR to `main`
+Each side has its own GitHub Actions CI:
+- `gateway-workers` (`node-ci.yml`): type-check + lint + vitest unit and workerd tests
+- Rust (`rust-ci.yml`): fmt, clippy `-D warnings`, `cargo test --workspace`, the Redis round trip, coverage, `cargo deny`; a `core`
+  job (native tests of the core alone + `cargo build -p nft-gate-core --target wasm32-unknown-unknown`); an MSRV job (1.88); a Trivy
+  scan of the Dockerfile
 
-The conformance vector tests run as part of the normal test suites in both impls.
+The conformance vector tests run in the core's suite and in the TypeScript suite.

@@ -307,13 +307,16 @@ verification is a risk to watch, not a measured failure: after each deploy, read
 
 ## Module layout
 
-| Module | Rust analog | Role |
+> This Worker is being replaced by a Rust Worker (workers-rs) built on `nft-gate-core`, the decision logic that `gateway-rust` already shares
+> (status: in progress; see the repository `CLAUDE.md` and `core/README.md`). It stays the live deployment and the rollback until a measured cutover.
+
+| Module | Rust analog (`core/src` is shared; `gateway-rust/src` is the adapter) | Role |
 | --- | --- | --- |
-| `src/index.ts` | `main.rs` | Request router (challenge / public / gated paths) |
-| `src/config.ts` | `config.rs` | `env` → typed config (same var names as Rust) |
-| `src/wire.ts` | `proof.rs` | Proof helpers reused from `@meddleware/nft-gate-client` |
-| `src/verify.ts` | `verify.rs` | Signature verification + allow/deny decision |
-| `src/chain.ts` | `sui_rpc.rs` | Sui gRPC ownership and consume-event queries |
-| `src/proxy.ts` | `proxy.rs` | Body-capped reverse proxy; strips `Host`/`Authorization` |
-| `src/state/` | `challenge.rs` + `ratelimit.rs` | Pluggable nonce store and rate limiter |
+| `src/index.ts` | `core/src/gateway.rs` + `gateway-rust/src/main.rs` | Request router (challenge / public / gated paths) |
+| `src/config.ts` | `core/src/config.rs` | `env` → typed config (same var names as Rust) |
+| `src/wire.ts` | `core/src/proof.rs` | Proof helpers reused from `@meddleware/nft-gate-client` |
+| `src/verify.ts` | `core/src/decision.rs`, `sig.rs` | Signature verification + allow/deny decision |
+| `src/chain.ts` | `core/src/chain.rs`, `grpc.rs` | Sui gRPC ownership and consume-event queries |
+| `src/proxy.ts` | `gateway-rust/src/proxy.rs` + `core/src/forward.rs`, `headers.rs` | Body-capped reverse proxy; strips `Host`/`Authorization` |
+| `src/state/` | `core/src/state.rs`, `redemption.rs` | Pluggable nonce store and rate limiter |
 | `src/quota.ts` | — | Optional plan-aware quota guard (scheduled cron; `WORKERS_PLAN`) |

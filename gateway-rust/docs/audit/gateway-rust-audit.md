@@ -3,7 +3,8 @@
 **Classification:** Internal security review
 **Project:** nft-gate/gateway-rust  (Rust/Axum reverse proxy that admits only holders of an on-chain
   `access_gate` pass, verified by a Sui personal-message signature and a live gRPC-web chain read;
-  wire-identical sibling of `gateway-workers`)
+  wire-identical sibling of `gateway-workers`; since 0.0.26 an I/O adapter on the shared `nft-gate-core`
+  crate in `../core`, which holds the decision logic once — F49)
 **Project type:** Rust service (+ container image + crates.io crate)
 **Template:** AUDIT_TEMPLATE.md (2026-10-08) + AUDIT_TEMPLATE_RUST.md (2026-10-08) +
   AUDIT_TEMPLATE_SUI_CLIENT.md (2026-10-08) + AUDIT_TEMPLATE_WALRUS.md (2026-09-30) +
@@ -11,11 +12,16 @@
   AUDIT_TEMPLATE_PROXY.md (2026-10-08)
 **Deployment status:**
 
+- **0.0.26 is committed locally** (2026-10-19, unreleased): the decision logic moves into the shared crate
+  `nft-gate-core` (`core/`, a Cargo workspace at the repository root) and this crate becomes an I/O adapter on it
+  (F49, F50). Behaviour is unchanged apart from two stricter configuration checks; the 117 + 3 ignored tests are
+  kept or moved to the core (176 + 3 ignored across the workspace). Still **not deployed**. The crate
+  `nft-gate-core` is new on crates.io at release time (its trusted publisher must be configured by the maintainer).
 - **Not deployed**, by decision (OQ9 (a), 2026-10-19): `gateway-rust` is kept at wire and behaviour parity with the
   live Workers gateway but is scoped to small-body upstreams (bodies are buffered, README "Scope"), so the
   paywall runs on `gateway-workers` only (root `CLAUDE.md`). No overlay, manifest or
   `config/images.yaml` entry exists. Revisit triggers are in OQ9.
-- **0.0.25 is committed locally** (2026-10-19, unreleased): no change to this gateway's code; the version moves with
+- **0.0.25 was committed locally** (2026-10-19, commit `8bf1168`, released with 0.0.26 if tagged): no change to this gateway's code; the version moves with
   the Workers gateway (D16) and the OQ9 decision is documented in the READMEs and CLAUDE.md files.
 - **0.0.24 is released as v0.0.24** (2026-10-19, commit 63af1a4; both gateways move together, D16): loop detection
   (F43: `Via: 1.1 nft-gate` on the upstream request, `508` for a request that already carries it). The decisions OQ6 and OQ8 were recorded the same day
@@ -59,25 +65,29 @@
   publication) **only through operator env**; the superseded `0xa55789…` / `0xfd6c3b…` appear only in
   the env-gated live test (F45, B.SC-1).
 
-**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release status 2026-10-19; decisions and F43 fix 2026-10-19; OQ9 decided 2026-10-19)
+**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release status 2026-10-19; decisions and F43 fix 2026-10-19; OQ9 decided 2026-10-19; core extraction (0.0.26) 2026-10-19)
 **Reviewer:** Internal review
 **Severity ceiling:** High — a verification bypass would admit unpaid traffic to the protected
   upstream, and a redemption-store failure would let one paid single-use consume buy unlimited
   uploads. The gateway holds no user funds and signs nothing on-chain, so nothing here reaches
   Critical.
-**Status:** OQ9 decided 2026-10-19 (stay undeployed; 0.0.25 committed locally, unreleased, no code change; counts unchanged).
+**Status:** Core extraction 2026-10-19 (0.0.26, committed locally, unreleased) — 42 findings dispositioned (26 RESOLVED,
+  4 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED) plus 8 Positive; F49 (one implementation of the decision logic,
+  MITIGATED until the TypeScript Worker is retired) and F50 (the `..` path-segment divergence, RESOLVED) are new.
+  OQ9 decided 2026-10-19 (stay undeployed; 0.0.25 committed locally).
   Decisions and fix 2026-10-19 (0.0.24, released as v0.0.24) — 40 findings dispositioned (25 RESOLVED,
   3 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED) plus 8 Positive; fix wave 2026-10-10 (0.0.22, commit `40a7e89`);
   re-verified 2026-10-09, F42–F48 added in that pass; 0.0.22 released 2026-10-10 and 0.0.23 released 2026-10-19 (crate, npm, image), not deployed
 
-**Toolchain:** `rust-version = "1.88"` (Cargo.toml; MSRV job in `rust-ci.yml`) — no
+**Toolchain:** `rust-version = "1.88"` (`[workspace.package]` in the root `Cargo.toml`, inherited by both crates; the MSRV job in
+  `rust-ci.yml` checks `nft-gate-core` and `nft-gate-gateway`; checked on 1.88.0 for 0.0.26) — no
   `rust-toolchain.toml`   **Edition:** 2021
 **Crates published:** yes — `nft-gate-gateway` on crates.io via trusted publishing
-  (`crates-publish.yml`, `rust-lang/crates-io-auth-action`)
+  (`crates-publish.yml`, `rust-lang/crates-io-auth-action`); from 0.0.26 also `nft-gate-core` (published first; the gateway pins it by exact version)
 **Runtime:** tokio multi-thread (`rt-multi-thread`, `macros`, `net`, `signal`, `sync`, `time`); the
   server is a hyper HTTP/1 accept loop (`serve` in `main.rs`) with a `TokioTimer`
 
-**Sui SDK:** none — hand-rolled gRPC-web + protobuf client (`src/grpc.rs`, `src/sui_rpc.rs`); crypto
+**Sui SDK:** none — hand-rolled gRPC-web + protobuf client (`core/src/grpc.rs`, `core/src/chain.rs`; the hyper `Transport` is `src/grpc.rs`); crypto
   via `ed25519-consensus` 2.1.0, `k256` 0.13.4, `p256` 0.13.2 (the 0.14 major was declined on
   2026-10-09), `blake2` 0.11.0 on `main` (0.10.6 in the tagged 0.0.21)
 **Transport:** gRPC-web (`application/grpc-web+proto`, HTTP/1.1) — no JSON-RPC
@@ -136,8 +146,8 @@
 
 ## Executive summary
 
-`gateway-rust` is a ~5.6 kLOC Axum/hyper service (11 modules, `#![forbid(unsafe_code)]`) that sits in
-front of an HTTP upstream and admits a request only when it carries a valid nft-gate access proof: a
+`gateway-rust` is an Axum/hyper service (`#![forbid(unsafe_code)]`; ~3.7 kLOC of adapter plus the shared ~6.2 kLOC `nft-gate-core`
+crate, tests included, since 0.0.26) that sits in front of an HTTP upstream and admits a request only when it carries a valid nft-gate access proof: a
 Sui personal-message signature over the audience-bound `nft-gate:access:v2` message (this gateway's
 origin, the gate, the network, a gateway-issued nonce and, in single-use mode, the consume digest),
 plus either live ownership of a usable `access_gate` pass for the configured gate (ownership mode) or
@@ -213,6 +223,16 @@ negatives (high-S on both curves, a non-canonical ed25519 `s`, wrong intent, tru
 - the configuration `Debug` output is redacted and the configuration is strict;
 - the CI and release chain is pinned and signed (cosign keyless at the index digest, SBOM and
   provenance attestations, crates.io OIDC), and the release job runs the same workflow as CI.
+
+**One core, two adapters (0.0.26, F49, F50).** The decision logic no longer exists twice on the Rust side. `nft-gate-core`
+(`core/`: proof, signature schemes, the decision, the Sui reads, the nonce / rate / redemption state machines, header, path, CORS and
+configuration policy, and the request flow as a state machine over the ports `StateStore`, `ChainQuery`, `Upstream`, `Clock`,
+`Rng`, `Env`) is shared by this gateway and the Rust Cloudflare Worker that is replacing the TypeScript one (the maintainer's no-JS/TS-backend rule;
+the Worker port is in progress and the TypeScript Worker stays live until a measured cutover). This crate is now only I/O: the hyper
+server, the buffered upstream client, Redis, the clock and entropy. Re-verified against the pre-extraction behaviour: every one of the 117
+tests (+ 3 ignored) is kept or moved to the core and passes; the router-level tests of F47 run unchanged against the new wiring; the two
+configurations differ only in the stricter checks listed in F49. The extraction removes the drift class between a Rust and a TypeScript
+copy for this gateway and the future Worker (it recurred in every pass: F2, F16, F17, F21, F43, F50) once the TypeScript Worker is retired.
 
 **Posture.** A hardened, parity-complete gateway for small-body upstreams that is deliberately not
 deployed (OQ9 (a), 2026-10-19). If a revisit trigger fires, close the remaining pre-deployment gates in
@@ -353,6 +373,9 @@ and `Cargo.lock` only); its Rust CI run succeeded, and the local tree was not ad
 ---
 
 ## Findings
+
+> **Paths.** The *Where* lines and evidence of F1–F48 cite the layout before 0.0.26. Since then the code lives in `core/src` (shared) and
+> `gateway-rust/src` (adapter); the map is in F49. The behaviours and tests those findings cite are unchanged (re-verified in F49).
 
 ### F1 — Access proof message is not bound to an audience (gateway, gate or consume)
 
@@ -1472,6 +1495,65 @@ path was already pinned. Not done: shared `headerExtraction` / `redemptionConfli
 - Configuration is strict: a typo is a startup error, not a weaker mode; `SINGLE_USE` without Redis is
   refused.
 
+### F49 — Two codebases for one decision logic: the TypeScript / Rust drift class
+
+**Severity:** Low   **Disposition:** MITIGATED (0.0.26; commit pending) — one implementation on the Rust side; the class closes when the TypeScript Worker is retired
+**Where:** before 0.0.26, `gateway-rust/src/{verify,proof,grpc,sui_rpc,config,headers,challenge,ratelimit,proxy,main}.rs` mirrored by
+`gateway-workers/src/*.ts`; now `core/src/*` (shared) and `gateway-rust/src/*` (adapter).
+**Issue:** The decision logic existed twice, written in two languages and kept in step by shared vectors and hand-written parity tests. Every
+review pass found drift: the 409 code (F2), Bearer parsing (F16), pagination (F17), the effects-status check (F21), the `Via` marker
+(F43), the `..` path segment (F50), and the lease check (F46: Rust required the body-read time, TypeScript did not). The maintainer's standing rule
+is no JS/TS backend code, so the live Worker is to be rebuilt in Rust; a feasibility spike (2026-10-19, GO) showed it can run on a shared core.
+**Impact:** Each drift was a latent security or parity defect; a fix in one gateway only left the other exposed, and an undeployed
+gateway aged unnoticed (Risks).
+
+**Remediation / evidence:** 0.0.26 (commit pending). The decision logic moved into `nft-gate-core` (`core/`, no hyper / tokio / clock / RNG /
+logging; builds natively and for `wasm32-unknown-unknown`), a Cargo workspace at the repository root with one version (D16). Moves:
+
+| Before (`gateway-rust/src`) | Now |
+| --- | --- |
+| `proof.rs`, `verify.rs` (signatures, decision) | `core/src/proof.rs`, `sig.rs`, `decision.rs` |
+| `grpc.rs` (codec), `sui_rpc.rs` (reads) | `core/src/grpc.rs` (+ `Transport` port), `chain.rs`; adapter keeps `HyperTransport` |
+| `config.rs` | `core/src/config.rs` (`Env` port, shared `GatewayConfig`); adapter keeps `ServerConfig` (native-only variables) |
+| `headers.rs` (lists, predicates, safe path, `Via`) | `core/src/headers.rs`, `forward.rs`, `net.rs`; adapter keeps the `HeaderMap` application |
+| `challenge.rs` (in-memory nonce / redemption), `ratelimit.rs` | `core/src/redemption.rs` (pure tables), `state.rs` (`StateStore`, in-memory store and rates); adapter keeps Redis |
+| `main.rs::handle`, `redeem_and_forward`, `proxy.rs` policy | `core/src/gateway.rs` (`Gateway::handle`, `redeem_and_forward` over `StateStore`, `ChainQuery`, `Upstream`); adapter keeps server, CORS preflight, `/healthz`, the buffered upstream |
+
+Re-verified that nothing regressed (2026-10-19, `rustc` stable): `cargo test --locked --workspace` **176 passed, 0 failed, 3 ignored** (core 111, gateway-rust 65)
+against 117 passed + 3 ignored before; no test was dropped. Four moved or merged: `conformance_shared_vectors` is the core's `tests/conformance.rs` (the same assertions, so one copy), the
+two rate-limiter tests are covered by `rate_windows_are_per_scope_and_zero_disables`, and `single_use_needs_a_durable_store_and_consistent_windows` is split into the core's
+`single_use_windows_must_be_consistent` and the adapter's `single_use_needs_a_durable_store`. The 18 proof and codec tests of the spike and the 17 decision and signature tests
+(`core/tests/decision.rs`, with real ed25519 / secp256k1 / secp256r1 signatures) are in the core, and the 10 router tests (F47) plus the connection-cap, shutdown and CORS tests run
+unchanged through the new wiring. New: scripted-port tests of the whole request flow (`core/src/gateway.rs`: loop guard, challenge,
+public paths, 401 / 403 / 429 / 502 / 503 mapping, lease / commit / release including a lost lease and a failing commit, each asserting what the store was asked to do and that
+the operator-only detail never reaches the client body). `cargo fmt --check` and `cargo clippy --all-targets --locked --workspace -- -D warnings` clean; `cargo deny check`
+(advisories, bans, licences, sources; the graph now includes `wasm32-unknown-unknown`) green; `cargo check --locked` on 1.88.0 passes for both crates; `cargo build -p
+nft-gate-core --target wasm32-unknown-unknown` passes; the Docker image builds from the repository root (rootless `podman build -f gateway-rust/Dockerfile .`) and serves
+`/healthz` and `/v1/challenge` with the CORS grants. CI: a `core` job runs the core's tests alone and the wasm32 build.
+
+Configuration rules were reconciled, not duplicated; where Rust and TypeScript disagreed the stricter rule is the single one (table in `core/README.md`): the lease must exceed
+`UPSTREAM_TIMEOUT_SECS + BODY_READ_TIMEOUT_SECS` (TypeScript compared only the upstream deadline); `http://` needs `ALLOW_INSECURE_HTTP=1` everywhere (TypeScript allowed loopback without
+a flag); `ALLOWED_ORIGINS` hosts are lower-case ASCII (TypeScript accepted any host `URL` parses); the request-loop guard compares normalised origins (Rust compared raw text); an empty host,
+whitespace or a backslash in a URL is refused (TypeScript's `new URL` did; Rust did not). The TypeScript test cases of `config.test.ts` are carried into the core's tests.
+The Workers KV nonce backend is not carried over (it was refused with `SINGLE_USE=true` and only eventually consistent otherwise).
+
+**Not done / what remains:** the Rust Worker adapter (Durable Object state, streamed `fetch` upstream) and the measured cutover (CPU-time p99 in Workers analytics on a shadow
+deploy, which the maintainer runs); until then the TypeScript Worker stays the live implementation and its tests (248 passed, 3 skipped on 2026-10-19) keep consuming the
+shared vectors. This finding closes when it is retired. Two operator notes: `nft-gate-core` is a new crate to publish (its crates.io trusted publisher is a maintainer step, `crates-publish.yml` publishes it first), and the
+Docker build context is now the repository root.
+
+### F50 — `is_safe_path` disagreed between the gateways on a literal `..` segment
+
+**Severity:** Info   **Disposition:** RESOLVED (0.0.26; commit pending)
+**Where:** `core/src/headers.rs::is_safe_path`; the TypeScript `gateway-workers/src/headers.ts::isSafePath` (unchanged, retiring).
+**Issue:** The Rust rule refused a literal `..` path segment; the TypeScript rule did not (found by the spike, 2026-10-19). On Workers this was not exploitable, because the URL
+parser resolves dot segments before the Worker sees the path. For the Rust Worker's parity, and because here `hyper::Uri` keeps the path as received, one rule had to be chosen.
+**Impact:** None demonstrated. A request path such as `/a/../b` could reach the upstream through the TypeScript gateway only if something upstream of it had not normalised it.
+
+**Remediation / evidence:** Decided 2026-10-19 (maintainer, in the port brief): the single implementation refuses a literal `..` segment. `unsafe_paths_are_refused` in `core/src/headers.rs`
+pins `/a/../b`, `/..`, `/a/..`, `%2e%2e`, encoded separators, backslash, `//` and control characters as refused and accepts `/a..b` and `/..a/b`; `forward::preflight` applies it (400)
+for every platform. The router-level test `unsafe_paths_and_oversize_or_stalled_bodies_are_refused_before_the_upstream` still passes. The TypeScript function is left as is and retires with the Worker.
+
 ---
 
 ## Section A — Invariant verification matrix
@@ -1643,6 +1725,9 @@ N/A — the gateway builds no PTBs. The coupling it does have is read-side:
 
 ### B.SC-3 Cross-implementation parity
 
+Since 0.0.26 the Rust side is one implementation (`nft-gate-core`, F49): parity between this gateway and the future Rust Worker holds by construction, and
+the table below concerns the TypeScript Worker until it retires.
+
 The parity table's home is `gateway-workers-audit.md` §B.SC-3; it covers both implementations, so it
 is not duplicated here. Rows where this crate differs from, or the home table misstates, the Rust column
 (checked against `367e673`):
@@ -1655,7 +1740,9 @@ is not duplicated here. Rows where this crate differs from, or the home table mi
 | Public-path limit and cache | Rust: shares `ip_limiter` (`CHALLENGE_RATE_LIMIT_PER_MIN`, 30) with `/v1/challenge`, no cache; Workers: own `PUBLIC_RATE_LIMIT_PER_MIN` (120) + edge cache | Suggestion S9 |
 | Body handling | Rust buffered (small-body scope); Workers streamed | F6 |
 | Redemption backend | Rust: Redis (required for `SINGLE_USE`) or in-memory for development; Workers: Durable Object | F4 |
-| `Via` loop marker | same since 0.0.24: both set `Via: 1.1 nft-gate` and answer `508` to a request that carries it; identical test tables (`via_loop_table` / `VIA_TABLE`) | F43 |
+| `Via` loop marker | same since 0.0.24: both set `Via: 1.1 nft-gate` and answer `508` to a request that carries it; identical test tables (`via_loop_table`, now `core/src/headers.rs`, / `VIA_TABLE`) | F43 |
+| `..` path segment | since 0.0.26 the single implementation refuses it (400); the TypeScript `isSafePath` does not (not exploitable on Workers) and retires with the Worker | F50 |
+| Configuration rules | since 0.0.26 one validation (`core/src/config.rs`) with the stricter rule where the two differed (lease vs body-read time, `ALLOW_INSECURE_HTTP`, origin hosts, loop-guard normalisation, URL shape); the TypeScript `config.ts` keeps its looser forms until it retires | F49 |
 
 All other rows of the home table (message bytes, proof decode, ed25519/ECDSA rules, flags, address
 normalisation, header extraction, verification order, event type and binding, retry policy, usable-pass
@@ -1726,10 +1813,11 @@ enforcement (I6).
 
 ### C.1 Coverage grade
 
-`cargo test --locked` gives **117 tests: 114 passed, 0 failed, 3 ignored** (2026-10-10, 0.0.22; 93 / 2 ignored on
-2026-10-09, 71 / 2 in the first pass). Line coverage: 90.7 % (91.4 % of functions; test code included) (`cargo llvm-cov --locked --summary-only`,
-run locally; CI prints it in the job summary, F28). Test pools: unit tests, hermetic gRPC-web fixtures
-(`sui_rpc.rs`, a scripted local node) and router tests (`router_tests.rs`) in the one binary crate; the 3
+`cargo test --locked --workspace` gives **179 tests: 176 passed, 0 failed, 3 ignored** (2026-10-19, 0.0.26: core 111, gateway-rust 65 + 3 ignored; the same
+tests plus the new core tests, F49; 117 / 3 ignored on 2026-10-10, 0.0.22; 93 / 2 ignored on 2026-10-09, 71 / 2 in the first pass). Line coverage: 92.0 % over the workspace (91.3 % of functions; test code included; 90.7 % for the single crate on 2026-10-10) (`cargo llvm-cov --locked --workspace --summary-only`,
+run locally 2026-10-19; CI prints it in the job summary, F28). Test pools: unit tests, hermetic gRPC-web fixtures
+(`sui_rpc.rs`, a scripted local node) and router tests (`router_tests.rs`) in the adapter crate; the core adds the shared vectors, real-signature
+decision tests (`core/tests/decision.rs`), the 39-step scenario, a scripted `Transport` and scripted-port tests of the request flow; the 3
 ignored tests are env-gated (`live_gate_and_ownership_requests_are_accepted`, `live_consume_tx_valid`, both
 passing against testnet on 2026-10-10, F45; `redis_backend_round_trip`, needs `REDIS_URL`, run in CI against
 a Redis service container).
@@ -1746,7 +1834,7 @@ RUST lens §C:
 - `cargo test` covers units, the shared vectors and env-gated live tests: yes.
 - Property tests for every hand-rolled decoder: yes (four proptests in `grpc.rs`). Signature parsing is
   covered by vectors, not proptests.
-- Coverage tool named: yes — `cargo llvm-cov` (F28), figure 90.7 % of lines.
+- Coverage tool named: yes — `cargo llvm-cov` (F28), figure 92.0 % of lines (2026-10-19, workspace).
 - Malformed input does not panic: yes for token, frames and JSON; HTTP-level oversize is tested for
   declared and chunked bodies.
 
@@ -1782,8 +1870,8 @@ in front of any upstream if a revisit trigger fires. Items ticked have evidence 
 
 ### pre-localnet
 
-- [x] builds; `cargo test --locked` green (117 passed, 0 failed, 3 ignored, 2026-10-19); fmt and clippy `-D warnings`
-  clean — this pass
+- [x] builds; `cargo test --locked --workspace` green (176 passed, 0 failed, 3 ignored, 2026-10-19; core 111, gateway-rust 65); fmt and clippy `-D warnings`
+  clean — this pass (F49)
 - [x] `#![forbid(unsafe_code)]`; no panics on attacker-reachable paths — F35, proptests
 - [x] no secrets in source — the only IDs are the public current testnet package and gate used as optional live-test defaults (F45)
 - [x] dependencies install clean (`--locked`) — `Cargo.lock`
@@ -2221,6 +2309,23 @@ PROXY lens:
     `cargo test` were not re-run (no source change since the 0.0.24 run: 117 passed).
   - Counts unchanged: 25 RESOLVED, 3 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED (F30, F31, F32); 8 Positive.
 
+- 2026-10-19 (Part E, 0.0.26) — Core extraction: one implementation of the decision logic (F49, F50).
+  - **Done:** the spike's `core/` is promoted to `core/` (`nft-gate-core`) in a Cargo workspace at the repository root (`core`, `gateway-rust`; the Worker joins later); the proof,
+    signature, decision and gRPC-web code moved out of this crate (from the spike patch), then the configuration (behind an `Env` trait), the header / path / CORS / forwarding / client-IP
+    / origin policy, the nonce / rate / redemption state machines with their in-memory implementation, and the request flow (`Gateway::handle`, `redeem_and_forward`) as a state machine
+    over `StateStore`, `ChainQuery`, `Upstream`, `Clock`, `Rng`. This crate is the I/O adapter (hyper server and client, Redis, system clock and entropy, `ServerConfig`). The Dockerfile builds from
+    the repository root; `rust-ci.yml` is workspace-aware and gains a `core` job (native tests of the core alone, `cargo build -p nft-gate-core --target wasm32-unknown-unknown`);
+    `crates-publish.yml` publishes the core first; `deny.toml` covers the wasm32 target; `check-versions.sh` reads the workspace version and the exact core pin.
+  - **Behaviour:** unchanged except the stricter checks listed in F49 (URL shape, normalised loop guard); the `..` path rule (already Rust's) is now the one rule (F50).
+  - **Measured 2026-10-19:** `cargo fmt --check` clean; `cargo clippy --all-targets --locked --workspace -- -D warnings` clean; `cargo test --locked --workspace` 176 passed, 0 failed, 3 ignored (core 111,
+    gateway-rust 65; 117 + 3 before); `cargo test -p nft-gate-core` and `cargo build -p nft-gate-core --target wasm32-unknown-unknown` pass; `cargo check --locked` on 1.88.0 passes for the workspace;
+    `cargo deny check` green; `scripts/check-versions.sh` passes (0.0.26); rootless `podman build -f gateway-rust/Dockerfile .` succeeds and the image serves `/healthz` and `/v1/challenge`. TypeScript side
+    untouched apart from the version: `npx vitest run` in `gateway-workers` 248 passed, 3 skipped.
+  - **Findings:** F49 added (MITIGATED until the TypeScript Worker is retired), F50 added (RESOLVED). Earlier findings' *Where* lines keep the pre-0.0.26 paths (map in F49). Counts: **26 RESOLVED,
+    4 MITIGATED** (F10, F27, F29, F49), **6 ADJUDICATED, 3 ACCEPTED-RISK** (F11, F25, F34), **3 DEFERRED** (F30, F31, F32); 8 Positive.
+  - **Not done / not verified here:** the Rust Worker adapter and the measured cutover; the new crate's crates.io trusted publisher (maintainer); a CI run of the new `core` job and of the image build on
+    GitHub (run locally instead); the cosign steps. Coverage 2026-10-19: 92.0 % of lines, 91.3 % of functions (C.1).
+
 ## Pre-save consistency checklist (this pass)
 
 - [x] Section A ↔ findings — every GAP row cites an accepted or deferred finding (I27 F32 only); HOLDS rows cite a RESOLVED/ADJUDICATED finding or none.
@@ -2233,5 +2338,6 @@ PROXY lens:
 - [x] Section D ↔ dispositions — ticked only for RESOLVED/ADJUDICATED/MITIGATED-with-evidence items;
   unticked items cite F29–F32 or maintainer items.
 - [x] Executive summary reflects current dispositions.
-- [x] Counts and versions re-measured 2026-10-10 (0.0.22 locally; published versions as read 2026-10-10).
-- [x] Re-verification log entry added.
+- [x] Counts and versions re-measured 2026-10-19 (0.0.26 locally: tests, fmt, clippy, MSRV, deny; published versions as read 2026-10-19).
+- [x] Re-verification log entry added (2026-10-19, Part E).
+- [x] New findings F49 and F50 present in the executive summary, the header status, the Section B.SC-3 table and Section D (pre-localnet test count).

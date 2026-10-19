@@ -12,6 +12,25 @@ NFT — an upload relay, a website, a game API, anything.
 Wire-identical to the [Cloudflare Workers gateway](../gateway-workers/): same routes, status codes,
 proof format, Sui RPC calls, and env-var names. Switch between implementations transparently.
 
+## Architecture: one core, two adapters
+
+Everything the gateway decides and does lives in [`nft-gate-core`](../core/) (`../core`), which has no
+hyper, tokio, clock, RNG or logging and also builds for `wasm32-unknown-unknown`: the proof and signature
+checks, the allow / deny decision, the Sui reads, the nonce / rate / redemption state machines, the header,
+path and configuration policy, and the request flow (`Gateway::handle`, `redeem_and_forward`). This crate
+is an **adapter** that supplies only I/O:
+
+| Source | Role |
+| --- | --- |
+| `src/main.rs` | the axum / hyper server and its limits, `RequestHead` ⇄ axum mapping, CORS preflight, `/healthz` |
+| `src/config.rs` | `ServerConfig`: the shared `GatewayConfig` plus the listen address, connection limits, trusted-proxy count and Redis |
+| `src/challenge.rs`, `src/state.rs` | the nonce / redemption store (core's in-memory state machine, or Redis), the system clock and OS entropy, `NativeState: StateStore` |
+| `src/proxy.rs`, `src/headers.rs`, `src/http_client.rs` | `Upstream`: the buffered hyper-rustls client applying the core's header and forwarding policy |
+| `src/grpc.rs`, `src/sui_rpc.rs` | `HyperTransport`, the `Transport` the core's gRPC-web chain client runs over |
+
+A change to what the gateway decides is a change in `core/`, made once; it reaches this gateway and the
+Rust Worker together.
+
 > **Deployment status.** Meddleware's own deployment decision (audit OQ9, 2026-10-19): the Rust gateway **stays undeployed**. No Meddleware small-body upstream exists; the Workers gateway on Workers Free costs nothing, while self-hosting the relay path would need streaming bodies (audit F6) and a persistent, highly available Redis for the 30-day redemption records, which is more operations for a sole maintainer and weaker consistency than Durable Objects. It stays CI-green at parity as the self-host / white-label artefact. Revisit when a small-body upstream appears, a white-label customer must self-host, or Workers Free proves insufficient while Workers Paid is unaffordable (then streaming, F6, comes first).
 
 ## Prerequisites
@@ -55,7 +74,7 @@ docker run \
 ### Option B — From crates.io
 
 ```bash
-cargo install nft-gate-gateway
+cargo install nft-gate-gateway    # also fetches nft-gate-core, published at the same version
 
 UPSTREAM_URL=http://your-relay:8080 \
 SUI_RPC_URL=https://fullnode.mainnet.sui.io:443 \
@@ -68,8 +87,8 @@ nft-gate-gateway
 
 ```bash
 git clone https://github.com/meddleware-org/nft-gate.git
-cd nft-gate/gateway-rust
-cargo build --release
+cd nft-gate        # the Cargo workspace root (core/ and gateway-rust/)
+cargo build --release -p nft-gate-gateway
 
 UPSTREAM_URL=http://your-relay:8080 \
 SUI_RPC_URL=https://fullnode.mainnet.sui.io:443 \
@@ -115,7 +134,7 @@ Any gated route without a valid proof token returns `401 Unauthorized`.
 | `MAX_RESPONSE_BYTES` | | `16777216` | Cap on a buffered upstream response |
 | `UPSTREAM_AUTH_HEADERS` | | — | JSON array `[{"name":…,"value":…}]` of headers added to every upstream request (secret; same format as `gateway-workers`); invalid JSON aborts startup |
 | `SUI_RPC_AUTH_HEADER` | | — | `Name: value` header added to every Sui RPC call (secret); a bare value is refused |
-| `ALLOW_INSECURE_HTTP` | | — | `1` permits `http://` `UPSTREAM_URL` / `SUI_RPC_URL` (localnet, in-cluster upstream); otherwise both must be `https://` |
+| `ALLOW_INSECURE_HTTP` | | — | `1` permits `http://` for `UPSTREAM_URL` / `SUI_RPC_URL` / `GATEWAY_ORIGIN` / `ALLOWED_ORIGINS` (localnet, in-cluster upstream); otherwise all must be `https://` |
 | `REDEMPTION_LEASE_TTL_SECS` | | `900` | Single-use: lease window for an in-flight consume-digest redemption; must exceed `UPSTREAM_TIMEOUT_SECS` + `BODY_READ_TIMEOUT_SECS` |
 | `CONSUME_MAX_AGE_SECS` | | `432000` | Single-use: oldest accepted consume (5 days); at most `REDEMPTION_RETENTION_SECS` |
 | `ALLOW_VOLATILE_REDEMPTIONS` | | `false` | Single-use without `REDIS_URL`: accept that spent consumes are forgotten on restart (development only; otherwise `SINGLE_USE=true` requires `REDIS_URL`) |
@@ -199,23 +218,26 @@ accepting that brief window of staleness. The cache is never applied to single-u
 
 ## Build and test
 
+Run these from the repository root (the Cargo workspace):
+
 ```bash
 cargo fmt --check                        # format check
-cargo clippy --all-targets --locked -- -D warnings  # lint
-cargo test --locked                      # unit, property, router and hermetic gRPC-web tests + shared vectors
+cargo clippy --all-targets --locked --workspace -- -D warnings  # lint
+cargo test --locked --workspace          # core (unit, property, scripted-port, scenario, shared vectors) + this adapter (router, hermetic gRPC-web)
+cargo test --locked -p nft-gate-core     # the core alone; CI also builds it for wasm32-unknown-unknown
 cargo deny check                         # RustSec advisories, licences, sources (deny.toml; CI runs it)
-cargo llvm-cov --locked --summary-only   # coverage figure (CI prints it)
-cargo build --release --locked           # production binary
+cargo llvm-cov --locked --workspace --summary-only   # coverage figure (CI prints it)
+cargo build --release --locked -p nft-gate-gateway   # production binary
 
 # Network-dependent checks (ignored by default):
-cargo test -- --ignored live_gate        # gate + ownership requests against the testnet relay gate
+cargo test -p nft-gate-gateway -- --ignored live_gate        # gate + ownership requests against the testnet relay gate
 # A recent consume (listEvents on <pkg>::access_gate::AccessConsumedEvent, newest first); public
 # fullnodes prune old transactions within about a week, so no digest is fixed in the source:
 NFT_GATE_LIVE_DIGEST=<digest> NFT_GATE_LIVE_SENDER=0x<sender> NFT_GATE_LIVE_GATE=0x<gate> \
   NFT_GATE_LIVE_PACKAGE=0x<access_gate package> \
-  cargo test -- --ignored live_consume   # real-node check of the GetTransaction wire format
+  cargo test -p nft-gate-gateway -- --ignored live_consume   # real-node check of the GetTransaction wire format
 REDIS_URL=redis://:<password>@127.0.0.1:6379 \
-  cargo test -- --ignored redis_backend  # Redis/Dragonfly backend incl. the Lua lease release
+  cargo test -p nft-gate-gateway -- --ignored redis_backend  # Redis/Dragonfly backend incl. the Lua lease release
 ```
 
 The Redis test uses random keys with 60 s TTLs, so it is safe against a shared instance. To run
@@ -224,12 +246,15 @@ then stop the remote `kubectl port-forward` afterwards; it outlives the SSH sess
 
 ## Docker
 
+The build context is the repository root (the crate depends on `../core` in the Cargo workspace); the
+root `.dockerignore` keeps the context to `Cargo.toml`, `Cargo.lock`, `core/` and `gateway-rust/`.
+
 ```bash
-# Build locally
-docker build -t nft-gate-gateway .
+# Build locally (from the repository root)
+docker build -f gateway-rust/Dockerfile -t nft-gate-gateway .
 
 # Multi-arch (for CI or arm64 hosts)
-docker buildx build --platform linux/amd64,linux/arm64 -t nft-gate-gateway .
+docker buildx build -f gateway-rust/Dockerfile --platform linux/amd64,linux/arm64 -t nft-gate-gateway .
 ```
 
 The image uses a distroless runtime (`gcr.io/distroless/cc-debian13:nonroot`). Pin base images

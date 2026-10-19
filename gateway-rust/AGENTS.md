@@ -2,40 +2,43 @@
 
 ## Crate
 
-`nft-gate-gateway` — Rust/Axum implementation of the nft-gate gateway.
+`nft-gate-gateway` — the Rust/Axum adapter of the nft-gate gateway. The decision logic is the sibling crate
+`nft-gate-core` (`../core`), shared with the Cloudflare Worker; this crate supplies I/O only.
 
 ## Key files
 
 | File | Purpose |
 | --- | --- |
-| `src/main.rs` | Binary entry point; `AppState`; request dispatcher (`handle`); router |
-| `src/config.rs` | `GatewayConfig` struct; `from_env()` loader; `is_public_path()` |
-| `src/verify.rs` | `verify_personal_message_signature`; `ChainQuery` trait; `verify_access_request`; `Denied` enum |
-| `src/challenge.rs` | `NonceStore` enum (in-memory / Redis); `InMemoryNonceStore`; `RedisNonceStore` |
-| `src/proof.rs` | `AccessProof` struct; `decode_access_proof`; `personal_message_for_nonce` |
-| `src/proxy.rs` | `forward` — reverse proxy to upstream |
-| `src/ratelimit.rs` | `RateLimiter` — per-address fixed 60s window |
-| `src/sui_rpc.rs` | `SuiRpc` — `ChainQuery` impl over Sui JSON-RPC |
+| `src/main.rs` | Binary entry point; `AppState`; `RequestHead` ⇄ axum mapping; `handle` (builds the core `Gateway`); CORS; router; hyper accept loop |
+| `src/config.rs` | `ServerConfig` = core `GatewayConfig` + native-only variables; `ProcessEnv` |
+| `src/state.rs` | `SystemClock`, `OsRngSource`, `NativeState` (the `StateStore` the core uses) |
+| `src/challenge.rs` | `NonceStore` enum (core in-memory state machine / Redis); `RedisNonceStore` |
+| `src/proxy.rs` | `forward` — the buffered reverse proxy; `impl Upstream for AppState` |
+| `src/headers.rs` | applies the core's header policy to `http::HeaderMap` |
+| `src/grpc.rs`, `src/sui_rpc.rs` | `HyperTransport`; `new_sui_rpc`; hermetic gRPC-web fixtures |
 | `src/http_client.rs` | `HttpClient` — shared hyper/rustls async client |
-| `Dockerfile` | Multi-stage Docker build (builder → distroless) |
-| `Cargo.toml` | Crate manifest; dependency versions |
+| `Dockerfile` | Multi-stage Docker build (builder → distroless); build context is the repository root |
+| `Cargo.toml` | Crate manifest (version, edition and MSRV inherited from the workspace) |
+
+Decision logic lives in `../core/src`: `decision.rs` (verify_access_request, `Denied`), `sig.rs`, `proof.rs`, `chain.rs`,
+`grpc.rs`, `gateway.rs` (the request flow), `state.rs`, `redemption.rs`, `headers.rs`, `forward.rs`, `config.rs`, `net.rs`, `origin.rs`.
 
 ## Build and test commands
 
 ```bash
-cargo build               # debug build
-cargo build --release     # release build
-cargo test                # all tests (unit + conformance vectors)
-cargo test -- --nocapture # with test output
+# from the repository root (the Cargo workspace)
+cargo build -p nft-gate-gateway            # debug build
+cargo build --release -p nft-gate-gateway  # release build
+cargo test --workspace                     # core + gateway-rust (unit, router, shared vectors)
+cargo test -p nft-gate-core                # the core alone
+cargo test --workspace -- --nocapture      # with test output
 ```
 
 ## Docker build and run
 
 ```bash
-cd gateway-rust
-
-# Build image
-docker build -t nft-gate-gateway .
+# Build image (from the repository root: the build context is the Cargo workspace)
+docker build -f gateway-rust/Dockerfile -t nft-gate-gateway .
 
 # Run (minimum required env vars)
 docker run \
@@ -62,22 +65,19 @@ UPSTREAM_URL=https://relay.example.com SUI_RPC_URL=https://... NFT_TYPE=0x... nf
 
 ## Version
 
-Current: `0.0.1` (Cargo.toml). Bump before publishing to crates.io.
-
-To publish:
-```bash
-cargo publish --dry-run   # check first
-cargo publish
-```
+One version for every artifact (D16): the `[workspace.package]` version in the root `Cargo.toml`, inherited by
+`nft-gate-core` and `nft-gate-gateway`, equals `gateway-workers/package.json`; the gateway pins `nft-gate-core`
+at exactly that version. `scripts/check-versions.sh` enforces it. The tag's `crates-publish.yml` publishes the
+core first, then the gateway.
 
 ## Conformance vectors
 
-Tests in `src/verify.rs` and `src/proof.rs` load `../../conformance/vectors.json` via
-`include_str!`. Run `node scripts/sync-vectors.mjs` (the vectors are generated and published by `@meddleware/nft-gate-client`)
+`../core/tests/conformance.rs` loads `../../conformance/vectors.json` via `include_str!`. Run `node scripts/sync-vectors.mjs` (the vectors are generated and published by `@meddleware/nft-gate-client`)
 (from the `nft-gate` repo root) to regenerate after any wire-format change.
 
 ## Relation to gateway-workers
 
-The two implementations are wire-identical: same endpoints, same env var names (where applicable),
-same proof format, same Sui RPC call shapes. Any wire-format change must be applied to both and
-the conformance vectors regenerated. See `../CLAUDE.md` for the coupling invariants.
+The two gateways are wire-identical: same endpoints, same env var names (where applicable),
+same proof format, same Sui RPC call shapes. The Rust side is one implementation (`../core`); until the
+TypeScript Worker is retired, a wire-format change is applied to the core and to `gateway-workers`, and the
+conformance vectors regenerated. See `../CLAUDE.md` for the coupling invariants.
