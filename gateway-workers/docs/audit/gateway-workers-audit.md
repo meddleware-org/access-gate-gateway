@@ -655,7 +655,7 @@ Rust.
 
 ### F11 — Plan tier, CPU budget and the exact body limit are undeclared
 
-**Severity:** Low   **Disposition:** MITIGATED (0.0.25, 2026-10-19, commit pending; OQ3 decided: Workers Free at
+**Severity:** Low   **Disposition:** MITIGATED (0.0.25, 2026-10-19, commit 8bf1168; OQ3 decided: Workers Free at
 launch; body cap exact; CPU measured locally. Residual: the edge CPU percentiles after the next deploy, an
 operator step, and the pre-mainnet gate "plan tier confirmed")
 **Where:** `wrangler.toml` (`MAX_BODY_BYTES`, `WORKERS_PLAN`, the commented `[limits]` block), `src/quota.ts`
@@ -1457,7 +1457,7 @@ second gateway's re-run belongs to its own audit.
 
 ### F48 — Quota guard measured the wrong quantities against stale limits (found and fixed 2026-10-19)
 
-**Severity:** Info   **Disposition:** RESOLVED (0.0.25, 2026-10-19, commit pending)
+**Severity:** Info   **Disposition:** RESOLVED (0.0.25, 2026-10-19, commit 8bf1168)
 **Where:** `src/quota.ts` (before 0.0.25).
 
 **Issue:** The optional guard (disabled in production) compared the **sum** of Worker and Durable Object
@@ -2199,7 +2199,7 @@ PROXY lens:
     table, the marker on the upstream request, two router tests); `npm audit --audit-level=high` 0 vulnerabilities; `scripts/check-versions.sh`
     passes (0.0.24). Not run: `wrangler deploy --dry-run`, the Worker on the edge.
   - Next: release 0.0.24, run `Deploy Workers`, then probe `/v1/challenge` and `/v1/tip-config` (both must still answer 200).
-- 2026-10-19 (Part B/C) — OQ3 and OQ4 decided; plan work (0.0.25, committed locally, unreleased, not deployed; commit pending).
+- 2026-10-19 (Part B/C) — OQ3 and OQ4 decided; plan work (0.0.25, committed locally, unreleased, not deployed; commit 8bf1168).
   - **Decided:** OQ3 (Workers Free at launch; Paid on funding or two consecutive months of trailing revenue covering it, per the
     workspace cost model §5); OQ4 ((a) single maintainer now, (c) a second reviewer when one can be hired; token scope, expiry and rotation in
     the workspace `OPERATOR_TASKS.md`).

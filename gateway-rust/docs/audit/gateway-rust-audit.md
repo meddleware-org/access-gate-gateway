@@ -2216,7 +2216,7 @@ PROXY lens:
   self-host, Workers Free insufficient while Paid is unaffordable — F6 streaming first). Recorded in OQ9, the deployment status, the
   executive summary, Section D, C.2, Risks and the root and `gateway-rust` README/CLAUDE.md files.
   - F31 and F32 stay DEFERRED, now citing OQ9 (a); S4 (axum 0.8, redis 1.x, base64 0.23) stays migration work for a revisit.
-  - Version 0.0.25 (committed locally, unreleased; commit pending): no Rust code change; `Cargo.toml` and the `Cargo.lock` root entry move
+  - Version 0.0.25 (committed locally, unreleased; commit 8bf1168): no Rust code change; `Cargo.toml` and the `Cargo.lock` root entry move
     with the Workers gateway (D16); `scripts/check-versions.sh` passes; `cargo metadata --locked` and `cargo fmt --check` pass. Clippy and
     `cargo test` were not re-run (no source change since the 0.0.24 run: 117 passed).
   - Counts unchanged: 25 RESOLVED, 3 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED (F30, F31, F32); 8 Positive.
