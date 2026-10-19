@@ -28,7 +28,7 @@ serde_json = "1"
 # Signing only (test fixtures); verification uses ed25519-consensus.
 ed25519-dalek = "3"
 proptest = "1"
-pollster = "0.4"
+pollster = "1.0"
 
 # rand_core 0.6 (pulled in by ed25519-consensus / elliptic-curve) enables getrandom 0.2, which has no
 # backend on wasm32-unknown-unknown unless "js" is set. Never called on the verify path.
