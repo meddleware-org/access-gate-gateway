@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.23] - 2026-10-19
+
+Released with the Workers gateway 0.0.23 (one version for every artifact). Still undeployed.
+
+### Security
+
+- `rustls` 0.23.45 → 0.23.46 in `Cargo.lock`: RUSTSEC-2026-0346 (`Debug` impls expose TLS secrets), RUSTSEC-2026-0347 (buffered application data sent after ECH rejection) and the Brotli certificate-decompression advisory (up to 1 GiB allocated before authentication). `cargo deny` caught them on `main` on 2026-10-18.
+
+### Changed
+
+- Grouped cargo updates (tokio 1.53.3, hyper 1.12, serde_json 1.0.154, proptest 1.12); the axum 0.8, redis 1.x and base64 0.23 majors are declined for now (see `.github/dependabot.yml`).
+
 ## [0.0.22] - 2026-10-10
 
 Released with the Workers gateway 0.0.22 (one version for every artifact); parity fixes from the

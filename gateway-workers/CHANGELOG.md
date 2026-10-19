@@ -2,6 +2,17 @@
 
 All notable changes to `@meddleware/nft-gate-gateway` are documented here.
 
+## [0.0.23] - 2026-10-19
+
+### Changed
+
+- `@meddleware/access-gate-client` ^0.0.9 (was ^0.0.6): the 2026-10-09 package's abort codes 15 and 16 and the gate-policy validator; the ownership read is unchanged. Dependency refreshes (`@mysten/sui` 2.36, wrangler 4.151, `@cloudflare/vitest-pool-workers` 0.23, vitest 4.1.12, typescript-eslint 8.71.2) and the grouped GitHub Actions bump.
+- Dependabot policy encoded in `.github/dependabot.yml`: the axum, redis and base64 majors, `@types/node` and TypeScript majors and the Node/Go container majors are ignored (Node 24 LTS only; the Rust toolchain and axum 0.8 / redis 1.x migrations are deployment-time work).
+
+### Security
+
+- Released together with `gateway-rust` 0.0.23, whose lockfile moves `rustls` to 0.23.46 (RUSTSEC-2026-0346, RUSTSEC-2026-0347 and the Brotli certificate-decompression advisory); the Worker has no Rust dependency.
+
 ## [0.0.22] - 2026-10-10
 
 ### Added
