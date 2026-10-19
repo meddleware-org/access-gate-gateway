@@ -15,7 +15,7 @@
   Workers gateway but is scoped to small-body upstreams (bodies are buffered, README "Scope"), so the
   paywall runs on `gateway-workers` only (root `CLAUDE.md`). No overlay, manifest or
   `config/images.yaml` entry exists.
-- **0.0.24 is committed locally, not yet released** (2026-10-19, commit pending; both gateways move together, D16): loop detection
+- **0.0.24 is released as v0.0.24** (2026-10-19, commit 63af1a4; both gateways move together, D16): loop detection
   (F43: `Via: 1.1 nft-gate` on the upstream request, `508` for a request that already carries it). The decisions OQ6 and OQ8 were recorded the same day
   (documentation only). Not deployed (see the first bullet).
 - **0.0.23 is released** (tag `v0.0.23` = `31c0f15`, 2026-10-19; crate, npm sibling and image published by the
@@ -1306,7 +1306,7 @@ control.
 
 ### F43 — No `Via` loop marker; only the literal self-origin is refused
 
-**Severity:** Info   **Disposition:** RESOLVED (0.0.24, 2026-10-19; commit pending; shared with `gateway-workers` F43)
+**Severity:** Info   **Disposition:** RESOLVED (0.0.24, 2026-10-19; commit 63af1a4; shared with `gateway-workers` F43)
 **Where:** `src/config.rs` (`UPSTREAM_URL must not be this gateway (request loop)`), `src/headers.rs`
 (`via` was stripped from the request and never set), `src/main.rs::handle`.
 
@@ -2175,7 +2175,7 @@ PROXY lens:
   - **Declined majors:** axum 0.8, redis 1.x and base64 0.23 are now `ignore` rules in `.github/dependabot.yml` (policy 2026-10-19); they are migration work for when OQ9 is decided.
   - **Findings and gates:** no change. **Not verified here:** the cosign signature, SBOM and provenance of the 0.0.23 image (no `cosign`); test counts were not re-run.
   - Dependabot policy encoded in .github/dependabot.yml (majors declined); open PRs merged 2026-10-19
-  - `docker-publish.yml`: the private rebuild jobs are replaced by one `mirror-private` job that copies the published quay.io image (and its cosign artifacts) to the self-hosted registry by digest and fails unless the digest and the signature match (build once, promote by digest; committed locally, not yet released; the `PRIVATE_REGISTRY_*` credentials are still unset).
+  - `docker-publish.yml`: the private rebuild jobs are replaced by one `mirror-private` job that copies the published quay.io image (and its cosign artifacts) to the self-hosted registry by digest and fails unless the digest and the signature match (build once, promote by digest; released as v0.0.24; the `PRIVATE_REGISTRY_*` credentials are still unset).
 - **2026-10-18 (later) — `cargo deny` caught new advisories; fixed.** After the audits were pushed, `Rust CI` on `main` went red:
   RUSTSEC-2026-0346 (`Debug` impls for client session values expose TLS secrets), RUSTSEC-2026-0347 (buffered application data
   sent to the outer server after ECH rejection) and a Brotli-certificate-decompression advisory (up to 1 GiB allocated before
@@ -2187,7 +2187,7 @@ PROXY lens:
   (B.2, F28) working as designed. Incidental: the 2026-10-15 Dependabot PRs (axum 0.7→0.8, redis 0.27→1.7, base64 0.22→0.23)
   are majors and fail Clippy/MSRV as expected; they are triage items, not defects.
 
-- 2026-10-19 (later) — Decisions and fix wave (0.0.24, committed locally, commit pending; not released or deployed).
+- 2026-10-19 (later) — Decisions and fix wave (0.0.24, released as v0.0.24, commit 63af1a4).
   - **Decided:** OQ6 (502 + release kept; a paid use is never lost; F20, documented in READMEs, CLAUDE.md files and `SECURITY.md`) and
     OQ8 (the cluster pulls by digest; signing, SBOM and provenance happen once at quay.io and travel to the self-hosted registry with
     `mirror-private`; F29, B.2, B.IMG-1, IMG-M7, the Section D image gate). OQ9 (deployment) stays open; options and a recommendation are recorded.

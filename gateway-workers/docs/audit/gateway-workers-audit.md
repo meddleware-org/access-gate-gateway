@@ -24,7 +24,7 @@
   from its first dispatch (run 38077866216, 2026-10-10T18:57Z) and on every daily schedule since (2026-10-11 to
   2026-10-18). The deployed version itself still cannot be read from the repo; `deploy-workers.yml` tags each
   version `<tag>-code`.
-- **0.0.24 is committed locally, not yet released or deployed** (2026-10-19, commit pending; both gateways move together, D16): loop
+- **0.0.24 is released as v0.0.24** (2026-10-19, commit 63af1a4; both gateways move together, D16): loop
   detection (F43: `Via: 1.1 nft-gate` on the upstream request, `508 loop detected` for a request that already carries it). The decisions
   OQ6 and OQ8 (the latter is the Rust gateway's) were recorded the same day. The live Worker still runs 0.0.23 until it is released and
   `Deploy Workers` is run.
@@ -1299,7 +1299,7 @@ control.
 
 ### F43 — No `Via` loop marker; only the literal self-origin is refused
 
-**Severity:** Info   **Disposition:** RESOLVED (0.0.24, 2026-10-19; commit pending; shared with `gateway-rust` F43)
+**Severity:** Info   **Disposition:** RESOLVED (0.0.24, 2026-10-19; commit 63af1a4; shared with `gateway-rust` F43)
 **Where:** `src/config.ts` (`UPSTREAM_URL must not be this gateway (request loop)`), `src/headers.ts`
 (`via` was stripped from the request and never set), `src/index.ts::handle`.
 
@@ -2097,7 +2097,7 @@ PROXY lens:
   - Dependabot policy encoded in .github/dependabot.yml (majors declined); open PRs merged 2026-10-19
 - 2026-10-19 — live paywall run 2026-10-19: PASS — pass bought on the relay gate, consumed, v2 proof accepted, upload through the Worker, replay refused 409, strict decoder, indexer events; harness `integrations/paywall/` (infrastructure workspace).
 
-- 2026-10-19 (later) — Decisions and fix (0.0.24, committed locally, commit pending; not released and not deployed).
+- 2026-10-19 (later) — Decisions and fix (0.0.24, released as v0.0.24, commit 63af1a4).
   - **Decided:** OQ6 (502 + release kept; a paid use is never lost; F20; documented in READMEs, CLAUDE.md files and `SECURITY.md`).
   - **Fixed:** F43 RESOLVED in both gateways at once (`Via: 1.1 nft-gate`, `508 loop detected`; `VIA_TABLE`, two workerd router tests; the
     identical table is `via_loop_table` in the Rust gateway). I27, B.SC-3, B.PX-1 and S9 updated.
