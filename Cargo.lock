@@ -1149,7 +1149,7 @@ dependencies = [
 
 [[package]]
 name = "nft-gate-core"
-version = "0.0.25"
+version = "0.0.26"
 dependencies = [
  "anyhow",
  "base64",
@@ -1167,7 +1167,7 @@ dependencies = [
 
 [[package]]
 name = "nft-gate-gateway"
-version = "0.0.25"
+version = "0.0.26"
 dependencies = [
  "anyhow",
  "axum",

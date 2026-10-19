@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 documentation = "https://github.com/meddleware-org/nft-gate/tree/main/core"
 readme = "README.md"
+# The tests read ../conformance/vectors.json from the repository checkout; they are not part of the published package.
+exclude = ["tests/"]
 keywords = ["nft", "sui", "gateway", "access-control", "wasm"]
 categories = ["authentication", "wasm", "web-programming"]
 
