@@ -56,13 +56,20 @@ fn the_curl_config_is_private() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("curl.conf");
     let o = run(
-        &["check-upstream-auth", "--curl-config", path.to_str().unwrap()],
+        &[
+            "check-upstream-auth",
+            "--curl-config",
+            path.to_str().unwrap(),
+        ],
         Some(&good()),
     );
     assert!(o.status.success(), "{}", text(&o));
     let body = std::fs::read_to_string(&path).unwrap();
     assert!(body.contains(&format!("header = \"CF-Access-Client-Id: {ID}\"")));
-    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -71,18 +78,45 @@ fn origin_probes_are_classified_and_reported() {
     let dir = std::env::temp_dir().join(format!("nft-gate-ci-h-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let hdrs = dir.join("h.txt");
-    std::fs::write(&hdrs, "HTTP/2 403\r\nserver: cloudflare\r\ncf-access-domain: o.example\r\n\r\n").unwrap();
+    std::fs::write(
+        &hdrs,
+        "HTTP/2 403\r\nserver: cloudflare\r\ncf-access-domain: o.example\r\n\r\n",
+    )
+    .unwrap();
     let h = hdrs.to_str().unwrap();
-    let o = run(&["classify-origin", "--status", "403", "--headers", h], None);
+    let o = run(
+        &["classify-origin", "--status", "403", "--headers", h],
+        None,
+    );
     assert!(o.status.success());
     assert!(text(&o).starts_with("locked "), "{}", text(&o));
     let o = run(&["classify-origin", "--status", "200"], None);
     assert!(text(&o).starts_with("open "));
     // The positive probe: a 403 from Access fails the deploy, a 200 passes.
-    let o = run(&["report-origin-check", "--url", "https://o.example/v1/tip-config", "--status", "403", "--headers", h], None);
+    let o = run(
+        &[
+            "report-origin-check",
+            "--url",
+            "https://o.example/v1/tip-config",
+            "--status",
+            "403",
+            "--headers",
+            h,
+        ],
+        None,
+    );
     assert_eq!(o.status.code(), Some(1));
     assert!(text(&o).contains("::error::The origin rejected UPSTREAM_AUTH_HEADERS"));
-    let o = run(&["report-origin-check", "--url", "https://o.example/v1/tip-config", "--status", "200"], None);
+    let o = run(
+        &[
+            "report-origin-check",
+            "--url",
+            "https://o.example/v1/tip-config",
+            "--status",
+            "200",
+        ],
+        None,
+    );
     assert!(o.status.success());
     assert!(run(&["bogus"], None).status.code() == Some(1));
     std::fs::remove_dir_all(&dir).unwrap();

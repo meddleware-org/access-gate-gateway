@@ -1,0 +1,185 @@
+name: Deploy Worker (Rust)
+
+# Deploys the RUST Worker (`worker/`, workers-rs) that replaces the TypeScript `gateway-workers`. Manual
+# only, in the protected `production` environment, after the full Rust CI (build, size gate, workerd
+# suites, differential run against the TypeScript Worker). This workflow does NOT replace
+# deploy-workers.yml: the TypeScript Worker keeps deploying from there until the cutover is done and
+# gateway-workers is retired (worker/README.md "Runbook").
+#
+# Two modes:
+#
+#   shadow   (default) deploys to a DIFFERENT Worker name (default `nft-gate-gateway-shadow`) on its
+#            workers.dev address, with its own empty Durable Object namespace (a new script name has new
+#            DO storage: exactly right for a shadow, the live nonce / redemption data is never touched),
+#            and its own GATEWAY_ORIGIN (clients sign the audience they talk to). Real traffic is not
+#            routed to it; the maintainer points integrations/paywall at it (`--relay <origin>`) and reads
+#            CPU time in the Workers analytics. Needs the GitHub secret UPSTREAM_URL (a new script has no
+#            secrets yet); UPSTREAM_AUTH_HEADERS and SUI_RPC_AUTH_HEADER are applied when set.
+#
+#   cutover  deploys over the LIVE `nft-gate-gateway` (same name, same Durable Object class
+#            `NonceRateState`, same migration tag `v1`, so the live nonce, rate and redemption data are
+#            kept). Requires confirm=cutover. Same secret flow as deploy-workers.yml: when the GitHub secret
+#            UPSTREAM_AUTH_HEADERS is set the code and the secret go live together (versions upload ->
+#            versions secret put -> versions deploy); otherwise a plain `wrangler deploy` keeps the secrets
+#            stored in Cloudflare. Rollback = re-run deploy-workers.yml at the last TypeScript tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "shadow (default) or cutover"
+        type: choice
+        options: [shadow, cutover]
+        default: shadow
+      worker_name:
+        description: "shadow only: the Worker name (never the live name)"
+        type: string
+        default: nft-gate-gateway-shadow
+      gateway_origin:
+        description: "shadow only: the https origin clients will sign into proofs, e.g. https://nft-gate-gateway-shadow.<account>.workers.dev"
+        type: string
+        default: ""
+      confirm:
+        description: "cutover only: type 'cutover' to deploy over the live Worker nft-gate-gateway"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-workers # the same group as deploy-workers.yml: the two never deploy at once
+  cancel-in-progress: false
+
+jobs:
+  inputs:
+    name: Validate inputs
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.v.outputs.name }}
+    steps:
+      - id: v
+        env:
+          MODE: ${{ inputs.mode }}
+          WORKER_NAME: ${{ inputs.worker_name }}
+          GATEWAY_ORIGIN: ${{ inputs.gateway_origin }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          live=nft-gate-gateway
+          if [ "$MODE" = cutover ]; then
+            [ "$CONFIRM" = cutover ] || { echo "::error::cutover deploys over the live Worker; set confirm=cutover"; exit 1; }
+            echo "name=$live" >> "$GITHUB_OUTPUT"
+          elif [ "$MODE" = shadow ]; then
+            [[ "$WORKER_NAME" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || { echo "::error::invalid worker_name"; exit 1; }
+            [ "$WORKER_NAME" != "$live" ] || { echo "::error::a shadow must not use the live Worker name; use mode=cutover"; exit 1; }
+            [[ "$GATEWAY_ORIGIN" =~ ^https://[a-z0-9.-]+(:[0-9]+)?$ ]] || { echo "::error::gateway_origin must be a canonical https origin (https://host)"; exit 1; }
+            echo "name=$WORKER_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::unknown mode"; exit 1
+          fi
+
+  ci:
+    needs: inputs
+    uses: ./.github/workflows/rust-ci.yml
+
+  deploy:
+    name: Wrangler deploy (worker/, Rust)
+    needs: [inputs, ci]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the stable toolchain with the wasm32 target
+        run: rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown --no-self-update && rustup default stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ". -> target"
+          key: worker-deploy
+          save-if: false
+
+      - name: Install worker-build (pinned)
+        run: cargo install worker-build --version 0.8.7 --locked
+
+      - name: Fetch the pinned build tools (wasm-bindgen, wasm-opt, esbuild; SHA-256 verified)
+        run: bash scripts/fetch-build-tools.sh
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the Worker (the same command wrangler.toml runs)
+        run: bash scripts/build.sh prod
+
+      # The Rust CLI uses the core's own parser: no TypeScript in the deploy path. With the repository
+      # variable UPSTREAM_CHECK_URL set, the origin must also accept the headers (curl reads them from a
+      # 0600 config file, never from the command line).
+      - name: Check UPSTREAM_AUTH_HEADERS (when supplied from GitHub)
+        env:
+          UPSTREAM_AUTH_HEADERS: ${{ secrets.UPSTREAM_AUTH_HEADERS }}
+          UPSTREAM_CHECK_URL: ${{ vars.UPSTREAM_CHECK_URL }}
+        working-directory: .
+        run: |
+          set -euo pipefail
+          if [ -z "${UPSTREAM_AUTH_HEADERS}" ]; then
+            echo "UPSTREAM_AUTH_HEADERS not set in GitHub: the Worker keeps the value stored in Cloudflare."
+            exit 0
+          fi
+          conf="${RUNNER_TEMP}/upstream-auth.curl"
+          cargo run --quiet --locked -p nft-gate-ci -- check-upstream-auth --curl-config "$conf"
+          if [ -z "${UPSTREAM_CHECK_URL}" ]; then
+            echo "UPSTREAM_CHECK_URL not set: skipping the origin check"
+          else
+            hdr="${RUNNER_TEMP}/origin.headers"; body="${RUNNER_TEMP}/origin.body"
+            status="$(curl --silent --show-error --max-time 15 --config "$conf" --dump-header "$hdr" --output "$body" --write-out '%{http_code}' "$UPSTREAM_CHECK_URL" || echo 000)"
+            cargo run --quiet --locked -p nft-gate-ci -- report-origin-check --url "$UPSTREAM_CHECK_URL" --status "$status" --headers "$hdr" --body "$body"
+          fi
+          rm -f "$conf"
+
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          UPSTREAM_AUTH_HEADERS: ${{ secrets.UPSTREAM_AUTH_HEADERS }}
+          UPSTREAM_URL: ${{ secrets.UPSTREAM_URL }}
+          SUI_RPC_AUTH_HEADER: ${{ secrets.SUI_RPC_AUTH_HEADER }}
+          MODE: ${{ inputs.mode }}
+          WORKER_NAME: ${{ needs.inputs.outputs.name }}
+          GATEWAY_ORIGIN: ${{ inputs.gateway_origin }}
+          TAG: run-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          if [ "$MODE" = shadow ]; then
+            # A separate script: derive its config (name, workers.dev, own GATEWAY_ORIGIN, no route).
+            [ -n "${UPSTREAM_URL}" ] || { echo "::error::a shadow needs the GitHub secret UPSTREAM_URL (a new Worker has no secrets)"; exit 1; }
+            bash scripts/make-shadow-config.sh "$WORKER_NAME" "$GATEWAY_ORIGIN" > wrangler.shadow.toml
+            npx wrangler deploy --config wrangler.shadow.toml --message "shadow ${GITHUB_SHA}"
+            printf '%s' "${UPSTREAM_URL}" | npx wrangler secret put UPSTREAM_URL --config wrangler.shadow.toml
+            if [ -n "${UPSTREAM_AUTH_HEADERS}" ]; then
+              printf '%s' "${UPSTREAM_AUTH_HEADERS}" | npx wrangler secret put UPSTREAM_AUTH_HEADERS --config wrangler.shadow.toml
+            fi
+            if [ -n "${SUI_RPC_AUTH_HEADER}" ]; then
+              printf '%s' "${SUI_RPC_AUTH_HEADER}" | npx wrangler secret put SUI_RPC_AUTH_HEADER --config wrangler.shadow.toml
+            fi
+            echo "Shadow Worker ${WORKER_NAME} deployed; point integrations/paywall at it with --relay ${GATEWAY_ORIGIN}"
+            exit 0
+          fi
+          # cutover: over the live script, same name / class / migration tag.
+          if [ -z "${UPSTREAM_AUTH_HEADERS}" ]; then
+            npx wrangler deploy --message "${GITHUB_SHA} (Rust Worker)"
+            exit 0
+          fi
+          # Code and secret switch together: upload a version (no traffic), add the secret to it as a
+          # tagged version, then send all traffic to that version.
+          npx wrangler versions upload --message "${GITHUB_SHA} (Rust Worker)" --tag "${TAG}-code"
+          printf '%s' "${UPSTREAM_AUTH_HEADERS}" | npx wrangler versions secret put UPSTREAM_AUTH_HEADERS --message "${GITHUB_SHA} + UPSTREAM_AUTH_HEADERS" --tag "${TAG}"
+          npx wrangler versions deploy --version-tag "${TAG}@100" --message "${GITHUB_SHA}" --yes

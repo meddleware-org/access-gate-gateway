@@ -1,8 +1,9 @@
 name: Rust CI
 
 # CI for the Rust workspace: nft-gate-core (the shared decision logic, native and wasm32), the
-# gateway-rust adapter, and the gateway-rust Dockerfile scan.
-# The Node Workers gateway is covered by node-ci.yml.
+# gateway-rust adapter, the Rust Cloudflare Worker (`worker` job: wasm build, size gate, workerd suites,
+# differential run against the TypeScript Worker), the CI helper binary, and the gateway-rust Dockerfile scan.
+# The TypeScript Workers gateway (retiring) is covered by node-ci.yml.
 
 on:
   push:
@@ -15,7 +16,7 @@ permissions:
 
 jobs:
   rust-ci:
-    name: Rust workspace (core + gateway-rust)
+    name: Rust workspace (core + gateway-rust + worker + ci)
     runs-on: ubuntu-latest
     # A real Redis for the env-gated backend round trip (Lua lease/commit/release, GETDEL).
     services:
@@ -96,6 +97,74 @@ jobs:
         run: cargo test --locked -p nft-gate-core
       - name: Build for the Worker target
         run: cargo build --locked -p nft-gate-core --target wasm32-unknown-unknown
+
+  # The Rust Worker (workers-rs, wasm32). Everything it needs that is downloaded at build time is pinned
+  # and checksummed (worker/scripts/fetch-build-tools.sh); worker-build and the wasm-bindgen crate are
+  # pinned to matching versions in worker/Cargo.toml. The suites run the BUILT wasm under workerd.
+  worker:
+    name: Rust Worker (build, size gate, workerd suites, differential)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the stable toolchain with the wasm32 target
+        run: rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown --no-self-update && rustup default stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ". -> target"
+          key: worker
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # The request path may not panic: clippy denies unwrap/expect/panic/indexing (worker/Cargo.toml
+      # [lints.clippy]); the canary proves the lints are live; checked natively AND for the Worker target,
+      # with and without the test-only feature.
+      - name: Clippy (native and wasm32, with and without test-hooks)
+        run: |
+          cargo clippy --locked -p nft-gate-worker --all-targets -- -D warnings
+          cargo clippy --locked -p nft-gate-worker --all-targets --features test-hooks -- -D warnings
+          cargo clippy --locked -p nft-gate-worker --lib --target wasm32-unknown-unknown -- -D warnings
+          cargo clippy --locked -p nft-gate-worker --lib --target wasm32-unknown-unknown --features test-hooks -- -D warnings
+
+      - name: Lint canary (the panic lints are enforced)
+        run: bash worker/scripts/lint-canary.sh
+
+      - name: Native unit tests (Worker glue, CI helper)
+        run: cargo test --locked -p nft-gate-worker -p nft-gate-ci
+
+      - name: Install worker-build (pinned)
+        run: command -v worker-build >/dev/null && worker-build --version | grep -q '0.8.7' || cargo install worker-build --version 0.8.7 --locked
+
+      - name: Fetch the pinned build tools (wasm-bindgen, wasm-opt, esbuild; SHA-256 verified)
+        run: bash worker/scripts/fetch-build-tools.sh
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26'
+
+      - name: Install the harness dependencies
+        working-directory: worker
+        run: npm ci
+
+      - name: Build (deployed variant and test-hooks variant)
+        run: bash worker/scripts/build.sh all
+
+      - name: Size gate (wrangler deploy --dry-run, gzip total <= 1.5 MiB)
+        working-directory: worker
+        run: bash scripts/size-gate.sh 1536
+
+      - name: workerd suites (router, proxy, redemption, state, quota, conformance, config, stream, panic)
+        working-directory: worker
+        run: npm test
+
+      # The reference Worker needs its own dependencies; the same scenarios run against both.
+      - name: Install the TypeScript Worker's dependencies (differential reference)
+        working-directory: gateway-workers
+        run: npm ci
+
+      - name: Differential run (TypeScript Worker vs Rust Worker)
+        working-directory: worker
+        run: npm run test:diff
 
   msrv:
     name: MSRV (rust-version in Cargo.toml)

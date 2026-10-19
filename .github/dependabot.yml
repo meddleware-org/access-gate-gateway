@@ -11,8 +11,16 @@ updates:
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: /worker # the Rust Worker's test harness and wrangler (pinned exactly; test/deploy tooling only)
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm-worker-harness:
+        update-types: [minor, patch]
   - package-ecosystem: cargo
-    directory: / # the Cargo workspace: core + gateway-rust
+    directory: / # the Cargo workspace: core + gateway-rust + worker + ci
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
@@ -27,6 +35,14 @@ updates:
         update-types: ["version-update:semver-minor"]
       - dependency-name: "p256"
         update-types: ["version-update:semver-minor"]
+      # workers-rs, wasm-bindgen and worker-build are one pinned set (the wasm-bindgen CLI that worker-build
+      # fetches must equal the crate): bumped together by hand, see worker/README.md "Toolchain".
+      - dependency-name: "worker"
+      - dependency-name: "worker-*"
+      - dependency-name: "wasm-bindgen"
+      - dependency-name: "wasm-bindgen-*"
+      - dependency-name: "js-sys"
+      - dependency-name: "web-sys"
     groups:
       cargo-minor-patch:
         update-types: [minor, patch]

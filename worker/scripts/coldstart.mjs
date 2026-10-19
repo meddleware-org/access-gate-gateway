@@ -20,7 +20,7 @@ import os from 'node:os'
 
 const [, , kind, target, samplesArg] = process.argv
 const samples = Number(samplesArg ?? 15)
-const workerd = process.env.WORKERD ?? path.resolve(import.meta.dirname, '../../gateway-workers/node_modules/@cloudflare/workerd-linux-64/bin/workerd')
+const workerd = process.env.WORKERD ?? path.resolve(import.meta.dirname, '../node_modules/@cloudflare/workerd-linux-64/bin/workerd')
 const schemes = ['ed25519', 'secp256k1', 'secp256r1', 'ed25519 single-use']
 const stats = (a) => {
   const s = [...a].sort((x, y) => x - y)
@@ -77,17 +77,17 @@ for (let i = 0; i < samples; i++) {
   let t1 = 0
   if (kind === 'rust') {
     for (const s of schemes) {
-      const [x, b1] = await t(`/bench?scheme=${encodeURIComponent(s)}&iters=1&warmup=0`); t1 += x
+      const [x, b1] = await t(`/__test/bench?scheme=${encodeURIComponent(s)}&iters=1&warmup=0`); t1 += x
       out.first[s].push(JSON.parse(b1).firstMs)
     }
     out.t1.push(t1)
-    for (const s of schemes) out.warm[s].push(JSON.parse((await t(`/bench?scheme=${encodeURIComponent(s)}&iters=200`))[1]).warmMeanMs)
-    out.t2.push((await t('/bench?scheme=ed25519&iters=1&warmup=0'))[0])
+    for (const s of schemes) out.warm[s].push(JSON.parse((await t(`/__test/bench?scheme=${encodeURIComponent(s)}&iters=200`))[1]).warmMeanMs)
+    out.t2.push((await t('/__test/bench?scheme=ed25519&iters=1&warmup=0'))[0])
   } else {
-    const [x, b1] = await t('/bench?iters=1&warmup=0'); out.t1.push(x)
+    const [x, b1] = await t('/__test/bench?iters=1&warmup=0'); out.t1.push(x)
     for (const r of JSON.parse(b1)) out.first[r.scheme].push(r.firstMs)
-    for (const r of JSON.parse((await t('/bench?iters=200&warmup=20'))[1])) out.warm[r.scheme].push(r.warmMeanMs)
-    out.t2.push((await t('/bench?iters=1&warmup=0'))[0])
+    for (const r of JSON.parse((await t('/__test/bench?iters=200&warmup=20'))[1])) out.warm[r.scheme].push(r.warmMeanMs)
+    out.t2.push((await t('/__test/bench?iters=1&warmup=0'))[0])
   }
   p.kill('SIGKILL'); await new Promise((r) => p.on('exit', r))
   fs.rmSync(dir, { recursive: true, force: true })

@@ -1,5 +1,6 @@
 # Build context of gateway-rust/Dockerfile is the repository root: keep it to the Cargo workspace
-# (Cargo.toml, Cargo.lock, core/, gateway-rust/) and drop everything else.
+# (Cargo.toml, Cargo.lock, core/, gateway-rust/ and the manifests + sources of the other members, which
+# Cargo needs to resolve the workspace) and drop everything else.
 **/target/
 **/node_modules/
 .git/
@@ -15,5 +16,10 @@ conformance/
 docs/
 **/docs/
 gateway-workers/
-spike-workers-rs/
+worker/tests/
+worker/scripts/
+worker/build*/
+worker/package.json
+worker/package-lock.json
+worker/wrangler.toml
 scripts/

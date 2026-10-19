@@ -25,7 +25,8 @@ out="$(cargo clippy --locked -p nft-gate-worker --lib 2>&1)"
 status=$?
 set -e
 [ "$status" -ne 0 ] || { echo "::error::clippy accepted unwrap/expect/panic/indexing in the Worker"; exit 1; }
-for lint in unwrap_used expect_used panic indexing_slicing; do
+# clippy prints the lint names with hyphens (`clippy::unwrap-used`).
+for lint in unwrap-used expect-used panic indexing-slicing; do
   echo "$out" | grep -q "clippy::$lint" || { echo "$out"; echo "::error::clippy::$lint is not enforced in worker/"; exit 1; }
 done
 echo "lint canary: unwrap_used, expect_used, panic and indexing_slicing are all denied in worker/"

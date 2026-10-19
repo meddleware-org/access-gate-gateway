@@ -26,13 +26,13 @@ const call = async (q) => (await w.fetch(new Request('http://x' + q), {}, ctx)).
   const schemes = ['ed25519', 'secp256k1', 'secp256r1', 'ed25519 single-use']
   for (const s of schemes) {
     const a = both()
-    await call(`/bench?scheme=${encodeURIComponent(s)}&iters=1&warmup=0`)
+    await call(`/__test/bench?scheme=${encodeURIComponent(s)}&iters=1&warmup=0`)
     out.first[s] = diff(a)
   }
   for (const s of schemes) {
-    await call(`/bench?scheme=${encodeURIComponent(s)}&iters=200&warmup=50`) // tier up
+    await call(`/__test/bench?scheme=${encodeURIComponent(s)}&iters=200&warmup=50`) // tier up
     const a = both()
-    await call(`/bench?scheme=${encodeURIComponent(s)}&iters=${iters}&warmup=0`)
+    await call(`/__test/bench?scheme=${encodeURIComponent(s)}&iters=${iters}&warmup=0`)
     const d = diff(a)
     out.warmMean[s] = { thread: +(d.thread / iters).toFixed(3), process: +(d.process / iters).toFixed(3) }
   }
