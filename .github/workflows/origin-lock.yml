@@ -21,8 +21,8 @@ on:
   pull_request:
     paths:
       - '.github/workflows/origin-lock.yml'
-      - 'gateway-workers/scripts/check-origin-locked.mjs'
-      - 'gateway-workers/scripts/origin-lock.ts'
+      - 'scripts/check-origin-locked.sh'
+      - 'ci/**'
 
 permissions:
   contents: read
@@ -39,12 +39,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '26'
+      - name: Install the stable toolchain
+        run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
 
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ". -> target"
+          key: origin-lock
+          save-if: false
+
+      # curl makes the requests; the verdict is the Rust helper's (nft-gate-ci classify-origin), the same
+      # logic the TypeScript script had, with the same cases tested (ci/src/lib.rs).
       - name: Direct requests without the service token are refused by Access
-        working-directory: gateway-workers
         env:
           UPSTREAM_CHECK_URL: ${{ vars.UPSTREAM_CHECK_URL }}
-        run: node scripts/check-origin-locked.mjs
+        run: bash scripts/check-origin-locked.sh

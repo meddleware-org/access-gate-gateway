@@ -317,3 +317,66 @@ fn full_single_use_decision_over_a_stub_transport() {
     ));
     assert_eq!(r.unwrap_err(), Denied::ConsumeMissing);
 }
+
+/// A transport with a clock the test moves; every call answers one usable pass.
+struct Clocked {
+    now: std::cell::Cell<u64>,
+    calls: std::cell::Cell<usize>,
+}
+
+impl Transport for &Clocked {
+    async fn post_grpc_web(
+        &self,
+        _url: &str,
+        _body: Vec<u8>,
+    ) -> anyhow::Result<(Option<String>, Vec<u8>)> {
+        self.calls.set(self.calls.get() + 1);
+        let mut b = frame(&list_page(1, None));
+        let trailer = b"grpc-status:0\r\n";
+        b.push(0x80);
+        b.extend_from_slice(&(trailer.len() as u32).to_be_bytes());
+        b.extend_from_slice(trailer);
+        Ok((None, b))
+    }
+    async fn sleep_ms(&self, _ms: u64) {}
+    fn now_ms(&self) -> u64 {
+        self.now.get()
+    }
+}
+
+#[test]
+fn the_ownership_cache_serves_within_the_ttl_and_expires() {
+    let t = Clocked {
+        now: 1_000.into(),
+        calls: 0.into(),
+    };
+    let rpc = SuiRpc::new(&t, "https://f".into(), 1_000, 15_000);
+    let owns = |a: &str| pollster::block_on(rpc.owns_nft(a, NFT, Some(GATE))).unwrap();
+    assert!(owns("0x1"));
+    assert!(owns("0x1"));
+    assert_eq!(t.calls.get(), 1, "the second lookup is a cache hit");
+    t.now.set(2_001); // past the TTL
+    assert!(owns("0x1"));
+    assert_eq!(t.calls.get(), 2, "an expired entry is looked up again");
+}
+
+#[test]
+fn the_ownership_cache_stays_bounded() {
+    let t = Clocked {
+        now: 1_000.into(),
+        calls: 0.into(),
+    };
+    let rpc = SuiRpc::new(&t, "https://f".into(), 3_600_000, 15_000);
+    let owns = |a: &str| pollster::block_on(rpc.owns_nft(a, NFT, Some(GATE))).unwrap();
+    // More distinct addresses than the cache holds; each lookup is one millisecond later, so the
+    // first entry is the oldest.
+    for i in 0..10_050u64 {
+        t.now.set(1_000 + i);
+        owns(&format!("0x{i:x}"));
+    }
+    let before = t.calls.get();
+    owns("0x0"); // the oldest was dropped past the bound: looked up again
+    assert_eq!(t.calls.get(), before + 1);
+    owns("0x2741"); // a recent one (10049) is still cached
+    assert_eq!(t.calls.get(), before + 1);
+}

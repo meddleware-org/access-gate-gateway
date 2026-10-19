@@ -25,7 +25,7 @@ const objectMsg = (id, type, json) => Buffer.concat([str(2, id), uint(3, 1), str
 const gateObject = (gate, paused, blocks) => len(1, objectMsg(gate, `${NFT_PKG}::access_gate::Gate`, gateJson(paused, blocks)))
 // BatchGetObjects (the TypeScript Worker's @mysten/sui client): { repeated GetObjectResult objects = 1 }, result.object = 1.
 const batchGateObjects = (gate, paused, blocks, n) => Buffer.concat(Array.from({ length: n }, () => len(1, len(1, objectMsg(gate, `${NFT_PKG}::access_gate::Gate`, gateJson(paused, blocks))))))
-const consumeTx = (sender, gate, ageMs) => {
+const consumeTx = (sender, gate, ageMs, success = true) => {
   const ev = Buffer.concat([
     str(1, NFT_PKG),
     str(2, 'access_gate'),
@@ -33,7 +33,7 @@ const consumeTx = (sender, gate, ageMs) => {
     str(4, `${NFT_PKG}::access_gate::AccessConsumedEvent`),
     len(6, structOf([['gate_id', strVal(gate)], ['timestamp_ms', strVal(String(Date.now() - ageMs))]])),
   ])
-  return len(1, Buffer.concat([len(4, len(4, uint(1, 1))), len(5, len(3, ev))]))
+  return len(1, Buffer.concat([len(4, len(4, success ? uint(1, 1) : Buffer.alloc(0))), len(5, len(3, ev))]))
 }
 const ownedList = (gate) => len(1, objectMsg('0x' + 'ab'.repeat(32), `${NFT_PKG}::access_gate::SoulboundAccessNFT`, structOf([['data', structOf([['gate_id', strVal(gate)], ['variant', structOf([['@variant', strVal('UnlimitedPass')]])]])]])))
 
@@ -51,12 +51,14 @@ export function txDigest() {
  * addresses that own a pass. `paused` pauses the gate. Counts calls per method.
  */
 export async function startFullnode() {
-  const state = { paused: false, consumes: new Map(), owners: new Set(), calls: [], failAll: false, consumeAgeMs: 1000, gate: GATE_ID }
+  const state = { stall: false, failed: new Set(), headers: [], paused: false, consumes: new Map(), owners: new Set(), calls: [], failAll: false, consumeAgeMs: 1000, gate: GATE_ID }
   const server = http.createServer((req, res) => {
     const chunks = []
     req.on('data', (c) => chunks.push(c))
     req.on('end', () => {
       state.calls.push(req.url)
+      state.headers.push(req.headers)
+      if (state.stall) return // never answer
       // The Rust Worker speaks binary gRPC-web; @mysten/sui's client (the TypeScript Worker) speaks grpc-web-text (base64).
       const text = String(req.headers['content-type'] ?? '').includes('grpc-web-text')
       const body = text ? Buffer.from(Buffer.concat(chunks).toString(), 'base64') : Buffer.concat(chunks)
@@ -78,7 +80,7 @@ export async function startFullnode() {
         const digest = msg.subarray(2, 2 + msg[1]).toString()
         const sender = state.consumes.get(digest)
         if (!sender) { res.setHeader('grpc-status', '5'); return res.end() } // NOT_FOUND (trailers-only)
-        return res.end(grpc(consumeTx(sender, state.gate, state.consumeAgeMs)))
+        return res.end(grpc(consumeTx(sender, state.gate, state.consumeAgeMs, !state.failed.has(digest))))
       }
       if (req.url.endsWith('StateService/ListOwnedObjects')) {
         const owner = body.toString('latin1').match(/0x[0-9a-f]{64}/)?.[0] // field 1 of the request
