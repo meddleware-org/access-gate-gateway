@@ -2014,6 +2014,7 @@ PROXY lens:
   38077866216) and daily since. The "Not run" items of the 2026-10-10 entry (the workflow run, the deployment) are done. Section
   D: the F32 box was already ticked and now cites the runs; the two unticked boxes (mainnet `access_gate`, external review)
   are unchanged.
+- 2026-10-19 — live paywall run 2026-10-19: PASS — pass bought on the relay gate, consumed, v2 proof accepted, upload through the Worker, replay refused 409, strict decoder, indexer events; harness `integrations/paywall/` (infrastructure workspace).
 
 ## Pre-save consistency checklist (this pass)
 
