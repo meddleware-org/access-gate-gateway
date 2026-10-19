@@ -1,9 +1,9 @@
 # Cargo workspace for the Rust side of nft-gate: ONE implementation of the decision logic
 # (`core`, compiled natively AND to wasm32 for the Cloudflare Worker) plus the hyper/axum adapter
-# (`gateway-rust`). The Worker crate joins the workspace when the Rust port reaches it; until then
-# `spike-workers-rs/` (its own workspace, newer toolchain) is the prototype and measurement harness.
+# (`gateway-rust`), the Cloudflare Worker adapter (`worker`, wasm32; its own rust-version 1.91) and the
+# CI helper binary (`ci`).
 [workspace]
-members = ["core", "gateway-rust"]
+members = ["core", "gateway-rust", "worker", "ci"]
 resolver = "2"
 
 # One version for every artifact (D16): core, gateway-rust, the image and the npm package move together.

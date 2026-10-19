@@ -1,0 +1,5 @@
+tests/.gen/
+build/
+build-hooks/
+node_modules/
+.wrangler/

@@ -1,0 +1,17 @@
+[package]
+name = "nft-gate-ci"
+description = "CI helpers for the nft-gate deploy workflows: validate UPSTREAM_AUTH_HEADERS with the core's parser, and classify origin-lock probe responses. Not published."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "nft-gate-ci"
+path = "src/main.rs"
+
+[dependencies]
+nft-gate-core = { version = "=0.0.27", path = "../core" }
+anyhow = "1"

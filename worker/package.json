@@ -1,0 +1,27 @@
+{
+  "name": "@meddleware/nft-gate-worker-harness",
+  "version": "0.0.27",
+  "private": true,
+  "type": "module",
+  "description": "Black-box test harness and deploy tooling for the Rust Worker (wrangler + workerd). Test code only: no Worker logic lives here.",
+  "license": "0BSD",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "pretest": "node tests/prepare.mjs",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "test:diff": "node tests/prepare.mjs && node --test --test-concurrency=1 tests/differential.test.mjs"
+  },
+  "devDependencies": {
+    "@meddleware/nft-gate-client": "0.0.17",
+    "@mysten/sui": "2.36.0",
+    "esbuild": "0.28.2",
+    "smol-toml": "1.4.2",
+    "wrangler": "4.151.0"
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "workerd": true
+  }
+}

@@ -1,19 +1,19 @@
-//! SQLite-backed Durable Object: nonce store + rate limiter + redemption (lease / commit /
-//! release with compare-and-set tokens). Same tables and the same statements as
-//! `gateway-workers/src/state/durable_object.ts`; the state machine is also implemented purely in
-//! `nft_gate_core::redemption`, and `scripts/differential.mjs` + `core/tests` run one scenario file
-//! through both. The DO is single-threaded and every operation below is a synchronous section (no
-//! `.await` between the read and the write), so each is atomic — the Redis-GETDEL analogue.
+//! The SQLite-backed Durable Object `NonceRateState`: nonce store, rate windows and redemption
+//! leases. Same class name, same tables, same statements as `gateway-workers/src/state/durable_object.ts`
+//! (a deploy over the live script keeps its data); `core/tests/scenario.json` pins the rules, run
+//! against this SQL by `tests/` and against the pure state machines by `core/tests/scenario.rs`.
 //!
-//! workers-rs Durable Objects speak `fetch` only (no RPC methods), so operations are internal
-//! HTTP requests to the stub.
+//! The DO is single-threaded and every operation below is one synchronous section (no `.await`
+//! between the read and the write), so each is atomic (the Redis `GETDEL` analogue). workers-rs
+//! Durable Objects speak `fetch` only (no RPC methods), so an operation is an internal HTTP request to
+//! the stub, answered with a small JSON body.
+
 use serde::Deserialize;
 use worker::*;
 
 #[durable_object]
 pub struct NonceRateState {
     sql: SqlStorage,
-    test_clock: bool,
 }
 
 #[derive(Deserialize)]
@@ -33,18 +33,28 @@ struct Count {
 struct RedRow {
     state: String,
     expiry: f64,
-    #[allow(dead_code)]
-    token: Option<String>,
+}
+#[derive(Deserialize)]
+struct ColName {
+    name: String,
 }
 
 fn sv<T: Into<SqlStorageValue>>(v: T) -> SqlStorageValue {
     v.into()
 }
 
-fn random_token() -> String {
+/// 16 random bytes as hex: the owner token of a lease.
+fn random_token() -> Result<String> {
     let mut b = [0u8; 16];
-    getrandom::getrandom(&mut b).expect("crypto.getRandomValues");
-    b.iter().map(|x| format!("{x:02x}")).collect()
+    getrandom::getrandom(&mut b).map_err(|e| Error::RustError(format!("entropy: {e}")))?;
+    Ok(b.iter().map(|x| format!("{x:02x}")).collect())
+}
+
+/// What a lease attempt returned.
+enum LeaseOutcome {
+    Ok(String),
+    Leased,
+    Redeemed,
 }
 
 impl NonceRateState {
@@ -52,14 +62,21 @@ impl NonceRateState {
         self.sql.exec(q, b)
     }
 
+    fn count(&self, q: &str) -> Result<i64> {
+        let c: Count = self.exec(q, vec![])?.one()?;
+        Ok(c.c as i64)
+    }
+
+    /// Store a fresh nonce with a hard entry cap (evict soonest-to-expire). Returns the expiry (ms).
     fn issue(&self, nonce: &str, now: i64, ttl_secs: i64, max_entries: i64) -> Result<i64> {
-        let expiry = now + ttl_secs * 1000;
+        let expiry = now.saturating_add(ttl_secs.saturating_mul(1000));
+        // Prune expired first (bounded growth independent of issue cadence).
         self.exec("DELETE FROM nonces WHERE expiry <= ?", vec![sv(now)])?;
-        let c: Count = self
-            .exec("SELECT COUNT(*) AS c FROM nonces", vec![])?
-            .one()?;
-        if c.c as i64 >= max_entries.max(1) {
-            self.exec("DELETE FROM nonces WHERE nonce = (SELECT nonce FROM nonces ORDER BY expiry ASC LIMIT 1)", vec![])?;
+        if self.count("SELECT COUNT(*) AS c FROM nonces")? >= max_entries.max(1) {
+            self.exec(
+                "DELETE FROM nonces WHERE nonce = (SELECT nonce FROM nonces ORDER BY expiry ASC LIMIT 1)",
+                vec![],
+            )?;
         }
         self.exec(
             "INSERT OR REPLACE INTO nonces (nonce, expiry) VALUES (?, ?)",
@@ -68,6 +85,7 @@ impl NonceRateState {
         Ok(expiry)
     }
 
+    /// Atomically consume a nonce: true iff present and unexpired. Deletes on read (single use).
     fn take_if_valid(&self, nonce: &str, now: i64) -> Result<bool> {
         let rows: Vec<Expiry> = self
             .exec("SELECT expiry FROM nonces WHERE nonce = ?", vec![sv(nonce)])?
@@ -75,19 +93,18 @@ impl NonceRateState {
         let Some(r) = rows.first() else {
             return Ok(false);
         };
+        // Consume unconditionally (present means gone), so it can never be replayed.
         self.exec("DELETE FROM nonces WHERE nonce = ?", vec![sv(nonce)])?;
         Ok(r.expiry as i64 > now)
     }
 
+    /// Fixed 60 s window per key; `max_per_min == 0` disables limiting.
     fn rate_check(&self, addr: &str, max_per_min: i64, now: i64) -> Result<bool> {
         if max_per_min == 0 {
             return Ok(true);
         }
         let rows: Vec<RateRow> = self
-            .exec(
-                "SELECT start, count FROM rate WHERE addr = ?",
-                vec![sv(addr)],
-            )?
+            .exec("SELECT start, count FROM rate WHERE addr = ?", vec![sv(addr)])?
             .to_array()?;
         let (mut start, mut count) = (now, 0i64);
         if let Some(r) = rows.first() {
@@ -99,6 +116,11 @@ impl NonceRateState {
         if count >= max_per_min {
             return Ok(false);
         }
+        // Windows older than a minute are dead weight: sweep them now and then so the table is
+        // bounded by the keys seen in the last minute rather than every key ever seen.
+        if js_sys::Math::random() < 0.02 {
+            self.exec("DELETE FROM rate WHERE start < ?", vec![sv(now - 60_000)])?;
+        }
         self.exec(
             "INSERT OR REPLACE INTO rate (addr, start, count) VALUES (?, ?, ?)",
             vec![sv(addr), sv(start), sv(count + 1)],
@@ -106,14 +128,10 @@ impl NonceRateState {
         Ok(true)
     }
 
-    /// `Some(token)` = ok, `None` + status string otherwise.
-    fn lease(
-        &self,
-        key: &str,
-        now: i64,
-        ttl_secs: i64,
-        max_entries: i64,
-    ) -> Result<(&'static str, Option<String>)> {
+    /// Claim `key` for an in-flight upload: `redeemed` if committed, `leased` if an unexpired lease
+    /// is held, else `ok` with the owner token of a fresh lease. An expired lease is reclaimable.
+    fn lease(&self, key: &str, now: i64, ttl_secs: i64, max_entries: i64) -> Result<LeaseOutcome> {
+        // Bounded growth: drop expired leases and lapsed committed rows before inserting.
         self.exec(
             "DELETE FROM redemptions WHERE state = 'leased' AND expiry <= ?",
             vec![sv(now)],
@@ -130,41 +148,55 @@ impl NonceRateState {
             .to_array()?;
         if let Some(r) = rows.first() {
             if r.state == "committed" {
-                return Ok(("redeemed", None));
+                return Ok(LeaseOutcome::Redeemed);
             }
             if r.state == "leased" && r.expiry as i64 > now {
-                return Ok(("leased", None));
+                return Ok(LeaseOutcome::Leased);
             }
         }
-        let c: Count = self
-            .exec("SELECT COUNT(*) AS c FROM redemptions", vec![])?
-            .one()?;
-        if c.c as i64 >= max_entries.max(1) {
-            self.exec("DELETE FROM redemptions WHERE key = (SELECT key FROM redemptions WHERE state = 'leased' ORDER BY expiry ASC LIMIT 1)", vec![])?;
+        if self.count("SELECT COUNT(*) AS c FROM redemptions")? >= max_entries.max(1) {
+            // Evict the soonest-to-expire leased row (never a committed one: that would allow reuse).
+            self.exec(
+                "DELETE FROM redemptions WHERE key = (SELECT key FROM redemptions WHERE state = 'leased' ORDER BY expiry ASC LIMIT 1)",
+                vec![],
+            )?;
         }
-        let token = random_token();
+        let token = random_token()?;
         self.exec(
             "INSERT OR REPLACE INTO redemptions (key, state, expiry, token) VALUES (?, 'leased', ?, ?)",
-            vec![sv(key), sv(now + ttl_secs * 1000), sv(token.as_str())],
+            vec![
+                sv(key),
+                sv(now.saturating_add(ttl_secs.saturating_mul(1000))),
+                sv(token.as_str()),
+            ],
         )?;
-        Ok(("ok", Some(token)))
+        Ok(LeaseOutcome::Ok(token))
     }
 
+    /// Mark `key` redeemed (retained `retention_secs`) iff `token` still owns an unexpired lease.
     fn commit(&self, key: &str, token: &str, now: i64, retention_secs: i64) -> Result<bool> {
-        let cur = self
-            .exec("SELECT 1 AS x FROM redemptions WHERE key = ? AND state = 'leased' AND token = ? AND expiry > ?", vec![sv(key), sv(token), sv(now)])?
+        let live = self
+            .exec(
+                "SELECT 1 AS x FROM redemptions WHERE key = ? AND state = 'leased' AND token = ? AND expiry > ?",
+                vec![sv(key), sv(token), sv(now)],
+            )?
             .raw()
             .count();
-        if cur == 0 {
+        if live == 0 {
             return Ok(false);
         }
         self.exec(
             "UPDATE redemptions SET state = 'committed', expiry = ?, token = NULL WHERE key = ? AND state = 'leased' AND token = ?",
-            vec![sv(now + retention_secs * 1000), sv(key), sv(token)],
+            vec![
+                sv(now.saturating_add(retention_secs.saturating_mul(1000))),
+                sv(key),
+                sv(token),
+            ],
         )?;
         Ok(true)
     }
 
+    /// Release the lease on `key` iff `token` owns it, so the consume can be retried at once.
     fn release(&self, key: &str, token: &str) -> Result<()> {
         self.exec(
             "DELETE FROM redemptions WHERE key = ? AND state = 'leased' AND token = ?",
@@ -172,73 +204,102 @@ impl NonceRateState {
         )?;
         Ok(())
     }
-}
 
-impl DurableObject for NonceRateState {
-    fn new(state: State, env: Env) -> Self {
-        let sql = state.storage().sql();
+    /// Create the tables; add the owner-token column to a `redemptions` table that predates it.
+    fn migrate(&self) -> Result<()> {
         for q in [
             "CREATE TABLE IF NOT EXISTS nonces (nonce TEXT PRIMARY KEY, expiry INTEGER NOT NULL)",
             "CREATE TABLE IF NOT EXISTS rate (addr TEXT PRIMARY KEY, start INTEGER NOT NULL, count INTEGER NOT NULL)",
+            // `state` is 'leased' (an in-flight upload holds the consume) or 'committed' (the use was
+            // spent on a successful upload). `expiry` is the lease deadline / committed retention
+            // deadline (unix ms). `token` is the random owner of a lease: commit and release compare
+            // it, so a request whose lease lapsed cannot touch a newer holder's row.
             "CREATE TABLE IF NOT EXISTS redemptions (key TEXT PRIMARY KEY, state TEXT NOT NULL, expiry INTEGER NOT NULL, token TEXT)",
         ] {
-            sql.exec(q, None).expect("schema");
+            self.exec(q, vec![])?;
         }
-        let test_clock = env
-            .var("TEST_CLOCK")
-            .map(|v| v.to_string() == "1")
-            .unwrap_or(false);
-        Self { sql, test_clock }
+        // Tables created before owner tokens existed lack the column; add it (idempotent).
+        let cols: Vec<ColName> = self
+            .exec("PRAGMA table_info('redemptions')", vec![])?
+            .to_array()?;
+        if !cols.iter().any(|c| c.name == "token") {
+            self.exec("ALTER TABLE redemptions ADD COLUMN token TEXT", vec![])?;
+        }
+        Ok(())
+    }
+
+    fn dispatch(&self, op: &str, q: &std::collections::HashMap<String, String>, now: i64) -> Result<serde_json::Value> {
+        let get = |k: &str| q.get(k).map_or("", String::as_str);
+        let int = |k: &str, d: i64| q.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
+        Ok(match op {
+            "issue" => serde_json::json!({
+                "expiresAt": self.issue(get("nonce"), now, int("ttl", 300), int("max", 1_000_000))?
+            }),
+            "take" => serde_json::json!({ "ok": self.take_if_valid(get("nonce"), now)? }),
+            "rate" => serde_json::json!({ "ok": self.rate_check(get("addr"), int("max", 30), now)? }),
+            "lease" => {
+                match self.lease(get("key"), now, int("ttl", 900), int("max", 1_000_000))? {
+                    LeaseOutcome::Ok(t) => serde_json::json!({ "status": "ok", "token": t }),
+                    LeaseOutcome::Leased => serde_json::json!({ "status": "leased" }),
+                    LeaseOutcome::Redeemed => serde_json::json!({ "status": "redeemed" }),
+                }
+            }
+            "commit" => {
+                let ok = self.commit(get("key"), get("token"), now, int("retention", 2_592_000))?;
+                serde_json::json!({ "result": if ok { "ok" } else { "lost" } })
+            }
+            "release" => {
+                self.release(get("key"), get("token"))?;
+                serde_json::json!({ "ok": true })
+            }
+            // Test-only (feature `test-hooks`): raw SQL and a re-run of the schema setup, to prove the
+            // upgrade of a table that predates the owner-token column.
+            #[cfg(feature = "test-hooks")]
+            "sql" => {
+                let rows: Vec<serde_json::Value> = self.exec(get("q"), vec![])?.to_array()?;
+                serde_json::json!({ "rows": rows })
+            }
+            #[cfg(feature = "test-hooks")]
+            "migrate" => {
+                self.migrate()?;
+                serde_json::json!({ "ok": true })
+            }
+            _ => return Err(Error::RustError("unknown op".into())),
+        })
+    }
+}
+
+impl DurableObject for NonceRateState {
+    fn new(state: State, _env: Env) -> Self {
+        let this = Self {
+            sql: state.storage().sql(),
+        };
+        // A failure here leaves the tables missing; every operation then errors and the Worker
+        // answers 503 (fail closed) instead of running without state.
+        if let Err(e) = this.migrate() {
+            console_error!("durable object schema setup failed: {e}");
+        }
+        this
     }
 
     async fn fetch(&self, req: Request) -> Result<Response> {
         let url = req.url()?;
-        let q: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
-        let get = |k: &str| q.get(k).cloned().unwrap_or_default();
-        let int = |k: &str, d: i64| q.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
-        // Deterministic scenarios may pin the clock (only when TEST_CLOCK=1; never in production).
-        let now = if self.test_clock && q.contains_key("now") {
-            int("now", 0)
-        } else {
-            js_sys::Date::now() as i64
-        };
-        let op = url.path().rsplit('/').next().unwrap_or("");
-        let body = match op {
-            "issue" => {
-                serde_json::json!({ "expiresAt": self.issue(&get("nonce"), now, int("ttl", 300), int("max", 1_000_000))? })
+        let q: std::collections::HashMap<String, String> = url.query_pairs().into_owned().collect();
+        let op = url.path().trim_start_matches('/');
+        // The clock is the platform's. Only the test-hooks build lets a scenario pin it.
+        #[cfg(feature = "test-hooks")]
+        let now = q
+            .get("now")
+            .and_then(|v| v.parse::<i64>().ok())
+            .unwrap_or(js_sys::Date::now() as i64);
+        #[cfg(not(feature = "test-hooks"))]
+        let now = js_sys::Date::now() as i64;
+        match self.dispatch(op, &q, now) {
+            Ok(body) => Response::from_json(&body),
+            Err(e) => {
+                console_error!("durable object op {op} failed: {e}");
+                Ok(Response::from_json(&serde_json::json!({ "error": "state" }))?.with_status(500))
             }
-            "take" => serde_json::json!({ "ok": self.take_if_valid(&get("nonce"), now)? }),
-            "rate" => {
-                serde_json::json!({ "ok": self.rate_check(&get("addr"), int("max", 30), now)? })
-            }
-            "lease" => {
-                let (status, token) =
-                    self.lease(&get("key"), now, int("ttl", 900), int("max", 1_000_000))?;
-                serde_json::json!({ "status": status, "token": token })
-            }
-            "commit" => {
-                serde_json::json!({ "result": if self.commit(&get("key"), &get("token"), now, int("retention", 2_592_000))? { "ok" } else { "lost" } })
-            }
-            "release" => {
-                self.release(&get("key"), &get("token"))?;
-                serde_json::json!({ "ok": true })
-            }
-            _ => return Response::error("unknown op", 404),
-        };
-        Response::from_json(&body)
+        }
     }
-}
-
-/// `/do/<shard>/<op>?…`: route to the DO instance `nonce:<shard>`.
-pub async fn route(req: Request, env: Env) -> Result<Response> {
-    let url = req.url()?;
-    let mut parts = url.path().trim_start_matches("/do/").splitn(2, '/');
-    let shard = parts.next().unwrap_or("g");
-    let op = parts.next().unwrap_or("");
-    let ns = env.durable_object("NONCE_STATE")?;
-    let stub = ns.id_from_name(&format!("nonce:{shard}"))?.get_stub()?;
-    let mut inner = Url::parse("https://do.internal/")?;
-    inner.set_path(op);
-    inner.set_query(url.query());
-    stub.fetch_with_str(inner.as_str()).await
 }

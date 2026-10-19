@@ -1,30 +1,47 @@
 [package]
-name = "nft-gate-spike-worker"
-description = "Spike: nft-gate on Cloudflare Workers in Rust (workers-rs)."
+name = "nft-gate-worker"
+description = "The nft-gate gateway as a Cloudflare Worker in Rust (workers-rs): an I/O adapter on nft-gate-core (Durable Object state, streamed fetch upstream)."
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+# This crate only: workers-rs needs a newer toolchain than the rest of the workspace (core and
+# gateway-rust stay at 1.88; the `msrv` CI job checks those two alone).
+rust-version = "1.91"
 license.workspace = true
+repository.workspace = true
 publish = false
 
 [lib]
-crate-type = ["cdylib"]
+# cdylib is the Worker (wasm32); rlib lets `cargo test` / clippy build the same code natively.
+crate-type = ["cdylib", "rlib"]
 
 [features]
-# Embeds conformance/vectors.json so /bench can verify real signatures without a request body.
-# Off for the size measurement of the "production-shaped" build.
-bench = []
+# Test-only build variant used by the black-box suite in tests/ (never deployed): extra `/__test/*`
+# routes that reach the Durable Object directly with a pinned clock, a signature benchmark with the
+# embedded conformance vectors, a wasm-memory probe, and a QUOTA_GRAPHQL_URL override for the quota
+# guard. The production build (`worker-build --release`) compiles none of it.
+test-hooks = []
 
 [dependencies]
-nft-gate-core = { path = "../../core" }
+nft-gate-core = { version = "=0.0.27", path = "../core" }
+# workers-rs, wasm-bindgen and worker-build move together: the wasm-bindgen CLI that worker-build
+# downloads must be exactly the crate version, so every one of them is pinned (Dependabot ignores them).
 worker = { version = "=0.8.7", features = ["http"] }
 wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "=0.4.79"
 js-sys = "=0.3.106"
-web-sys = { version = "=0.3.106", features = ["ReadableStream", "WritableStream", "TransformStream", "TransformStreamDefaultController", "ReadableWritablePair", "Performance", "WorkerGlobalScope", "AbortController", "AbortSignal", "Request", "RequestInit", "RequestRedirect", "Response", "ResponseInit", "Headers", "AbortSignal", "Url", "UrlSearchParams"] }
-getrandom = { version = "=0.2.17", features = ["js"] }
+web-sys = { version = "=0.3.106", features = ["ReadableStream", "WritableStream", "TransformStream", "TransformStreamDefaultController", "ReadableWritablePair", "Performance", "WorkerGlobalScope", "AbortController", "AbortSignal", "Request", "RequestInit", "RequestRedirect", "Response", "ResponseInit", "Headers", "Url", "UrlSearchParams"] }
+# `rand_core 0.6` (pulled in by the signature crates) enables getrandom 0.2, which has no backend on
+# wasm32-unknown-unknown unless `js` is set; this crate also draws nonces from it.
+getrandom = { version = "0.2", features = ["js"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "=1.0.154"
-anyhow = "=1.0.104"
-console_error_panic_hook = "=0.1.7"
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
+serde_json = "1"
+anyhow = "1"
+console_error_panic_hook = "0.1"
+
+[lints.clippy]
+# The request path must not panic: a panic on wasm32 is a trap that surfaces as the runtime's generic
+# 500 without the JSON/CORS shape (and poisons the instance). Errors are values.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
