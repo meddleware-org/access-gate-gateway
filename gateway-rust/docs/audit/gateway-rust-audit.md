@@ -15,6 +15,9 @@
   Workers gateway but is scoped to small-body upstreams (bodies are buffered, README "Scope"), so the
   paywall runs on `gateway-workers` only (root `CLAUDE.md`). No overlay, manifest or
   `config/images.yaml` entry exists.
+- **0.0.24 is committed locally, not yet released** (2026-10-19, commit pending; both gateways move together, D16): loop detection
+  (F43: `Via: 1.1 nft-gate` on the upstream request, `508` for a request that already carries it). The decisions OQ6 and OQ8 were recorded the same day
+  (documentation only). Not deployed (see the first bullet).
 - **0.0.23 is released** (tag `v0.0.23` = `31c0f15`, 2026-10-19; crate, npm sibling and image published by the
   tag's runs, all green; both gateways move together, D16). It carries `rustls` 0.23.46 (RUSTSEC-2026-0346,
   RUSTSEC-2026-0347 and the Brotli certificate-decompression advisory, found by `cargo deny` after 0.0.22 and fixed on `main`
@@ -54,15 +57,15 @@
   publication) **only through operator env**; the superseded `0xa55789…` / `0xfd6c3b…` appear only in
   the env-gated live test (F45, B.SC-1).
 
-**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release status 2026-10-19)
+**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release status 2026-10-19; decisions and F43 fix 2026-10-19)
 **Reviewer:** Internal review
 **Severity ceiling:** High — a verification bypass would admit unpaid traffic to the protected
   upstream, and a redemption-store failure would let one paid single-use consume buy unlimited
   uploads. The gateway holds no user funds and signs nothing on-chain, so nothing here reaches
   Critical.
-**Status:** fix wave 2026-10-10 (0.0.22, commit `40a7e89`) — 40 findings dispositioned (24 RESOLVED,
-  3 MITIGATED, 6 ADJUDICATED, 4 ACCEPTED-RISK, 3 DEFERRED) plus 8 Positive; re-verified 2026-10-09, F42–F48
-  added in that pass; 0.0.22 released 2026-10-10 and 0.0.23 released 2026-10-19 (crate, npm, image), not deployed
+**Status:** decisions and fix 2026-10-19 (0.0.24, committed locally, unreleased) — 40 findings dispositioned (25 RESOLVED,
+  3 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED) plus 8 Positive; fix wave 2026-10-10 (0.0.22, commit `40a7e89`);
+  re-verified 2026-10-09, F42–F48 added in that pass; 0.0.22 released 2026-10-10 and 0.0.23 released 2026-10-19 (crate, npm, image), not deployed
 
 **Toolchain:** `rust-version = "1.88"` (Cargo.toml; MSRV job in `rust-ci.yml`) — no
   `rust-toolchain.toml`   **Edition:** 2021
@@ -170,15 +173,21 @@ changes only `Cargo.toml`/`Cargo.lock`).
 **What remains.** Nothing at Medium. The open items are Low/Info and concentrate in three groups, none
 of which touches the live Workers deployment:
 
-- *Accepted* (ACCEPTED-RISK): no `Via` loop marker, left open for parity with the Workers gateway (F43);
-  the in-memory store's O(n) work and cap-eviction (F11, F34).
+- *Accepted* (ACCEPTED-RISK): the in-memory store's O(n) work and cap-eviction (F11, F34). The `Via` loop
+  marker (F43) was added to both gateways at once in 0.0.24 (2026-10-19).
 - *Supply chain and image*: the CI and Docker work is done in 0.0.22 (`--locked`, a coverage figure,
   the Redis round trip in CI, a Trivy image scan before signing, a lockfile in the image for the SBOM, a
   complete `.dockerignore`, a published `cosign verify` command; F28, F29). What remains is the
-  unsigned private mirror and licence notices (F29, OQ8) and the registry credential inventory (F30,
-  `OPERATOR_TASKS.md`).
+  licence notices and the first live run of the self-hosted-registry copy (F29; OQ8 was decided on
+  2026-10-19: the cluster pulls by digest and the mirror carries the same signed image, so there is no
+  separate signing there) and the registry credential inventory (F30, `OPERATOR_TASKS.md`).
 - *Deployment* (DEFERRED, tied to OQ9, the decision to deploy): runtime credential rotation (F31) and
   manifests, pod security, limits and the origin-lock check (F32).
+
+**Decisions and fix of 2026-10-19 (0.0.24).** OQ6 (commit failure after a 2xx upstream: `502` + release,
+the use is kept) and OQ8 (the cluster pulls by digest; signatures, SBOM and provenance are produced once
+at quay.io and carried to the self-hosted registry by `mirror-private`) are decided. The loop marker F43 is
+implemented in both gateways with parity tests. OQ9 stays open with options and a recommendation.
 
 **Fix wave of 2026-10-10 (0.0.22).** The parity and pre-deployment gaps are closed: ownership reads every
 page up to a bound (F17), single-use success is decided from the effects status (F21), the upstream
@@ -861,7 +870,7 @@ releasing it. The RUST lens requires draining "within a bound".
 
 ### F20 — Commit failure after a successful upstream replaces the response with 502 and releases the lease
 
-**Severity:** Info   **Disposition:** ADJUDICATED (shared semantics with `gateway-workers`; OQ6 — behaviour kept)
+**Severity:** Info   **Disposition:** ADJUDICATED (shared semantics with `gateway-workers`; OQ6 decided 2026-10-19 — behaviour kept)
 **Where:** `src/main.rs:186-200`; Workers `src/redemption.ts:46-55`.
 
 **Issue:** If `commit_redemption` fails after the upstream answered 2xx, the client gets
@@ -876,6 +885,14 @@ identically in both.
 the lease when the commit errors after a 2xx; a lost lease is `502 redemption lease lost` (nothing
 released: the token no longer matches). Recorded so the operator-cost trade-off is a decision (OQ6:
 502 + release kept).
+
+Decided 2026-10-19 (OQ6): never lose a paid use; fail toward the user. The cost of the alternative is
+asymmetric: keeping the lease and retrying the commit in the background could lose a use the user paid
+for if the retry never lands, with no one to notice, while 502 + release costs at most one extra
+upload, bounded by the lease TTL and the per-upload limits. Documented in `README.md`, `CLAUDE.md`
+(here and in the root and Workers files) and `SECURITY.md` invariant 4. Test:
+`router_tests::a_failed_upload_releases_the_consume_for_a_retry`,
+`a_lease_lost_before_the_commit_is_a_502_not_a_success`.
 
 ### F21 — Single-use check relies on "events imply success" instead of the effects status
 
@@ -1037,21 +1054,21 @@ instead of `dtolnay/rust-toolchain`, whose only reference is a moving `master` b
 
 ### F29 — Image supply chain: no image vulnerability scan; unsigned private-registry mirror; `.dockerignore` gaps
 
-**Severity:** Low   **Disposition:** MITIGATED (0.0.22; commit `40a7e89`; the private mirror and licence notices need OQ8)
+**Severity:** Low   **Disposition:** MITIGATED (0.0.22; commit `40a7e89`; the private-mirror part is settled by design on 2026-10-19 (OQ8) and waits only for registry credentials; licence notices remain)
 **Where:**
 
 - `.github/workflows/docker-publish.yml` (Trivy image scan before signing, merge job); `mirror-private`
-  job: `continue-on-error: true`, copies the signed public index by digest (no rebuild; 2026-10-19; was `build-docker-*-private`, no cosign, no SBOM; OQ8 now only decides whether the cluster pulls from it).
+  job: `continue-on-error: true`, copies the signed public index by digest and verifies the signature on the copy (no rebuild; 2026-10-19; was `build-docker-*-private`, no cosign, no SBOM). OQ8 is decided (below).
 - `gateway-rust/Dockerfile` (`Cargo.lock` copied into the runtime stage), `gateway-rust/.dockerignore`.
 **Issue:**
 
 - The IMG lens requires the scanner on the **image** with its result recorded.
-- The private-registry images are a best-effort, unsigned mirror. If the cluster deploys from that
-  registry, it runs unsigned images.
+- The private-registry images were a best-effort, unsigned rebuild. If the cluster had deployed from
+  that registry, it would have run unsigned images with a different digest. (Fixed 2026-10-19, below.)
 - `.env*` is not excluded. `COPY . .` in the builder stage would copy a local `.env` into a builder
   layer. It is not in the runtime stage, but it is in the build cache and any pushed cache.
 
-**Impact:** Unscanned published images, and a possible unsigned deployment path.
+**Impact:** Unscanned published images, and a possible unsigned deployment path (the latter closed on 2026-10-19).
 
 **Remediation / evidence:** Done in 0.0.22 (CI and Docker only): `docker-publish.yml` scans the merged public image by digest with
 Trivy (`scan-type: image`, `vuln,secret`, HIGH and CRITICAL with a fix fail the job) before cosign signs or
@@ -1059,9 +1076,18 @@ attests anything; the image ships `Cargo.lock` so the SBOM (`anchore/sbom-action
 rather than the Debian base alone (the SBOM content has not been re-fetched; 0.0.22 is published and the attestation step succeeded); `.dockerignore` now excludes
 `.env*`, `*.pem`, `*.key`, `docs/` and itself; the README publishes the `cosign verify` and
 `verify-attestation` commands pinned to the `docker-publish.yml` tag identity, and says the mirror is
-unsigned. The scan step cannot be exercised without registry credentials (not run here; it ran in the `v0.0.22` publish run, 2026-10-10, and passed: run 38077120738, "Scan the published image (Trivy)" success, before "Sign images (keyless)"). Still open, all
-tied to OQ8 or a toolchain choice: the self-hosted mirror is a best-effort digest-preserving copy
-(`mirror-private`, `continue-on-error`; the unsigned rebuild jobs were replaced 2026-10-19) until the maintainer decides which registry the cluster pulls from; licence notices for the compiled crates are not shipped; CI compiles with `stable`, the image with the
+unsigned. The scan step cannot be exercised without registry credentials (not run here; it ran in the `v0.0.22` publish run, 2026-10-10, and passed: run 38077120738, "Scan the published image (Trivy)" success, before "Sign images (keyless)"). **Decision OQ8 (2026-10-19), applied:** the cluster pulls by digest from any registry that agrees by
+consensus (quay.io is canonical); the self-hosted registry receives the same digest. The unsigned rebuild
+jobs are replaced by `mirror-private`, which copies the published manifest with `cosign copy` and the OCI
+referrers (signature, SBOM attestation, provenance) with `oras cp --recursive`, then fails unless the digest
+is identical and `cosign verify` accepts the signature on the copy (build once, promote by digest; D55;
+workspace `docs/images/IMAGES.md` "Consensus", `bootstrap/images/lib.sh` `consensus_resolve`). Signatures,
+SBOM and provenance are therefore produced once, at quay.io, and there is no separate signing on the mirror.
+The job has not run live: the `PRIVATE_REGISTRY_*` credentials are unset (`OPERATOR_TASKS.md`), so the copy
+and the verification on it are unexercised. Still open: licence notices for the compiled crates are not shipped (recommendation:
+generate a third-party notices file with `cargo about` from the same `deny.toml` licence allow-list in the
+build stage and copy it into the image; not done here because the Docker build cannot be run locally and
+the SBOM already lists the crates and their licences); CI compiles with `stable`, the image with the
 digest-pinned `rust:1-slim`, and the two are not compared.
 
 ### F30 — Registry credentials are long-lived tokens without a recorded inventory
@@ -1078,7 +1104,8 @@ deploy is the compensating control only if the cluster verifies signatures, whic
 **Remediation / evidence:** Unchanged: `QUAY_TOKEN`, `DOCKERHUB_TOKEN` and `PRIVATE_REGISTRY_TOKEN` are long-lived secrets with no
 inventory in this repo; the scopes are visible only in the quay and Docker Hub consoles. The inventory
 (name, scope, holder, expiry, rotation) is the maintainer task above; prefer robot accounts scoped to
-the one repository.
+the one repository. Since 2026-10-19 `PRIVATE_REGISTRY_TOKEN` is used only for the promotion copy (F29), so
+it needs push access to one namespace and nothing else.
 
 ### F31 — Runtime credentials have no rotation plan
 
@@ -1279,9 +1306,9 @@ control.
 
 ### F43 — No `Via` loop marker; only the literal self-origin is refused
 
-**Severity:** Info   **Disposition:** ACCEPTED-RISK
+**Severity:** Info   **Disposition:** RESOLVED (0.0.24, 2026-10-19; commit pending; shared with `gateway-workers` F43)
 **Where:** `src/config.rs` (`UPSTREAM_URL must not be this gateway (request loop)`), `src/headers.rs`
-(`via` is stripped from the request and never set).
+(`via` was stripped from the request and never set), `src/main.rs::handle`.
 
 **Issue:** The PROXY lens §A *Loop & self-reference* asks that a `Via` or loop-marker check refuse a
 request that has already passed through. The gateway refuses an `UPSTREAM_URL` whose origin equals
@@ -1297,9 +1324,25 @@ offered white-label with operator-chosen upstreams, add a `Via`/marker check tha
 `registry-auth-proxy` 0.1.6 has one.
 
 Update 2026-10-10: left open for parity. The single fix is a `Via`/marker check that returns `508` in both
-gateways at once; doing it only here would make the two decide differently, and the Workers side is outside
-this change. Recommendation: add it to both when a white-label deployment with operator-chosen upstreams is
-planned.
+gateways at once; doing it only here would make the two decide differently.
+
+**Resolved 2026-10-19 (0.0.24, both gateways at once).** The check is cheap and has one correct form, so it
+is no longer conditional on a white-label deployment. `upstream_request_headers` still drops the client's
+`Via` (the PROXY lens wants forwarding fields set by the proxy, not copied) and now sets `Via: 1.1 nft-gate`;
+`handle` answers `508 {"error":"loop detected"}` to a request whose `Via` already names `nft-gate` as a
+received-by hop, after `/healthz` and the CORS preflight (both answered before) and before any rate-limit,
+nonce or redemption work, so a looped request spends nothing. Only our own token matches (a case-insensitive
+comparison of the second token of each comma-separated entry), so a foreign value such as a CDN's `1.1 google`
+passes, and neither a comment nor a longer name (`nft-gateway`) matches. The signed access message, the proof
+format and the public-path and CORS behaviour are untouched; the 508 carries the gateway CORS grants like any
+other response. The same design as `registry-auth-proxy` (its invariant 3, `1.1 registry-auth-proxy`, 508).
+Tests: `headers::tests::via_loop_table` (14 inputs, the same table as `VIA_TABLE` in the Workers
+`test/proxy.test.ts`, so the two decide identically), `the_marker_the_gateway_adds_is_the_one_it_refuses`,
+the strip test (the client's `via` is replaced by the marker), and router
+`the_upstream_sees_the_via_marker_and_a_looped_request_is_a_508_before_any_work` (foreign `Via` passes; 508 on
+the challenge, a public path and a gated path with CORS and no upstream call; `/healthz` and the preflight
+unaffected). The conformance vectors are generated by `nft-gate-client` and carry wire-format fields only, so
+the parity is an identical test table in each suite rather than a shared vector.
 
 ### F44 — Upstream error statuses and bodies pass through to the client
 
@@ -1456,7 +1499,7 @@ path was already pinned. Not done: shared `headerExtraction` / `redemptionConfli
 | I23 | The proof is bound to the intended audience | `proof.rs::personal_message`; `verify.rs` (rebuilt from `cfg`) | `refuses_a_proof_made_for_another_gateway_gate_or_network`, vectors `audienceMismatch` | HOLDS (F1) |
 | I24 | Single-use redemption state survives restarts and replicas | `config.rs` (Redis required, or `ALLOW_VOLATILE_REDEMPTIONS`) | `single_use_needs_a_durable_store_and_consistent_windows` | HOLDS (F4) |
 | I25 | Only listed methods and safe paths are forwarded; public paths are `GET`/`HEAD` | `main.rs::handle`, `proxy.rs::FORWARDED_METHODS`, `headers.rs::is_safe_path` | `public_paths_are_read_only_and_gated_methods_are_listed`, `unsafe_paths_are_refused`, router `unsafe_paths_and_oversize_or_stalled_bodies_are_refused_before_the_upstream` | HOLDS (F42) |
-| I26 | A request that has already passed through the gateway is refused | `config.rs` (literal self-origin only) | `audience_binding_inputs_are_required_and_canonical` | HOLDS (code-only) for the literal case; no `Via` marker — F43 |
+| I26 | A request that has already passed through the gateway is refused | `config.rs` (literal self-origin), `headers.rs::is_looped` + `main.rs::handle` (`Via: 1.1 nft-gate` → 508) | `audience_binding_inputs_are_required_and_canonical`, `via_loop_table`, router `the_upstream_sees_the_via_marker_and_a_looped_request_is_a_508_before_any_work` | HOLDS (F43, 0.0.24) |
 | I27 | Upstream reachable only via the gateway (origin lock), verified negatively | the operator's upstream (outside this repo) | — | GAP — see F32 (deployment, OQ9) |
 | I28 | Upstream redirects are not followed; a 3xx is `502` | `proxy.rs::forward`; hyper client `an_upstream_redirect_is_refused_and_never_followed` | HOLDS |
 | I29 | Upstream and store failures map to fixed `502`/`503`/`504`; a store outage is never a conflict | `proxy.rs`, `main.rs::redeem_and_forward` | `unframe_*` (RPC side); router tests for `409`, `503`, `502`, `504`, `403` (F47) | HOLDS — F2, F44 |
@@ -1542,7 +1585,7 @@ On-chain capabilities: none (the gateway holds no `AdminCap` and signs nothing).
 | Tag-gated, idempotent publish | Yes | `on: push: tags: v*`; crates publish skips an existing version; `check-versions.sh` enforces tag == crate == npm |
 | Release gate equals CI | Yes | `docker-publish.yml` and `crates-publish.yml` run `rust-ci.yml` as a `verify` job (`workflow_call`) |
 | Automated dependency updates | Yes | `.github/dependabot.yml` covers cargo and docker (`/gateway-rust`), npm and github-actions; weekly, grouped; triaged 2026-10-09 |
-| Container images | Partly | per IMG lens: signed, SBOM and provenance on public registries; image scanned before signing and a published verification command (0.0.22); the private mirror stays unsigned (F29, OQ8) |
+| Container images | Partly | per IMG lens: signed, SBOM and provenance on public registries; image scanned before signing and a published verification command (0.0.22); the self-hosted registry gets the same signed manifest and referrers by digest (`mirror-private`, OQ8 decided 2026-10-19; first live run waits for credentials); licence notices not shipped (F29) |
 | Secrets never echoed | Yes | no `set -x`; secrets passed via `with:`/`env:` only |
 | Real funds are manual | N/A | no job spends funds or signs on-chain |
 | Test-only modes | N/A | no test-only build mode in the Rust binary (`#[cfg(test)]` only) |
@@ -1555,7 +1598,7 @@ On-chain capabilities: none (the gateway holds no `AdminCap` and signs nothing).
 | `cargo clippy --all-targets --locked -- -D warnings` in CI | Yes | `rust-ci.yml` |
 | `cargo audit` and `cargo deny` in CI | Yes — deny, whose advisories check uses the RustSec database `cargo audit` reads (F28); coverage figure in the job summary | `rust-ci.yml` |
 | MSRV job checks `rust-version` | Yes | `msrv` job, toolchain 1.88, `cargo check --locked` |
-| Image per IMG lens | Mostly | B.IMG-1, F29 (private mirror, licence notices) |
+| Image per IMG lens | Mostly | B.IMG-1, F29 (licence notices; first live mirror run) |
 | Crates via trusted publishing, no `--allow-dirty` | Yes | `crates-publish.yml` (`cargo publish --locked`) |
 
 ### B.IMG-1 Publish & attestation
@@ -1565,8 +1608,8 @@ On-chain capabilities: none (the gateway holds no `AdminCap` and signs nothing).
 | Keyless cosign signature at the index digest | Yes (public registries) | `docker-publish.yml` "Sign images (keyless)"; not re-verified here |
 | SBOM as a signed attestation | Yes (attestation step succeeded in the `v0.0.22` run; content not re-fetched) | `anchore/sbom-action` SPDX → `cosign attest --type spdxjson`; the image now carries `Cargo.lock`, so the crates are listed (F29) |
 | Build provenance | Yes | `actions/attest-build-provenance` ×2, `push-to-registry: true` |
-| No `continue-on-error` on these steps | Yes | the merge job has none; only the private-mirror jobs carry it |
-| Best-effort mirrors listed | Yes (here) | self-hosted registry, digest-preserving copy (F29) |
+| No `continue-on-error` on these steps | Yes | the merge job has none; only `mirror-private` carries it (it signs nothing) |
+| Best-effort mirrors listed | Yes (here) | self-hosted registry: `mirror-private` copies the published manifest and referrers by digest and verifies the signature on the copy; not yet run (credentials unset) (F29, OQ8) |
 | Scan before sign (`trivy image`) | Yes (0.0.22; exercised and green in the `v0.0.22` publish run) | `docker-publish.yml` "Scan the published image (Trivy)" precedes "Sign images" |
 | Published `cosign verify` command pinning the workflow identity | Yes (0.0.22) | `gateway-rust/README.md` "Verify a published image" |
 
@@ -1607,7 +1650,7 @@ is not duplicated here. Rows where this crate differs from, or the home table mi
 | Public-path limit and cache | Rust: shares `ip_limiter` (`CHALLENGE_RATE_LIMIT_PER_MIN`, 30) with `/v1/challenge`, no cache; Workers: own `PUBLIC_RATE_LIMIT_PER_MIN` (120) + edge cache | Suggestion S9 |
 | Body handling | Rust buffered (small-body scope); Workers streamed | F6 |
 | Redemption backend | Rust: Redis (required for `SINGLE_USE`) or in-memory for development; Workers: Durable Object | F4 |
-| `Via` loop marker | neither adds one | F43 |
+| `Via` loop marker | same since 0.0.24: both set `Via: 1.1 nft-gate` and answer `508` to a request that carries it; identical test tables (`via_loop_table` / `VIA_TABLE`) | F43 |
 
 All other rows of the home table (message bytes, proof decode, ed25519/ECDSA rules, flags, address
 normalisation, header extraction, verification order, event type and binding, retry policy, usable-pass
@@ -1618,10 +1661,11 @@ redirects, timeouts) match this crate's code.
 
 | Route / path | Methods | Auth | Forwarded request fields | Stripped (both ways) | Response fields kept | Cache |
 | --- | --- | --- | --- | --- | --- | --- |
-| `/healthz` | any (answered locally, outside the concurrency cap) | none | not forwarded | n/a | `200 ok` | none |
+| `/healthz` | any (answered locally, outside the concurrency cap; before the loop check) | none | not forwarded | n/a | `200 ok` | none |
 | `OPTIONS` (any path) | `OPTIONS` | none | answered locally, before auth | n/a | CORS grants | none |
 | `GET /v1/challenge` | `GET` | none; `ip_limiter` 30/min per client IP | answered locally | n/a | `{ nonce, expiresAt }` (`503` if the store fails) | none |
-| `PUBLIC_PATHS` (`/v1/tip-config`) | `GET`, `HEAD` (else 405 + `Allow`) | none; `ip_limiter` 30/min per client IP (shared with the challenge, S9) | client fields minus the strip list; plus the injected upstream headers | request: hop-by-hop, `Connection`-named, `host`, `authorization`, `x-access-proof`, `content-length`, `cookie`, `forwarded`, `via`, `x-forwarded-for/host/proto`, `x-real-ip`, `cf-access-*`; response: hop-by-hop, `Connection`-named, `content-length`, `set-cookie(2)`, `alt-svc`, `access-control-*` | all other upstream fields; gateway CORS added | none |
+| `PUBLIC_PATHS` (`/v1/tip-config`) | `GET`, `HEAD` (else 405 + `Allow`) | none; `ip_limiter` 30/min per client IP (shared with the challenge, S9) | client fields minus the strip list; plus the injected upstream headers | request: hop-by-hop, `Connection`-named, `host`, `authorization`, `x-access-proof`, `content-length`, `cookie`, `forwarded`, `via` (replaced by `Via: 1.1 nft-gate`, F43), `x-forwarded-for/host/proto`, `x-real-ip`, `cf-access-*`; response: hop-by-hop, `Connection`-named, `content-length`, `set-cookie(2)`, `alt-svc`, `access-control-*` | all other upstream fields; gateway CORS added | none |
+| any path carrying `Via: … nft-gate` | any | refused `508 loop detected` before any work (after `/healthz` and the preflight) | not forwarded | n/a | `{ error }` + gateway CORS | none |
 | every other path (gated) | `GET`, `HEAD`, `POST`, `PUT` (else 405 before verification) | access proof v2 + live chain read + redemption lease; `preauth_limiter` 120/min per IP before verification, 30/min per address after | as above, query included | as above | as above; 3xx → 502; non-2xx passes through (F44) | never cached |
 | unsafe path (`%2f`, `%5c`, `%00`, `%2e%2e`, `\`, control characters, `//`, `..`) | any | — | refused `400 invalid path` before the upstream URL is built | n/a | n/a | none |
 
@@ -1733,7 +1777,7 @@ The gateway is not deployed; "pre-testnet" below is the gate for putting it in f
 
 ### pre-localnet
 
-- [x] builds; `cargo test --locked` green (114 passed, 0 failed, 3 ignored); fmt and clippy `-D warnings`
+- [x] builds; `cargo test --locked` green (117 passed, 0 failed, 3 ignored, 2026-10-19); fmt and clippy `-D warnings`
   clean — this pass
 - [x] `#![forbid(unsafe_code)]`; no panics on attacker-reachable paths — F35, proptests
 - [x] no secrets in source — the only IDs are the public current testnet package and gate used as optional live-test defaults (F45)
@@ -1773,7 +1817,7 @@ The gateway is not deployed; "pre-testnet" below is the gate for putting it in f
 - [x] decoders fuzzed / property-tested; maximum message size enforced — F37
 - [x] concurrency limit sized against memory for the configured body cap — F6 (decided: small-body
   scope; 256 KiB cap ⇒ ≈1.03 GiB, to be set in the manifest)
-- [ ] image signature, SBOM and provenance on every pushed image and a clean image scan — public images are scanned before signing from 0.0.22 (the scan, signing and attestations succeeded in the `v0.0.22` publish run, 2026-10-10; I did not verify the signature itself, no `cosign` here); the private mirror is unsigned (F29, OQ8), so the box stays open
+- [ ] image signature, SBOM and provenance on every pushed image and a clean image scan — public images are scanned before signing from 0.0.22 (the scan, signing and attestations succeeded in the `v0.0.22` and `v0.0.23` publish runs; I did not verify the signature itself, no `cosign` here). Settled by design 2026-10-19 (OQ8, F29): the self-hosted registry gets the same signed manifest and its referrers by digest from `mirror-private`, which verifies the signature on the copy; there is no separate signing there. The box stays open only until that job has run once for real (needs the `PRIVATE_REGISTRY_*` credentials, `OPERATOR_TASKS.md`)
 - [x] crates.io trusted publishing — `crates-publish.yml`
 - [ ] mainnet `NFT_TYPE`/`GATE_ID`/`NETWORK`/`GATEWAY_ORIGIN` from the canonical record; empty IDs fail
   closed — startup requires all of them (holds); a mainnet `access_gate` is not yet published
@@ -1904,7 +1948,7 @@ IMG lens:
 | IMG-M4 | holds | |
 | IMG-M5 | image non-root holds; pod context unverified | F32 |
 | IMG-M6 | unverified | F32 |
-| IMG-M7 | holds for public registries; private mirror unsigned | F29 |
+| IMG-M7 | holds for public registries; the self-hosted copy carries the same signature by design (OQ8, 2026-10-19), unexercised until credentials exist | F29 |
 | IMG-M8 | partly (scan before signing, lockfile in the image for the SBOM and a published verification command from 0.0.22; licence notices not shipped; the `v0.0.22` run passed; SBOM content not re-fetched) | F29 |
 
 AUTH lens:
@@ -1987,16 +2031,39 @@ PROXY lens:
 - **OQ6** On a commit failure after a 2xx upstream, keep today's 502 + release (the user may upload
   twice), or keep the lease and retry the commit asynchronously (the user may lose the use if it
   never lands)? Decided once for both gateways.
-  *(Behaviour kept: 502 + release; F20.)*
+  *(Decided 2026-10-19: keep 502 + release. A paid use is never lost: the extra upload costs at most one
+  upstream operation, bounded by the lease TTL and the per-upload limits, whereas a background commit
+  retry that never lands loses the use silently. Documented in the READMEs, CLAUDE.md files and
+  `SECURITY.md`; F20.)*
 - **OQ7** Should `PUBLIC_PATHS` be method-restricted (GET/HEAD only)? Today any method on a public path
   is forwarded unauthenticated.
   *(Decided 2026-10-08: yes; see F42.)*
 - **OQ8** Will the cluster pull `nft-gate-gateway` from the self-hosted registry, which needs signing
-  and SBOM there, or only from quay.io by digest? *(Open; maintainer, with OQ9.)*
+  and SBOM there, or only from quay.io by digest?
+  *(Decided 2026-10-19: the cluster pulls by digest. Manifests pin images by digest; the digest is
+  chosen by consensus of quay.io, Docker Hub and every self-hosted instance (workspace
+  `docs/images/IMAGES.md` "Consensus", `bootstrap/images/lib.sh` `consensus_resolve`); CRI-O pulls
+  digest-only from the mirror when configured. The self-hosted registry receives the same digest from the
+  `mirror-private` job (`cosign copy` plus `oras cp --recursive` for referrers, never a rebuild; D55), so
+  signatures, SBOM and provenance are produced once, at quay.io, and nothing is signed separately on the
+  mirror. F29.)*
 - **OQ9** Deployment plan for the Rust gateway: target cluster, owner of manifests,
   `TRUSTED_PROXY_HOPS` value, and how the upstream's origin lock (Access service token or in-cluster
   network policy) is verified. *(Open; maintainer. The gateway stays undeployed until decided; the
   pre-deployment gates are in Section D.)*
+
+  Options and recommendation (not a decision):
+  - (a) Stay undeployed. The live Workers gateway serves the only paywall and `gateway-rust` is scoped to
+    small-body upstreams (F6, OQ4), so nothing needs it today. Costs: parity drift is checked only by tests.
+  - (b) Deploy to the single-node cluster as `post-bootstrap/nft-gate-gateway/` (manifest owner: the
+    infrastructure workspace, image from `config/images.yaml` by consensus digest, the F32 security
+    context and limits), in front of a small-body upstream, with Redis for `SINGLE_USE`.
+  - **Recommendation: (a) until a small-body upstream or a non-Cloudflare deployment is actually
+    wanted; then (b).** For (b): `TRUSTED_PROXY_HOPS` is the number of proxies that append to
+    `X-Forwarded-For` in front of the pod (`0` shares one rate bucket for the whole internet, `1` is correct
+    only if the ingress appends the real client address), so set it from a measured header echo through the
+    real path and never from assumption; verify the upstream's origin lock negatively, with a NetworkPolicy
+    that admits only the gateway pods plus a scheduled check modelled on `origin-lock.yml` (Workers F32).
 - **OQ10** How should the live ABI-drift test get a fixture that does not age out of public fullnode
   retention (a consume made at run time on localnet, a recent testnet consume refreshed by hand, or an
   archival endpoint)? *(Decided 2026-10-10: hermetic wire-format fixtures in CI plus optional live checks
@@ -2120,6 +2187,18 @@ PROXY lens:
   (B.2, F28) working as designed. Incidental: the 2026-10-15 Dependabot PRs (axum 0.7→0.8, redis 0.27→1.7, base64 0.22→0.23)
   are majors and fail Clippy/MSRV as expected; they are triage items, not defects.
 
+- 2026-10-19 (later) — Decisions and fix wave (0.0.24, committed locally, commit pending; not released or deployed).
+  - **Decided:** OQ6 (502 + release kept; a paid use is never lost; F20, documented in READMEs, CLAUDE.md files and `SECURITY.md`) and
+    OQ8 (the cluster pulls by digest; signing, SBOM and provenance happen once at quay.io and travel to the self-hosted registry with
+    `mirror-private`; F29, B.2, B.IMG-1, IMG-M7, the Section D image gate). OQ9 (deployment) stays open; options and a recommendation are recorded.
+  - **Fixed:** F43 RESOLVED in both gateways at once (`Via: 1.1 nft-gate`, `508 loop detected`; `via_loop_table`, a router test; parity table shared with
+    the Workers suite). I26, B.SC-3, B.PX-1 and the strip lists updated.
+  - **Left:** F29 stays MITIGATED (licence notices; first live mirror run needs credentials), F30 (maintainer), F31 and F32 (OQ9).
+  - Counts: **25 RESOLVED, 3 MITIGATED** (F10, F27, F29), **6 ADJUDICATED, 3 ACCEPTED-RISK** (F11, F25, F34), **3 DEFERRED** (F30, F31, F32); 8 Positive.
+  - Measured 2026-10-19: `cargo fmt --check` clean; `cargo clippy --all-targets --locked -- -D warnings` clean; `cargo test --locked` 117 passed, 0 failed, 3 ignored
+    (114 before; +3: `via_loop_table`, `the_marker_the_gateway_adds_is_the_one_it_refuses`, the router test); `scripts/check-versions.sh` passes (0.0.24).
+  - Not run: the `mirror-private` job (no credentials), `cargo deny` (not installed locally).
+
 ## Pre-save consistency checklist (this pass)
 
 - [x] Section A ↔ findings — every GAP row cites an accepted or deferred finding (I27 F32 only); HOLDS rows cite a RESOLVED/ADJUDICATED finding or none.
@@ -2127,7 +2206,7 @@ PROXY lens:
 - [x] Template line: base + RUST + SUI_CLIENT + WALRUS + IMG + AUTH + PROXY, each dated as in the
   registry.
 - [x] Closing structure present in order.
-- [x] Open questions: OQ8–OQ10 open; the others carry a recorded decision note, the dispositions moved
+- [x] Open questions: OQ9 open (options and a recommendation recorded); the others carry a recorded decision note, the dispositions moved
   on the findings.
 - [x] Section D ↔ dispositions — ticked only for RESOLVED/ADJUDICATED/MITIGATED-with-evidence items;
   unticked items cite F29–F32 or maintainer items.

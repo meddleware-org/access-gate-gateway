@@ -24,6 +24,10 @@
   from its first dispatch (run 38077866216, 2026-10-10T18:57Z) and on every daily schedule since (2026-10-11 to
   2026-10-18). The deployed version itself still cannot be read from the repo; `deploy-workers.yml` tags each
   version `<tag>-code`.
+- **0.0.24 is committed locally, not yet released or deployed** (2026-10-19, commit pending; both gateways move together, D16): loop
+  detection (F43: `Via: 1.1 nft-gate` on the upstream request, `508 loop detected` for a request that already carries it). The decisions
+  OQ6 and OQ8 (the latter is the Rust gateway's) were recorded the same day. The live Worker still runs 0.0.23 until it is released and
+  `Deploy Workers` is run.
 - **Redeployed from `main` on 2026-10-19** with 0.0.23: `Deploy Workers` run 39185110276 (`workflow_dispatch`,
   2026-10-19T01:23Z, success). Live probes after the deploy: `/v1/challenge` 200 and `/v1/tip-config` 200 (both
   re-read from the public route 2026-10-19 by this pass); a canonical proof token decodes and an unpadded token is
@@ -48,7 +52,7 @@
   consumed, `nft-gate:access:v2` proof, upload through this Worker; the indexer shows minted=1
   consumed=1.
 
-**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release and deployment status 2026-10-19)
+**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release and deployment status 2026-10-19; decisions and F43 fix 2026-10-19)
 **Reviewer:** Internal review
 **Severity ceiling:** High — the gateway is the only paywall in front of the operator's Walrus relay.
   A verification bypass gives unpaid uploads at the operator's cost, and a redemption flaw lets one
@@ -57,7 +61,9 @@
 **Status:** re-verified 2026-10-09 — 40 findings dispositioned (23 RESOLVED, 5 MITIGATED, 5 ADJUDICATED,
   5 ACCEPTED-RISK, 2 DEFERRED) plus 6 Positive; F42–F46 added in this pass. Fix wave 2026-10-10 (47 findings; the
   final counts are in the log): released as 0.0.22 and deployed to the live Worker the same day. Release status
-  re-checked 2026-10-19: 0.0.23 released and the Worker redeployed from `main` (no finding changes; see the log).
+  re-checked 2026-10-19: 0.0.23 released and the Worker redeployed from `main`. Decisions and the F43 fix of
+  2026-10-19 (0.0.24, committed locally, unreleased, not deployed): 28 RESOLVED, 3 MITIGATED, 5 ADJUDICATED, 4 ACCEPTED-RISK,
+  1 DEFERRED, 6 Positive (47 findings).
 
 **Wrangler / compatibility:** wrangler `^4.143.0` (lockfile 4.151.0 on 2026-10-19, workerd 1.20260815.1);
   `compatibility_date = "2026-06-01"`; `compatibility_flags = ["nodejs_compat"]`; `workers_dev = false`,
@@ -162,7 +168,8 @@ against `main` (`367e673`).
    a pre-verification per-IP limit, a swept rate table, bounded caches, strict configuration.
 6. **Ownership mode** (F7): counts only usable passes.
 
-**What remains.** Nothing above Info/Low is unresolved in code. The one DEFERRED item is
+**What remains.** Nothing above Info/Low is unresolved in code (the `Via` loop marker, F43, was added to both
+gateways in 0.0.24 on 2026-10-19). The one DEFERRED item is
 maintainer-owned: the **Cloudflare plan** and body/CPU sizing (F11, OQ3). Three items are MITIGATED with
 a stated residual: deploy-environment reviewers and API-token scopes (F16, F31, OQ4) and the `unknown`
 IP bucket (F29). Fixed after the first re-verification (2026-10-10, commit `ec91935`; released as 0.0.22 and deployed to the Worker the same day): the
@@ -846,7 +853,7 @@ expired entries". Still off by default.
 
 ### F20 — Commit failure after a successful upstream returns 502 and releases the lease
 
-**Severity:** Info   **Disposition:** ADJUDICATED (shared semantics; OQ6)
+**Severity:** Info   **Disposition:** ADJUDICATED (shared semantics; OQ6 decided 2026-10-19)
 **Where:** `src/redemption.ts:46-56`; test "reports a failed commit as 502 (never success) and
 releases the lease".
 
@@ -859,6 +866,12 @@ answers `502 redemption commit failed` and releases (token-bound) on a commit ex
 0.0.19 also answers `502 redemption lease lost` when the commit finds the lease gone (the newer
 holder is left alone). Tests: `test/redemption.test.ts` "reports a failed commit as 502 (never success)
 and releases the lease", "a holder whose lease lapsed before commit is told 502…".
+
+Decided 2026-10-19 (OQ6): never lose a paid use; fail toward the user. Keeping the lease and retrying the
+commit in the background could lose a use the user paid for if the retry never lands, with no one to
+notice; `502` + release costs at most one extra upload, bounded by the lease TTL and the per-upload limits.
+Documented in `README.md`, `CLAUDE.md` (here and at the root) and `SECURITY.md` invariant 4. Identical in
+`gateway-rust` (its F20).
 
 ### F21 — Stale and misleading comments, and dead code
 
@@ -1286,9 +1299,9 @@ control.
 
 ### F43 — No `Via` loop marker; only the literal self-origin is refused
 
-**Severity:** Info   **Disposition:** ACCEPTED-RISK
+**Severity:** Info   **Disposition:** RESOLVED (0.0.24, 2026-10-19; commit pending; shared with `gateway-rust` F43)
 **Where:** `src/config.ts` (`UPSTREAM_URL must not be this gateway (request loop)`), `src/headers.ts`
-(`via` is stripped from the request and never set).
+(`via` was stripped from the request and never set), `src/index.ts::handle`.
 
 **Issue:** PROXY lens §A *Loop & self-reference* asks that a `Via` or loop-marker check refuse a request
 that has already passed through. The Worker refuses an `UPSTREAM_URL` whose origin equals
@@ -1300,9 +1313,27 @@ route. Gated paths would then be refused for want of a proof on the second hop, 
 bounded by the platform's subrequest limits and the rate limiter. Operator-only misconfiguration, not
 attacker-reachable.
 
-**Remediation / evidence:** Accepted. If the gateway is ever offered as a white-label package with
+**Remediation / evidence:** Accepted at first. If the gateway is ever offered as a white-label package with
 operator-chosen upstreams, add a `Via`/marker check that returns `508`. The Go sibling
 `registry-auth-proxy` 0.1.6 has such a check (508).
+
+**Resolved 2026-10-19 (0.0.24, both gateways at once).** The check is cheap and has one correct form, so it
+is no longer conditional on a white-label deployment. `upstreamRequestHeaders` still drops the client's
+`via` and now sets `Via: 1.1 nft-gate` (`VIA_TOKEN`); `handle` answers `508 {"error":"loop detected"}` to a
+request whose `Via` already names `nft-gate` as a received-by hop, after `/healthz` and the CORS preflight
+and before any nonce, rate-limit or redemption work, so a looped request spends nothing. Only our own token
+matches (case-insensitive; the second token of each comma-separated entry), so a foreign value such as the
+`1.1 google` that a CDN may add passes, and neither a comment nor a longer name (`nft-gateway`)
+matches. The signed access message, the proof format and the public-path and CORS behaviour are untouched
+(the 508 gets the gateway CORS like any other response). Tests: `VIA_TABLE` (14 inputs, the same table as
+`via_loop_table` in the Rust gateway, so both decide identically) and "adds the marker to the upstream
+request and a foreign client Via does not survive" in `test/proxy.test.ts`; the strip test now expects the
+marker in place of the client's value; workerd router tests "refuses a request that already carries the
+gateway Via marker with 508, with CORS, on every path class" and "lets a foreign Via value (a CDN hop)
+through untouched". The conformance vectors are generated by `nft-gate-client` and carry wire-format fields
+only, so the parity is an identical table in each suite. Not exercised: the Worker on Cloudflare's edge (the
+fetch of a request with a `Via` header is plain workerd behaviour in the tests); verify after the deploy that
+`/v1/challenge` and `/v1/tip-config` still answer 200.
 
 ### F44 — Upstream error statuses and bodies pass through to the client
 
@@ -1411,7 +1442,7 @@ second gateway's re-run belongs to its own audit.
 | I24 | The proof is bound to the intended audience | `verify.ts` (message rebuilt from `cfg`) | verify "audience binding (protocol v2)"; vectors `audienceMismatch` | HOLDS (F1) |
 | I25 | Wire parity with `gateway-rust` | `conformance/vectors.json` (published by nft-gate-client, `--check` in CI) | `conformance.test.ts` | HOLDS for covered fields; remaining uncovered rows in B.SC-3 |
 | I26 | Only listed methods and safe paths are forwarded; public paths are `GET`/`HEAD` | `index.ts`, `proxy.ts::FORWARDED_METHODS`, `headers.ts::isSafePath` | router "public paths are read-only…", "gated paths refuse methods…"; proxy "refuses a method outside the list and an unsafe path…" | HOLDS (F10, F42) |
-| I27 | A request that has already passed through the gateway is refused | `config.ts` (literal self-origin only) | config "refuses an upstream that is the gateway itself" | HOLDS (code-only) for the literal case; no `Via` marker — F43 |
+| I27 | A request that has already passed through the gateway is refused | `config.ts` (literal self-origin), `headers.ts::isLooped` + `index.ts::handle` (`Via: 1.1 nft-gate` → 508) | config "refuses an upstream that is the gateway itself"; proxy `VIA_TABLE`; router "refuses a request that already carries the gateway Via marker…" | HOLDS (F43, 0.0.24) |
 
 ---
 
@@ -1548,7 +1579,8 @@ Rust column from `gateway-rust` 0.0.22 (its own audit is canonical for it). Thre
 | RPC auth header | `Name: value`, validated | validated | config tests in both |
 | Default `ALLOWED_ORIGINS` | none | none | config tests in both |
 | CORS | exact match, grants, `Vary`, preflight first | same | router tests in both |
-| Lease / commit / release; commit failure | owner-bound, 900 s > 600 s deadline; 502 + release; lost lease 502 | same | unit tests in both |
+| Lease / commit / release; commit failure | owner-bound, 900 s > 600 s deadline; 502 + release (decided, OQ6); lost lease 502 | same | unit tests in both |
+| `Via` loop marker | `Via: 1.1 nft-gate` set; `508` for a request that carries it; foreign values pass (0.0.24, F43) | same (0.0.24) | identical tables: `VIA_TABLE` (`proxy.test.ts`) / `via_loop_table` (`headers.rs`); router tests in both |
 | Upstream redirects | **not followed** (3xx → 502) | not followed | proxy test (Workers) |
 | Timeouts | upstream 600 s total (504); RPC 15 s | upstream 600 s; RPC `RPC_TIMEOUT_SECS` | per-suite tests |
 | Misconfiguration | 500 per request | exit at startup | each suite |
@@ -1565,10 +1597,11 @@ Rust column from `gateway-rust` 0.0.22 (its own audit is canonical for it). Thre
 
 | Route / path | Methods | Auth | Forwarded request fields | Stripped (both ways) | Response fields kept | Cache |
 | --- | --- | --- | --- | --- | --- | --- |
-| `/healthz` | any (answered locally) | none | not forwarded | n/a | `200 ok` | none |
+| `/healthz` | any (answered locally; before the loop check) | none | not forwarded | n/a | `200 ok` | none |
 | `OPTIONS` (any path) | `OPTIONS` | none | answered locally, before config or auth | n/a | CORS grants | none |
 | `GET /v1/challenge` | `GET` | none; `chal:<ip>` 30/min | answered locally | n/a | `{ nonce, expiresAt }` | none |
-| `PUBLIC_PATHS` (`/v1/tip-config`) | `GET`, `HEAD` (else 405 + `allow`) | none; `ip:<ip>` 120/min | client fields minus the strip list, query dropped for GET; plus the injected Access headers | request: hop-by-hop, `Connection`-named, `host`, `authorization`, `x-access-proof`, `content-length`, `cookie`, `forwarded`, `via`, `x-forwarded-*`, `x-real-ip`, `cf-access-*`; response: hop-by-hop, `Connection`-named, `content-length`, `set-cookie(2)`, `alt-svc`, `access-control-*` | all other upstream fields; gateway CORS added | edge cache, GET only, 60 s, key without query |
+| `PUBLIC_PATHS` (`/v1/tip-config`) | `GET`, `HEAD` (else 405 + `allow`) | none; `ip:<ip>` 120/min | client fields minus the strip list, query dropped for GET; plus the injected Access headers | request: hop-by-hop, `Connection`-named, `host`, `authorization`, `x-access-proof`, `content-length`, `cookie`, `forwarded`, `via` (replaced by `Via: 1.1 nft-gate`, F43), `x-forwarded-*`, `x-real-ip`, `cf-access-*`; response: hop-by-hop, `Connection`-named, `content-length`, `set-cookie(2)`, `alt-svc`, `access-control-*` | all other upstream fields; gateway CORS added | edge cache, GET only, 60 s, key without query |
+| any path carrying `Via: … nft-gate` | any | refused `508 loop detected` before any work (after `/healthz` and the preflight) | not forwarded | n/a | `{ error }` + gateway CORS | none |
 | every other path (gated) | `GET`, `HEAD`, `POST`, `PUT` (else 405 before verification) | access proof v2 + live chain read + redemption lease; `pre:<ip>` 120/min before verification, 30/min per address after | as above | as above | as above; 3xx → 502; non-2xx passes through (F44) | never cached |
 | unsafe path (`%2f`, `%5c`, `%00`, `%2e%2e`, `\`, control characters, `//`) | any | — | refused `400 invalid path` before the upstream URL is built | n/a | n/a | none |
 
@@ -1896,7 +1929,7 @@ PROXY lens:
   parses (B.WAL-1).
 - **S8** *(done 2026-10-10)* the negative origin check runs on a schedule (F32, `origin-lock.yml`) and
   the missing tests of F30 exist (public-path rate limit, gated non-caching, router-level 503, IPv6 /64).
-- **S9** MAY add a `Via`/marker loop check (F43) if the package is offered white-label.
+- **S9** *(done 2026-10-19, 0.0.24)* the `Via`/marker loop check (F43), in both gateways.
 
 ## Open questions
 
@@ -1908,14 +1941,43 @@ PROXY lens:
   *(Decided 2026-10-08: ownership counts only usable passes; see F7.)*
 - **OQ3** Which Cloudflare plan serves the live route? This decides the body limit (and whether
   `MAX_BODY_BYTES` should be 10⁸ B), the CPU budget per request and the rule quotas. *(Open; maintainer.)*
+
+  Options and recommendation (not a decision; the limits are the Cloudflare figures recorded in F11,
+  retrieved 2026-09-29, and must be re-checked):
+  - (a) Workers Free: 10 ms CPU and 50 subrequests per request, free Durable Object quota. The CPU cost of
+    a secp256r1 verification in JavaScript against 10 ms is unmeasured, and a CPU or quota refusal is an
+    outage of the paid service.
+  - (b) Workers Paid (a small fixed monthly fee): a far larger CPU budget and subrequest allowance, and
+    Durable Objects without the free-tier ceiling that the quota guard exists to dodge.
+  - The request-body limit follows the zone's plan (Free and Pro 100 MB), independent of (a)/(b).
+  - **Recommendation: (b) before mainnet,** because the downside of (a) is a paid-service outage and the
+    cost of (b) is small and fixed; then set `MAX_BODY_BYTES` to `min(zone limit, relay cap)` in exact
+    bytes (if the zone limit is 10⁸ B, use 100000000 so the gateway answers its own JSON `413` with CORS
+    rather than the platform's) and record p99 CPU per gated request from Workers analytics. Spend, so
+    the maintainer's call.
 - **OQ4** Does the `production` environment have required reviewers or a wait timer? If not, record
   the single-maintainer decision. What are `CLOUDFLARE_API_TOKEN`'s scopes and expiry? *(Open;
   maintainer. Branch policy `main` only is verified.)*
+
+  Options and recommendation (not a decision):
+  - (a) Record the single-maintainer decision: branch policy `main` only plus the CI gate
+    (`needs: ci`); no reviewer. With one maintainer who can bypass anyway (`can_admins_bypass`), a
+    required reviewer adds a confirmation click, not a second pair of eyes.
+  - (b) Require the maintainer as reviewer (a deliberate pause before each deploy).
+  - (c) Add a second maintainer as required reviewer (the only option that adds a real check).
+  - **Recommendation: (a) now, (c) when a second maintainer exists;** write the choice into
+    `docs/networking/CLOUDFLARE.md` §2.4 beside the Access token record. For the token: an account-scoped
+    API token with only Workers Scripts:Edit and Workers Routes:Edit on the one zone, an expiry of at most
+    a year with a calendar reminder a month ahead (as for the Access token expiring 2027-09-09), and stored
+    as an environment secret of `production` so only the deploy job can read it.
 - **OQ5** Redemption retention vs consume age: bound consume age to retention, or extend retention?
   Shared with `gateway-rust` OQ5. *(Decided 2026-10-08: bound the consume age, 5 days ≤ retention 30
   days; see F24.)*
 - **OQ6** On a commit failure after a 2xx upstream: keep 502 + release, or keep the lease and retry
-  the commit? Shared with `gateway-rust` OQ6. *(Behaviour kept: 502 + release; F20.)*
+  the commit? Shared with `gateway-rust` OQ6. *(Decided 2026-10-19: keep 502 + release. A paid use is
+  never lost: the extra upload costs at most one upstream operation, bounded by the lease TTL and the
+  per-upload limits, whereas a background commit retry that never lands loses the use silently. Documented
+  in the READMEs, CLAUDE.md files and `SECURITY.md`; F20.)*
 - **OQ7** Restrict `PUBLIC_PATHS` to GET/HEAD? Shared with `gateway-rust` OQ7. *(Decided 2026-10-08:
   yes; see F10.)*
 - **OQ8** KV and the quota guard: remove the KV fallback for single-use deployments, keep redemptions
@@ -2035,6 +2097,19 @@ PROXY lens:
   - Dependabot policy encoded in .github/dependabot.yml (majors declined); open PRs merged 2026-10-19
 - 2026-10-19 — live paywall run 2026-10-19: PASS — pass bought on the relay gate, consumed, v2 proof accepted, upload through the Worker, replay refused 409, strict decoder, indexer events; harness `integrations/paywall/` (infrastructure workspace).
 
+- 2026-10-19 (later) — Decisions and fix (0.0.24, committed locally, commit pending; not released and not deployed).
+  - **Decided:** OQ6 (502 + release kept; a paid use is never lost; F20; documented in READMEs, CLAUDE.md files and `SECURITY.md`).
+  - **Fixed:** F43 RESOLVED in both gateways at once (`Via: 1.1 nft-gate`, `508 loop detected`; `VIA_TABLE`, two workerd router tests; the
+    identical table is `via_loop_table` in the Rust gateway). I27, B.SC-3, B.PX-1 and S9 updated.
+  - **Left open, with options and a recommendation recorded:** OQ3 (Cloudflare plan; F11), OQ4 (deploy reviewers, API-token scopes and expiry;
+    F16, F31). Nothing else in this audit has a single best-practice fix.
+  - Counts: **28 RESOLVED, 3 MITIGATED** (F16, F29, F31), **5 ADJUDICATED** (F20, F22, F23, F36, F44), **4 ACCEPTED-RISK** (F25, F34, F35, F45),
+    **1 DEFERRED** (F11); 6 Positive (F37–F41, F46). 47 findings.
+  - Measured 2026-10-19 (Node 26): `tsc --noEmit` and `eslint .` clean; `vitest run` 234 tests (231 passed, 3 skipped; 230 before, +4: the `Via`
+    table, the marker on the upstream request, two router tests); `npm audit --audit-level=high` 0 vulnerabilities; `scripts/check-versions.sh`
+    passes (0.0.24). Not run: `wrangler deploy --dry-run`, the Worker on the edge.
+  - Next: release 0.0.24, run `Deploy Workers`, then probe `/v1/challenge` and `/v1/tip-config` (both must still answer 200).
+
 ## Pre-save consistency checklist (this pass)
 
 - [x] Section A ↔ findings — every row's status matches its linked finding (HOLDS beside RESOLVED;
@@ -2043,8 +2118,8 @@ PROXY lens:
 - [x] Template line: base + WORKERS + TS + SUI_CLIENT + WALRUS + AUTH + PROXY, each dated as in the
   registry. IMG is not triggered (no image).
 - [x] Closing structure in order.
-- [x] Open questions: OQ3 and OQ4 open; the others carry a recorded decision note (OQ10 decided
-  2026-10-10), the dispositions moved on the findings.
+- [x] Open questions: OQ3 and OQ4 open (options and a recommendation recorded); the others carry a recorded decision note (OQ6 decided
+  2026-10-19, OQ10 decided 2026-10-10), the dispositions moved on the findings.
 - [x] Section D ↔ dispositions — ticked only for RESOLVED/MITIGATED-with-evidence items; unticked items
   cite F11, F16/F31 and the maintainer items.
 - [x] Executive summary reflects current dispositions.
