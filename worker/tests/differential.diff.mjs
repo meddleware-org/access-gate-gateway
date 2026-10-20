@@ -8,6 +8,7 @@
 //   * stricter shared config rules (core): see the table in core/README.md; scenarios use values both accept.
 //   * a missing Durable Object binding answers with the CORS allow-list on the Rust side.
 //   * the quota guard's KV "degrade" flag is not carried over (nothing to compare at the HTTP surface).
+import fs from 'node:fs'
 import { after, before, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
@@ -18,6 +19,10 @@ import { baseVars, startWorker, WORKER_DIR, ALLOWED_ORIGIN, sleep } from './lib/
 import { startFullnode, startUpstream, txDigest } from './lib/stubs.mjs'
 
 const GW = path.resolve(WORKER_DIR, '../gateway-workers')
+// Fail at once, with the cause, instead of every scenario waiting out its start-up timeout.
+if (!fs.existsSync(path.join(GW, 'node_modules', 'wrangler'))) {
+  throw new Error(`the TypeScript reference Worker has no dependencies: run \`npm ci\` in ${GW} first`)
+}
 const KINDS = ['ts', 'rust']
 let ipn = 0
 const ip = () => `203.0.${113 + Math.floor(ipn / 250)}.${(ipn++ % 250) + 1}`

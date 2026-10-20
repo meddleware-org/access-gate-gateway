@@ -11,7 +11,7 @@
   "scripts": {
     "pretest": "node tests/prepare.mjs",
     "test": "node --test --test-concurrency=1 tests/*.test.mjs",
-    "test:diff": "node tests/prepare.mjs && node --test --test-concurrency=1 tests/differential.test.mjs"
+    "test:diff": "node tests/prepare.mjs && node --test --test-concurrency=1 tests/differential.diff.mjs"
   },
   "devDependencies": {
     "@meddleware/nft-gate-client": "0.0.17",

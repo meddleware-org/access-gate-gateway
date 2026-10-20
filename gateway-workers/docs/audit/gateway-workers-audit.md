@@ -1569,7 +1569,7 @@ for the shadow Worker; if it fails, the options are listed (opt-level, bundle si
 
 **Severity:** Positive
 
-- `worker/tests/differential.test.mjs` runs the same scenarios against this Worker and the Rust Worker under workerd and fails on any difference in status, body bytes, headers or the requests the upstream
+- `worker/tests/differential.diff.mjs` runs the same scenarios against this Worker and the Rust Worker under workerd and fails on any difference in status, body bytes, headers or the requests the upstream
   receives: routes and CORS on every path class, the 508 guard, public paths and the edge cache, the challenge/public/pre-auth budgets and IPv6 /64 keying, the single-use flow (success, replay, redeemed, leased, release on failure,
   denials, chain faults), the proxy (cap, framing, header policy, unsafe paths), ownership mode, an unreachable upstream and six startup misconfigurations.
 - Of this Worker's 251 tests, 237 are ported, 2 replaced by measurement instruments, 3 skipped before and after, 9 removed with a reason (the map is `worker/README.md`).

@@ -71,7 +71,7 @@ Both gateways MUST produce identical decisions for any given proof token. For th
 decision is `core/`); until the TypeScript Worker is retired the coupling is also enforced by the shared
 `conformance/vectors.json` golden vectors, which the core's tests and the TypeScript tests both consume.
 
-If you change any of the following, update the core AND (until it is retired) the TypeScript Worker (the differential run `worker/tests/differential.test.mjs` fails when the two diverge), and regenerate the vectors:
+If you change any of the following, update the core AND (until it is retired) the TypeScript Worker (the differential run `worker/tests/differential.diff.mjs` fails when the two diverge), and regenerate the vectors:
 - The signed message (`nft-gate:access:v2` and its audience lines: origin, gate, network, nonce, consume)
 - The proof token format (`base64(JSON { address, nonce, signature, consumeDigest? })`)
 - The `Authorization: Bearer` / `X-Access-Proof` header preference logic

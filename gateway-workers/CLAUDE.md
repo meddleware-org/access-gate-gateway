@@ -4,7 +4,7 @@
 
 Replaced 1:1 by the Rust Worker `../worker` (workers-rs on `nft-gate-core`), which is built and tested but not yet deployed; this package is the live deployment and the
 rollback until the maintainer's shadow deploy, CPU-time gate and cutover (`../worker/README.md` "Runbook"), then it is retired. Do not add features here. A behavioural change goes
-in the core and the Rust Worker; `../worker/tests/differential.test.mjs` fails when this Worker and the Rust Worker diverge, so a change made here alone is caught.
+in the core and the Rust Worker; `../worker/tests/differential.diff.mjs` fails when this Worker and the Rust Worker diverge, so a change made here alone is caught.
 
 ## What this package is
 

@@ -34,7 +34,7 @@ eval "$(worker/scripts/fetch-build-tools.sh)"            # optional: checksummed
 cd worker && npm ci                                       # wrangler + the test harness (test code only)
 bash scripts/build.sh all                                 # build/ (deployed variant) and build-hooks/ (+ test-hooks, for the suites)
 bash scripts/size-gate.sh                                 # wrangler deploy --dry-run; fails above 1.5 MiB gzip
-npm test                                                  # every workerd suite and the differential run (about 5 minutes)
+npm test                                                  # every workerd suite (the differential run is separate)
 npm run test:diff                                         # only the differential run (needs `npm ci` in ../gateway-workers)
 cargo test --locked -p nft-gate-worker -p nft-gate-ci     # native unit tests of the glue and the CI helper
 bash scripts/lint-canary.sh                               # proves the panic lints are live
@@ -73,7 +73,7 @@ map, single-use lease/commit/release in the DO, the same SQLite schema (tables `
 `ALTER TABLE ADD COLUMN token` upgrade is ported and tested), class `NonceRateState`, migration tag `v1`, the `scheduled` quota guard (off by
 default), the streamed proxy with `MAX_BODY_BYTES`/`FixedLengthStream`/413, the header policy, redirect refusal (302 → 502) and the total
 deadline (504), `UPSTREAM_AUTH_HEADERS` / `SUI_RPC_AUTH_HEADER` parsing, `ALLOWED_ORIGINS`, `GATEWAY_ORIGIN`/`NETWORK`, every `[vars]` entry.
-`tests/differential.test.mjs` runs the same scenarios against both Workers and fails on any difference in status, body, header or the request the
+`tests/differential.diff.mjs` runs the same scenarios against both Workers and fails on any difference in status, body, header or the request the
 upstream receives.
 
 ### Intended differences
