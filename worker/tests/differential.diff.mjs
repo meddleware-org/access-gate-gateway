@@ -33,12 +33,26 @@ async function pair(name, vars = {}, upstreamOpts = {}) {
     const rpc = await startFullnode()
     const up = await startUpstream(upstreamOpts)
     const all = baseVars({ UPSTREAM_URL: up.url, SUI_RPC_URL: rpc.url, ...vars })
-    const w = kind === 'ts'
-      ? await startWorker({ name: `${name}-ts`, main: path.join(GW, 'src/index.ts'), config: path.join(GW, 'wrangler.toml'), vars: all })
-      : await startWorker({ name: `${name}-rust`, vars: all })
+    let w
+    try {
+      w = kind === 'ts'
+        ? await startWorker({ name: `${name}-ts`, main: path.join(GW, 'src/index.ts'), config: path.join(GW, 'wrangler.toml'), vars: all })
+        : await startWorker({ name: `${name}-rust`, vars: all })
+    } catch (e) {
+      await up.close().catch(() => {})
+      await rpc.close().catch(() => {})
+      throw e
+    }
     return { kind, w, rpc, up, base: w.base, close: async () => { await w.stop(); await up.close(); await rpc.close() } }
   }
-  const [ts, rust] = await Promise.all([make('ts'), make('rust')])
+  // Start both; if either fails, stop the one that came up (an orphan keeps the test process, and the CI job, alive).
+  const settled = await Promise.allSettled([make('ts'), make('rust')])
+  const failed = settled.find((r) => r.status === 'rejected')
+  if (failed) {
+    for (const r of settled) if (r.status === 'fulfilled') await r.value.close().catch(() => {})
+    throw failed.reason
+  }
+  const [ts, rust] = settled.map((r) => r.value)
   return { ts, rust, close: async () => { await ts.close(); await rust.close() } }
 }
 
