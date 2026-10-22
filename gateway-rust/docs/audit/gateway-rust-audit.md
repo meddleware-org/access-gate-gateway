@@ -65,13 +65,14 @@
   publication) **only through operator env**; the superseded `0xa55789…` / `0xfd6c3b…` appear only in
   the env-gated live test (F45, B.SC-1).
 
-**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release status 2026-10-19; decisions and F43 fix 2026-10-19; OQ9 decided 2026-10-19; core extraction (0.0.26) 2026-10-19; digest rule and response vectors (0.0.28) 2026-10-22)
+**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release status 2026-10-19; decisions and F43 fix 2026-10-19; OQ9 decided 2026-10-19; core extraction (0.0.26) 2026-10-19; digest rule and response vectors (0.0.28) 2026-10-22; fix wave 2026-10-22, 0.0.29)
 **Reviewer:** Internal review
 **Severity ceiling:** High — a verification bypass would admit unpaid traffic to the protected
   upstream, and a redemption-store failure would let one paid single-use consume buy unlimited
   uploads. The gateway holds no user funds and signs nothing on-chain, so nothing here reaches
   Critical.
-**Status:** Digest rule and response vectors 2026-10-22 (0.0.28, released as v0.0.28 = `a6b86ae`; `gateway-rust` itself stays undeployed by decision OQ9) — F51 added (the core's consume-digest check was
+**Status:** Fix wave 2026-10-22 (0.0.29, committed locally, unreleased) — F10 (rate-limiter maps), F25 (clock read) and the licence-notices part of F29 are done; 43 findings dispositioned (29 RESOLVED, 3 MITIGATED, 6 ADJUDICATED, 2 ACCEPTED-RISK, 3 DEFERRED) plus 8 Positive.
+  Digest rule and response vectors 2026-10-22 (0.0.28, released as v0.0.28 = `a6b86ae`; `gateway-rust` itself stays undeployed by decision OQ9) — F51 added (the core's consume-digest check was
   shape-only; RESOLVED): 43 findings dispositioned (27 RESOLVED, 4 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED) plus 8 Positive.
   Core extraction 2026-10-19 (0.0.26, committed locally, unreleased) — 42 findings dispositioned (26 RESOLVED,
   4 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED) plus 8 Positive; F49 (one implementation of the decision logic,
@@ -188,12 +189,13 @@ changes only `Cargo.toml`/`Cargo.lock`).
 **What remains.** Nothing at Medium. The open items are Low/Info and concentrate in three groups, none
 of which touches the live Workers deployment:
 
-- *Accepted* (ACCEPTED-RISK): the in-memory store's O(n) work and cap-eviction (F11, F34). The `Via` loop
+- *Accepted* (ACCEPTED-RISK): the in-memory store's O(n) work and cap-eviction (F11, F34). The rate windows are swept
+  and capped since 0.0.29 (F10), and the clock read cannot panic (F25). The `Via` loop
   marker (F43) was added to both gateways at once in 0.0.24 (2026-10-19).
 - *Supply chain and image*: the CI and Docker work is done in 0.0.22 (`--locked`, a coverage figure,
   the Redis round trip in CI, a Trivy image scan before signing, a lockfile in the image for the SBOM, a
-  complete `.dockerignore`, a published `cosign verify` command; F28, F29). What remains is the
-  licence notices and the first live run of the self-hosted-registry copy (F29; OQ8 was decided on
+  complete `.dockerignore`, a published `cosign verify` command; F28, F29), and in 0.0.29 the licence notices
+  (`/app/THIRD_PARTY_LICENSES.txt`, F29). What remains is the first live run of the self-hosted-registry copy (F29; OQ8 was decided on
   2026-10-19: the cluster pulls by digest and the mirror carries the same signed image, so there is no
   separate signing there) and the registry credential inventory (F30, `OPERATOR_TASKS.md`).
 - *Deployment* (DEFERRED under OQ9 (a), decided 2026-10-19: stay undeployed): runtime credential rotation (F31)
@@ -688,9 +690,9 @@ It combines with F5 for denial of service.
 
 ### F10 — Rate-limiter maps grow without bound
 
-**Severity:** Low   **Disposition:** MITIGATED (IPv6 /64 keys; the sweep is not done)
-**Where:** `src/ratelimit.rs:22-60` (`Mutex<HashMap<String, Window>>`; entries are only overwritten,
-never removed).
+**Severity:** Low   **Disposition:** RESOLVED (0.0.29, commit pending; IPv6 /64 keys earlier, the sweep and a size cap in 0.0.29)
+**Where (at the baseline):** `src/ratelimit.rs:22-60` (`Mutex<HashMap<String, Window>>`; entries are only overwritten,
+never removed). Since 0.0.26 the limiter is `RateTable` in `core/src/redemption.rs` behind `MemoryRates` in `core/src/state.rs`.
 
 **Issue:** `ip_limiter` creates one entry per distinct client IP, and `limiter` one per authenticated
 address. Nothing prunes expired windows.
@@ -703,6 +705,23 @@ so rotating source addresses inside a prefix no longer multiplies keys, and keys
 the trusted hop), never a client-chosen string. **Residual:** `ratelimit.rs` is unchanged: windows are
 never removed, and the prune task in `main.rs` sweeps only the nonce store. Growth needs many distinct
 real source addresses; revisit with the memory limit at deployment (F32).
+
+**Resolution 2026-10-22 (0.0.29, commit pending):** the shared core now owns the limiter, so the fix is there
+and reaches the Worker's in-memory tests too. `RateTable` gained `prune(now)` (drops the windows that have
+ended; a key whose window ended starts a fresh one on its next request, so no verdict changes) and
+`check_capped(key, now, max_per_min, max_keys)`; `check` is unchanged (the conformance scenarios and the
+Durable Object parity use it). A new key that finds a table full first drops the ended windows and, if it is
+still full, the window that ends soonest; that forgets the evicted key's count (the limiter fails open for it
+rather than closed for every new key, so a flood of distinct keys cannot lock real clients out; the key space is
+already the TCP peer or trusted hop, IPv6 by /64). `MemoryRates` holds three bounded tables
+(`DEFAULT_RATE_MAX_KEYS` = 100,000 each; `with_max_keys` overrides), exposes `prune()` and `key_count()`, and
+the adapter's background task (`NONCE_PRUNE_INTERVAL_SECS`, default 60 s) now calls `AppState::sweep()`, which
+prunes the nonce store and the rate windows. Pinned by `redemption::tests::prune_drops_only_ended_windows_and_changes_no_verdict`,
+`the_cap_bounds_the_table_and_evicts_the_soonest_ending_window`, `a_full_table_drops_ended_windows_before_evicting_a_live_one`,
+`many_distinct_keys_never_exceed_the_cap`, `an_unlimited_budget_stores_nothing`,
+`state::tests::prune_sweeps_ended_windows_and_the_cap_bounds_each_table` and, through the router,
+`tests::the_periodic_sweep_covers_the_rate_windows_without_changing_a_verdict`. The worst case is
+3 x 100,000 windows (a string, two integers and map overhead: tens of megabytes).
 
 ### F11 — In-memory store does O(n) work under the mutex on every challenge and lease
 
@@ -1009,8 +1028,8 @@ for as long as fullnodes serve old transactions.
 
 ### F25 — `now_ms()` unwraps `SystemTime::duration_since(UNIX_EPOCH)`
 
-**Severity:** Info   **Disposition:** ACCEPTED-RISK
-**Where:** `src/challenge.rs:20-24`.
+**Severity:** Info   **Disposition:** RESOLVED (0.0.29, commit pending)
+**Where (at the baseline):** `src/challenge.rs:20-24`; since 0.0.26 `src/state.rs::wall_ms` and `src/grpc.rs`.
 
 **Issue:** This panics only if the system clock is before 1970. With `panic = "abort"` the process
 restarts, and a restart triggers F4.
@@ -1018,7 +1037,7 @@ restarts, and a restart triggers F4.
 **Impact:** Requires host clock misconfiguration. The RUST lens's no-panic rule is met in spirit (not
 attacker-reachable).
 
-**Remediation / evidence:** Accepted, unchanged (`challenge.rs:23-28` still unwraps). Optionally use `unwrap_or_default()` with a log.
+**Remediation / evidence:** Accepted at the baseline and unchanged until the core extraction. By 0.0.28 no `unwrap` was left on the read (`map_or(0, ..)` in `state.rs` and `grpc.rs`), but a pre-1970 clock was silent. **0.0.29 (commit pending):** one function, `state::unix_ms(SystemTime)`, is the only conversion (`wall_ms()` and the gRPC transport's `now_ms` both use it); a clock before 1970 reads as `0` and logs an `error!` with how far behind it is, and a value that does not fit `u64` saturates. Pinned by `state::tests::a_clock_before_1970_reads_as_zero_instead_of_panicking`. The nonce, lease and rate clocks are the monotonic `SystemClock` anchored once at startup, so a stepped clock after startup cannot reach them.
 
 ### F26 — Startup log prints `UPSTREAM_URL`
 
@@ -1088,7 +1107,7 @@ instead of `dtolnay/rust-toolchain`, whose only reference is a moving `master` b
 
 ### F29 — Image supply chain: no image vulnerability scan; unsigned private-registry mirror; `.dockerignore` gaps
 
-**Severity:** Low   **Disposition:** MITIGATED (0.0.22; commit `40a7e89`; the private-mirror part is settled by design on 2026-10-19 (OQ8) and waits only for registry credentials; licence notices remain)
+**Severity:** Low   **Disposition:** MITIGATED (0.0.22; commit `40a7e89`; the private-mirror part is settled by design on 2026-10-19 (OQ8) and waits only for registry credentials; licence notices shipped in 0.0.29, commit pending)
 **Where:**
 
 - `.github/workflows/docker-publish.yml` (Trivy image scan before signing, merge job); `mirror-private`
@@ -1118,11 +1137,18 @@ is identical and `cosign verify` accepts the signature on the copy (build once, 
 workspace `docs/images/IMAGES.md` "Consensus", `bootstrap/images/lib.sh` `consensus_resolve`). Signatures,
 SBOM and provenance are therefore produced once, at quay.io, and there is no separate signing on the mirror.
 The job has not run live: the `PRIVATE_REGISTRY_*` credentials are unset (`OPERATOR_TASKS.md`), so the copy
-and the verification on it are unexercised. Still open: licence notices for the compiled crates are not shipped (recommendation:
-generate a third-party notices file with `cargo about` from the same `deny.toml` licence allow-list in the
-build stage and copy it into the image; not done here because the Docker build cannot be run locally and
-the SBOM already lists the crates and their licences); CI compiles with `stable`, the image with the
-digest-pinned `rust:1-slim`, and the two are not compared.
+and the verification on it are unexercised. Licence notices (done 2026-10-22, 0.0.29, commit pending): the Dockerfile has a `notices`
+stage that installs `cargo-about` 0.9.2 and runs `cargo about generate --locked --fail` over `gateway-rust/Cargo.toml` with
+`gateway-rust/about.toml` (accepted: 0BSD, Apache-2.0, BSD-3-Clause, CDLA-Permissive-2.0, ISC, MIT, Unicode-3.0,
+Unlicense; a crate under any other licence fails the build, and the list is a subset of `deny.toml`'s) and `about.hbs` (licence
+text once per licence, with the crates that use it); the runtime stage copies the result to
+`/app/THIRD_PARTY_LICENSES.txt` and the build fails unless it contains an Apache licence text. A new `notices` job in
+`rust-ci.yml` builds that stage alone on every push and pull request and checks the file (non-empty, the Apache text,
+the heading, `nft-gate-gateway` and `hyper` listed). Verified locally with rootless podman: the stage builds, and the file lists
+175 crates (108 Apache-2.0, 34 MIT, 19 Unicode-3.0, 7 BSD-3-Clause, 4 ISC, 2 0BSD, 1 CDLA-Permissive-2.0), 239 kB; the
+full image build is recorded in the log entry. Why MITIGATED stays: the first live run of the self-hosted-registry copy needs
+the registry credentials (maintainer, `OPERATOR_TASKS.md`), and CI compiles with `stable` while the image uses the
+digest-pinned `rust:1-slim`, which are not compared (a note, not a gap the lens requires closed).
 
 ### F30 — Registry credentials are long-lived tokens without a recorded inventory
 
@@ -1602,7 +1628,7 @@ produces were asserted only by this repository's own tests, so a change in one i
 | I11 | Every outbound call has a timeout and a bounded response | `http_client.rs::send`, `proxy.rs` (504) | — | HOLDS (code-only) |
 | I12 | gRPC-web decoding bounded; missing `grpc-status` is an error | `grpc.rs` | 4 proptests; `unframe_*` tests | HOLDS |
 | I13 | Store ops atomic; store unavailability fails closed (503, never a conflict) | `challenge.rs` Redis impl; `main.rs` | `redis_backend_round_trip` (ignored; env-gated) | HOLDS (code-only) |
-| I14 | Pre-auth limits keyed on a trusted client address (IPv6 by /64); gated limited before verification | `main.rs::client_ip`, `rate_key`, `handle` | `client_ip_*`, `ipv6_clients_are_keyed_by_their_slash_64`, `gated_requests_are_rate_limited_per_ip_before_verification` | HOLDS (F9; limiter map not swept, F10) |
+| I14 | Pre-auth limits keyed on a trusted client address (IPv6 by /64); gated limited before verification; windows swept and capped | `main.rs::client_ip`, `rate_key`, `handle`, `AppState::sweep`; `core/src/redemption.rs` `RateTable` | `client_ip_*`, `ipv6_clients_are_keyed_by_their_slash_64`, `gated_requests_are_rate_limited_per_ip_before_verification`, `the_cap_bounds_the_table_and_evicts_the_soonest_ending_window`, `the_periodic_sweep_covers_the_rate_windows_without_changing_a_verdict` | HOLDS (F9, F10) |
 | I15 | Inbound `Authorization`/`X-Access-Proof`/`cf-access-*` stripped; injected headers replace client ones | `headers.rs::upstream_request_headers`; `http_client.rs::insert_auth` | `request_strips_hop_by_hop_connection_named_credentials_and_spoofable_fields`, `upstream_auth_headers_are_json_only` | HOLDS |
 | I16 | Hop-by-hop (and `Connection`-named) fields stripped both directions; cookies stripped from responses (`SECURITY.md` inv. 6) | `headers.rs` | `request_strips_…`, `response_strips_hop_by_hop_cookies_and_upstream_cors` | HOLDS (F13) |
 | I17 | CORS: exact allowlist only, `Vary: Origin`, preflight before auth, on errors; upstream CORS never survives | `main.rs::cors`, `headers.rs` | three `cors_*` tests; `response_strips_…`; router test `the_upstream_sees_the_request_but_no_credential_and_its_cors_grants_are_dropped` | HOLDS (F12) |
@@ -1715,7 +1741,7 @@ On-chain capabilities: none (the gateway holds no `AdminCap` and signs nothing).
 | `cargo clippy --all-targets --locked -- -D warnings` in CI | Yes | `rust-ci.yml` |
 | `cargo audit` and `cargo deny` in CI | Yes — deny, whose advisories check uses the RustSec database `cargo audit` reads (F28); coverage figure in the job summary | `rust-ci.yml` |
 | MSRV job checks `rust-version` | Yes | `msrv` job, toolchain 1.88, `cargo check --locked` |
-| Image per IMG lens | Mostly | B.IMG-1, F29 (licence notices; first live mirror run) |
+| Image per IMG lens | Mostly | B.IMG-1, F29 (first live mirror run; licence notices shipped in 0.0.29, `notices` job in `rust-ci.yml`) |
 | Crates via trusted publishing, no `--allow-dirty` | Yes | `crates-publish.yml` (`cargo publish --locked`) |
 
 ### B.IMG-1 Publish & attestation
@@ -2075,7 +2101,7 @@ IMG lens:
 | IMG-M5 | image non-root holds; pod context unverified | F32 |
 | IMG-M6 | unverified | F32 |
 | IMG-M7 | holds for public registries; the self-hosted copy carries the same signature by design (OQ8, 2026-10-19), unexercised until credentials exist | F29 |
-| IMG-M8 | partly (scan before signing, lockfile in the image for the SBOM and a published verification command from 0.0.22; licence notices not shipped; the `v0.0.22` run passed; SBOM content not re-fetched) | F29 |
+| IMG-M8 | partly (scan before signing, lockfile in the image for the SBOM and a published verification command from 0.0.22; licence notices shipped from 0.0.29 (`/app/THIRD_PARTY_LICENSES.txt`, checked by the `notices` CI job); the `v0.0.22` run passed; SBOM content not re-fetched) | F29 |
 
 AUTH lens:
 
@@ -2124,7 +2150,7 @@ PROXY lens:
   path)` can never produce surprising URLs.
 - **S9** SHOULD give public paths their own limiter and `PUBLIC_RATE_LIMIT_PER_MIN` (env parity with
   Workers). Today a client polling `/v1/tip-config` spends its `/v1/challenge` budget and vice versa.
-- **S10** (scan, lockfile and verification command done in 0.0.22; licence notices remain) SHOULD build the image with `cargo auditable` (or ship `Cargo.lock` and licence notices) so
+- **S10** (scan, lockfile and verification command done in 0.0.22; licence notices done in 0.0.29) SHOULD build the image with `cargo auditable` (or ship `Cargo.lock` and licence notices) so
   the SBOM lists the compiled crates, add `trivy image` before signing, and publish a `cosign verify`
   command that pins the publish workflow identity (F29).
 - **S11** (decided in 0.0.22: hermetic fixtures plus an env-supplied fresh consume) SHOULD make the live test self-refreshing (find a recent `AccessConsumedEvent` at run time,
@@ -2380,6 +2406,16 @@ PROXY lens:
     the Rust Worker is live (cutover 2026-10-20, `gateway-workers` audit); the TypeScript Worker is retired after a clean week (maintainer). Counts unchanged.
   - Not verified here: the advisory fix against `cargo deny` (taken from the release commit message and the green `Rust CI` run of 2026-10-22 on `main`).
 
+- 2026-10-22 (fix wave, 0.0.29, committed locally, unreleased) — rate windows bounded (F10), clock read logged (F25), licence notices in the image (F29).
+  - **Done:** F10 RESOLVED (`RateTable::prune` / `check_capped`, `MemoryRates` bounded at 100,000 windows per table with `prune()`, the background task sweeps nonces and rate windows through `AppState::sweep`);
+    F25 RESOLVED (`state::unix_ms`, one conversion for the whole adapter; a pre-1970 clock reads 0 and logs); F29's licence-notices item done (`notices` Dockerfile stage with `cargo-about`, `gateway-rust/about.toml`
+    and `about.hbs`, `/app/THIRD_PARTY_LICENSES.txt`, a `notices` job in `rust-ci.yml`), F29 stays MITIGATED for the unexercised mirror copy. The version is 0.0.29 for every artifact (`check-versions.sh`).
+  - **Measured 2026-10-22:** `cargo fmt --check` clean; `cargo clippy --all-targets --locked --workspace -- -D warnings` clean; `cargo test --locked --workspace` 230 passed, 0 failed, 3 ignored (core 135, gateway-rust 67; 222 before: +6 core, +2 gateway);
+    `cargo +1.88 check --locked -p nft-gate-core -p nft-gate-gateway` passes; `cargo build -p nft-gate-core --target wasm32-unknown-unknown --locked` passes; `cargo deny check` (advisories, bans, licences, sources) ok;
+    `scripts/check-versions.sh` passes (0.0.29); rootless `podman build --target notices -f gateway-rust/Dockerfile .` succeeds and the file holds 175 crates (Apache-2.0 108, MIT 34, Unicode-3.0 19, BSD-3-Clause 7, ISC 4, 0BSD 2, CDLA-Permissive-2.0 1); the full rootless `podman build -f gateway-rust/Dockerfile .` succeeds and the image holds `/app/THIRD_PARTY_LICENSES.txt` (239,281 bytes, identical to the stage output) beside `/app/Cargo.lock`.
+  - **Counts:** **29 RESOLVED, 3 MITIGATED** (F27, F29, F49), **6 ADJUDICATED, 2 ACCEPTED-RISK** (F11, F34), **3 DEFERRED** (F30, F31, F32); 8 Positive.
+  - **Not done / not verified here:** a GitHub run of the new `notices` job and of the Docker publish with the added stage (CI runs them on push; the local rootless build stands in); the Worker's workerd suites (the core change is additive: `RateTable::check` is unchanged).
+
 ## Pre-save consistency checklist (this pass)
 
 - [x] Section A ↔ findings — every GAP row cites an accepted or deferred finding (I27 F32 only); HOLDS rows cite a RESOLVED/ADJUDICATED finding or none.
@@ -2393,6 +2429,6 @@ PROXY lens:
   unticked items cite F29–F32 or maintainer items.
 - [x] Executive summary reflects current dispositions.
 - [x] Counts and versions re-measured 2026-10-19 (0.0.26 locally: tests, fmt, clippy, MSRV, deny; published versions as read 2026-10-19).
-- [x] Re-verification log entry added (2026-10-22, 0.0.28).
+- [x] Re-verification log entry added (2026-10-22, 0.0.28; fix wave 0.0.29).
 - [x] F51 (2026-10-22) present in the header status, Section A (I32, I33), the B.SC-3 table, Section D (pre-testnet parity) and the log.
 - [x] New findings F49 and F50 present in the executive summary, the header status, the Section B.SC-3 table and Section D (pre-localnet test count).

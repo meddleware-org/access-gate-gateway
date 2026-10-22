@@ -159,7 +159,16 @@ impl NonceTable {
     }
 }
 
+/// Length of a rate window.
+const RATE_WINDOW_MS: u64 = 60_000;
+
 /// Fixed 60 s window per key (mirrors `rateCheck`). Returns true if the request is allowed.
+///
+/// Memory is bounded two ways: [`RateTable::prune`] drops windows that have ended (the periodic sweep of
+/// a long-lived process), and [`RateTable::check_capped`] never lets the table hold more than `max_keys`
+/// windows: a new key that finds it full first drops the ended windows and, if the table is still full,
+/// the window that ends soonest. Evicting forgets that key's count, so the limiter fails open for the
+/// evicted key rather than closed for every new one (a flood of distinct keys must not lock the others out).
 #[derive(Default)]
 pub struct RateTable {
     rows: HashMap<String, (u64, u64)>,
@@ -170,13 +179,20 @@ impl RateTable {
         Self::default()
     }
 
+    /// [`RateTable::check_capped`] without a bound on the number of keys.
     pub fn check(&mut self, key: &str, now: u64, max_per_min: u64) -> bool {
+        self.check_capped(key, now, max_per_min, usize::MAX)
+    }
+
+    /// Charge one request to `key`; `false` when its budget for the current window is spent. The table
+    /// holds at most `max_keys` (at least one) windows.
+    pub fn check_capped(&mut self, key: &str, now: u64, max_per_min: u64, max_keys: usize) -> bool {
         if max_per_min == 0 {
             return true;
         }
         let (mut start, mut count) = (now, 0);
         if let Some(&(s, c)) = self.rows.get(key) {
-            if now.saturating_sub(s) < 60_000 {
+            if now.saturating_sub(s) < RATE_WINDOW_MS {
                 start = s;
                 count = c;
             }
@@ -184,8 +200,36 @@ impl RateTable {
         if count >= max_per_min {
             return false;
         }
+        if !self.rows.contains_key(key) && self.rows.len() >= max_keys.max(1) {
+            self.prune(now);
+            if self.rows.len() >= max_keys.max(1) {
+                if let Some(soonest) = self
+                    .rows
+                    .iter()
+                    .min_by_key(|(_, (s, _))| *s)
+                    .map(|(k, _)| k.clone())
+                {
+                    self.rows.remove(&soonest);
+                }
+            }
+        }
         self.rows.insert(key.to_string(), (start, count + 1));
         true
+    }
+
+    /// Drop the windows that have ended (a key whose window ended starts a fresh one on its next request,
+    /// so this changes no verdict).
+    pub fn prune(&mut self, now: u64) {
+        self.rows
+            .retain(|_, (s, _)| now.saturating_sub(*s) < RATE_WINDOW_MS);
+    }
+
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
     }
 }
 
@@ -275,5 +319,64 @@ mod tests {
         assert!(!r.check("k", 2, 2));
         assert!(r.check("k", 60_001, 2));
         assert!(r.check("z", 0, 0));
+    }
+
+    #[test]
+    fn prune_drops_only_ended_windows_and_changes_no_verdict() {
+        let mut r = RateTable::new();
+        assert!(r.check("old", 0, 1));
+        assert!(r.check("new", 50_000, 1));
+        assert_eq!(r.len(), 2);
+        r.prune(60_000); // "old" ended exactly now; "new" has 50 s left
+        assert_eq!(r.len(), 1);
+        assert!(!r.check("new", 60_001, 1)); // still spent in its window
+        assert!(r.check("old", 60_001, 1)); // a fresh window, as if it had never been pruned
+        r.prune(200_000);
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn the_cap_bounds_the_table_and_evicts_the_soonest_ending_window() {
+        let mut r = RateTable::new();
+        for (i, k) in ["a", "b", "c"].iter().enumerate() {
+            assert!(r.check_capped(k, i as u64, 1, 3));
+        }
+        assert_eq!(r.len(), 3);
+        // a fourth key inside the same minute: the table stays at 3 and "a" (ends soonest) is forgotten
+        assert!(r.check_capped("d", 10, 1, 3));
+        assert_eq!(r.len(), 3);
+        assert!(r.check_capped("a", 11, 1, 3)); // forgotten, so allowed again (fails open for the evicted key)
+        assert!(!r.check_capped("d", 12, 1, 3)); // a retained key keeps its count
+        assert_eq!(r.len(), 3);
+    }
+
+    #[test]
+    fn a_full_table_drops_ended_windows_before_evicting_a_live_one() {
+        let mut r = RateTable::new();
+        assert!(r.check_capped("a", 0, 1, 2));
+        assert!(r.check_capped("b", 59_000, 1, 2));
+        // "a" ended at 60_000: the new key reuses its slot and "b" keeps its count
+        assert!(r.check_capped("c", 60_500, 1, 2));
+        assert_eq!(r.len(), 2);
+        assert!(!r.check_capped("b", 60_600, 1, 2));
+    }
+
+    #[test]
+    fn many_distinct_keys_never_exceed_the_cap() {
+        let mut r = RateTable::new();
+        for i in 0..1_000u64 {
+            assert!(r.check_capped(&format!("k{i}"), i, 5, 64));
+            assert!(r.len() <= 64);
+        }
+        assert_eq!(r.len(), 64);
+    }
+
+    #[test]
+    fn an_unlimited_budget_stores_nothing() {
+        let mut r = RateTable::new();
+        for i in 0..100u64 {
+            assert!(r.check_capped(&format!("k{i}"), i, 0, 4));
+        }
+        assert!(r.is_empty());
     }
 }

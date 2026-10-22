@@ -3,6 +3,10 @@
 All notable changes to the Rust Cloudflare Worker (`nft-gate-worker`, not published to crates.io; built with `worker-build`) are documented here. It is versioned with the
 repository (one version for every artifact).
 
+## [0.0.29] - 2026-10-22
+
+Not deployed. The version moves with the workspace. The core gains a bounded in-memory rate table (`RateTable::check_capped`, `prune`) that the native adapter uses; the Worker keeps its Durable Object windows and its code is unchanged.
+
 ## [0.0.28] - 2026-10-22
 
 Not deployed. Picks up the core's exact-32-byte consume-digest rule (`nft-gate-core` 0.0.28) with no change to the Worker's own code.

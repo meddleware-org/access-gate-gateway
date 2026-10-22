@@ -77,7 +77,7 @@ client's; the core's `Gateway::handle` answers `508 loop detected` to a request 
 `AppState` is the single shared object (`Arc<AppState>`) threaded through every request handler:
 - `cfg: ServerConfig` — loaded from env vars at startup; immutable for the process lifetime. `cfg.gateway` is the core's shared `GatewayConfig`.
 - `store: NonceStore` — in-memory (the core's `MemoryStore` on the system clock) or Redis, depending on `REDIS_URL`.
-- `rates: MemoryRates<SystemClock>` — the core's fixed 60 s windows: per client IP for the challenge and public paths, per client IP for gated requests before verification, and per verified address (post-auth).
+- `rates: MemoryRates<SystemClock>` — the core's fixed 60 s windows: per client IP for the challenge and public paths, per client IP for gated requests before verification, and per verified address (post-auth). Each table holds at most 100,000 windows (`DEFAULT_RATE_MAX_KEYS`; a full table drops ended windows, then the soonest-ending one) and `AppState::sweep` (the `NONCE_PRUNE_INTERVAL_SECS` task) drops ended windows.
 - `chain: SuiRpc` — the core's Sui gRPC-web client over `HyperTransport`; optional in-memory ownership cache.
 - `http: HttpClient` — shared `hyper` client used by both the proxy and the RPC client.
 
@@ -114,7 +114,7 @@ compile-time dep chain (~10 min on GHA). All URLs are operator-configured ASCII 
 
 ## Deployment targets
 
-- **Docker:** Dockerfile uses a multi-stage build (builder → distroless). Published to quay.io and Docker Hub
+- **Docker:** Dockerfile uses a multi-stage build (notices → builder → distroless); the image carries `/app/THIRD_PARTY_LICENSES.txt` (`cargo-about`, `about.toml`; an unaccepted licence fails the build and the `notices` CI job). Published to quay.io and Docker Hub
   (signed, with an SBOM attestation) by `docker-publish.yml` on a `v*` tag.
 - **Kubernetes:** no manifests live in this repo, and the gateway is not deployed (the paywall runs on
   `gateway-workers/`; audit F32, OQ9). Deploy by image digest with a non-root, read-only-root pod.

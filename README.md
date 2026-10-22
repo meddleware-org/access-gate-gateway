@@ -19,7 +19,7 @@ deployment target:
 | Rust / Axum | [`gateway-rust/`](gateway-rust/) | [crates.io](https://crates.io/crates/nft-gate-gateway) / Docker | Docker / k8s | In-memory or Redis |
 
 The live Workers gateway is still TypeScript (`gateway-workers/`) and is **superseded, pending cutover, by a Rust
-Worker (workers-rs) built on the same core**: [`worker/`](worker/) (0.0.28) is built and tested (workerd suites that
+Worker (workers-rs) built on the same core**: [`worker/`](worker/) (0.0.29) is built and tested (workerd suites that
 port every behavioural case of the TypeScript tests, plus a differential run against it), but not yet deployed. The
 maintainer deploys it as a shadow first and cuts over after reading the CPU-time p99 in Workers analytics; the
 TypeScript gateway stays as the rollback until then and is retired afterwards, leaving one implementation of the

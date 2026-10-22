@@ -11,9 +11,23 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// Wall-clock milliseconds since the Unix epoch (for values shown to clients and handed to Redis).
 pub fn wall_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
+    unix_ms(SystemTime::now())
+}
+
+/// `t` as Unix milliseconds. A clock set before 1970 reads as `0` and is logged, never a panic (with
+/// `panic = "abort"` a panic here would restart the process on every call, and a restart empties the
+/// in-memory stores): every expiry then runs from epoch 0, which is wrong but fails no request open.
+fn unix_ms(t: SystemTime) -> u64 {
+    t.duration_since(UNIX_EPOCH).map_or_else(
+        |e| {
+            tracing::error!(
+                behind_by_secs = e.duration().as_secs(),
+                "the system clock is before 1970-01-01; using 0 as the wall time"
+            );
+            0
+        },
+        |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX),
+    )
 }
 
 /// Unix milliseconds that never go backwards: the wall time at startup plus the monotonic time since,
@@ -106,6 +120,14 @@ mod tests {
         let b = c.now_ms();
         assert!(b >= a + 5, "{a} -> {b}");
         assert!(a.abs_diff(wall_ms()) < 1000, "anchored to the wall clock");
+    }
+
+    #[test]
+    fn a_clock_before_1970_reads_as_zero_instead_of_panicking() {
+        use std::time::Duration;
+        assert_eq!(unix_ms(UNIX_EPOCH - Duration::from_secs(5)), 0);
+        assert_eq!(unix_ms(UNIX_EPOCH), 0);
+        assert_eq!(unix_ms(UNIX_EPOCH + Duration::from_millis(1_234)), 1_234);
     }
 
     #[test]

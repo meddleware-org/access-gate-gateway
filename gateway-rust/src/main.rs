@@ -103,6 +103,14 @@ impl AppState {
     }
 }
 
+impl AppState {
+    /// The periodic sweep: expired nonces and ended rate windows (`NONCE_PRUNE_INTERVAL_SECS`).
+    fn sweep(&self) {
+        self.store.prune();
+        self.rates.prune();
+    }
+}
+
 /// Render a gateway-generated answer: `{"error": reason}` (plus `code`), or the challenge. The
 /// operator-only `diag` goes to the log and never to the client.
 fn render(reply: JsonReply) -> Response {
@@ -274,15 +282,16 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(AppState::new(cfg, store, chain, http));
 
-    // Background prune keeps the in-memory nonce map bounded independent of issue cadence
-    // (no-op for the Redis backend, which expires via key TTL).
+    // Background prune keeps the in-memory nonce map and the rate windows bounded independent of
+    // traffic (the nonce prune is a no-op for the Redis backend, which expires via key TTL; the rate
+    // windows are always in memory, and each table is also capped, F10).
     {
         let prune_state = state.clone();
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(std::time::Duration::from_secs(prune_interval));
             loop {
                 ticker.tick().await;
-                prune_state.store.prune();
+                prune_state.sweep();
             }
         });
     }
@@ -460,6 +469,32 @@ mod tests {
         assert_eq!(health.status(), StatusCode::OK);
         let challenge = app.oneshot(get("/v1/challenge")).await.unwrap();
         assert_eq!(challenge.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn the_periodic_sweep_covers_the_rate_windows_without_changing_a_verdict() {
+        use tower::ServiceExt;
+        let mut cfg = tests_support::test_cfg();
+        cfg.gateway.challenge_rate_limit_per_min = 1;
+        let state = Arc::new(test_state(cfg));
+        let app = build_router(state.clone());
+        let challenge = || {
+            axum::http::Request::builder()
+                .uri("/v1/challenge")
+                .body(axum::body::Body::empty())
+                .unwrap()
+        };
+        assert_eq!(
+            app.clone().oneshot(challenge()).await.unwrap().status(),
+            StatusCode::OK
+        );
+        assert!(state.rates.key_count() >= 1, "the request opened a window");
+        state.sweep(); // the window is still running: nothing to drop, and the budget stays spent
+        assert!(state.rates.key_count() >= 1);
+        assert_eq!(
+            app.oneshot(challenge()).await.unwrap().status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
     }
 
     fn cors_app() -> Router {

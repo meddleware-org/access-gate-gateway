@@ -2,6 +2,10 @@
 
 All notable changes to `@meddleware/nft-gate-gateway` are documented here.
 
+## [0.0.29] - 2026-10-22
+
+No change to the Worker's code or package contents; the version moves with the Cargo workspace (one version for every artifact).
+
 ## [0.0.28] - 2026-10-22
 
 Released with `@meddleware/nft-gate-client` 0.0.18 (the dependency is `^0.0.18`; publish the client first).

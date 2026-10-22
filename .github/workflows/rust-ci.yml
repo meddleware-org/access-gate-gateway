@@ -194,3 +194,24 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: "1"
           ignore-unfixed: true
+
+  # cargo-about fails the stage when a linked crate's licence is not accepted by gateway-rust/about.toml.
+  # The same stage produces the file the image ships as /app/THIRD_PARTY_LICENSES.txt (F29).
+  notices:
+    name: Third-party licence notices (gateway-rust image stage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the notices stage
+        run: docker build --file gateway-rust/Dockerfile --target notices --tag nft-gate-gateway:notices .
+
+      - name: The notices cover the linked crates
+        run: |
+          docker run --rm --entrypoint cat nft-gate-gateway:notices /out/THIRD_PARTY_LICENSES.txt > THIRD_PARTY_LICENSES.txt
+          test -s THIRD_PARTY_LICENSES.txt
+          grep -q 'Apache License' THIRD_PARTY_LICENSES.txt
+          grep -q '^Third-party software in the nft-gate-gateway image' THIRD_PARTY_LICENSES.txt
+          # the gateway's own crates and a crate every build links (hyper) are listed
+          grep -q 'nft-gate-gateway ' THIRD_PARTY_LICENSES.txt
+          grep -q ' hyper ' THIRD_PARTY_LICENSES.txt

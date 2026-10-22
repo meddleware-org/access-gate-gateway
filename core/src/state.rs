@@ -169,20 +169,34 @@ pub struct RateBudgets {
     pub address: u32,
 }
 
-/// Fixed 60-second windows per key, in process memory.
+/// The most windows each of the three rate tables holds by default (see [`MemoryRates::with_max_keys`]).
+/// A window is a short string and two integers, so a full table is a few tens of megabytes.
+pub const DEFAULT_RATE_MAX_KEYS: usize = 100_000;
+
+/// Fixed 60-second windows per key, in process memory. Each table is bounded: [`MemoryRates::prune`]
+/// (run periodically by the platform) drops ended windows, and a table that is full evicts before it
+/// grows (see [`RateTable::check_capped`]).
 pub struct MemoryRates<C: Clock> {
     clock: C,
     budgets: RateBudgets,
+    max_keys: usize,
     ip: Mutex<RateTable>,
     preauth: Mutex<RateTable>,
     address: Mutex<RateTable>,
 }
 
 impl<C: Clock> MemoryRates<C> {
+    /// Tables bounded at [`DEFAULT_RATE_MAX_KEYS`] windows each.
     pub fn new(clock: C, budgets: RateBudgets) -> Self {
+        Self::with_max_keys(clock, budgets, DEFAULT_RATE_MAX_KEYS)
+    }
+
+    /// Tables bounded at `max_keys` (at least one) windows each.
+    pub fn with_max_keys(clock: C, budgets: RateBudgets, max_keys: usize) -> Self {
         Self {
             clock,
             budgets,
+            max_keys: max_keys.max(1),
             ip: Mutex::new(RateTable::new()),
             preauth: Mutex::new(RateTable::new()),
             address: Mutex::new(RateTable::new()),
@@ -196,7 +210,24 @@ impl<C: Clock> MemoryRates<C> {
             RateScope::GatedPreauth => (&self.preauth, self.budgets.gated_preauth),
             RateScope::Address => (&self.address, self.budgets.address),
         };
-        locked(table).check(key, self.clock.now_ms(), u64::from(budget))
+        locked(table).check_capped(key, self.clock.now_ms(), u64::from(budget), self.max_keys)
+    }
+
+    /// Drop the windows that have ended, in all three tables (the periodic sweep that bounds memory
+    /// independent of traffic; it changes no verdict).
+    pub fn prune(&self) {
+        let now = self.clock.now_ms();
+        for table in [&self.ip, &self.preauth, &self.address] {
+            locked(table).prune(now);
+        }
+    }
+
+    /// Live windows across the three tables.
+    pub fn key_count(&self) -> usize {
+        [&self.ip, &self.preauth, &self.address]
+            .into_iter()
+            .map(|t| locked(t).len())
+            .sum()
     }
 }
 
@@ -404,6 +435,32 @@ mod tests {
         }
         clock.advance(60_000);
         assert!(rates.check(RateScope::Challenge, "a")); // a new window
+    }
+
+    #[test]
+    fn prune_sweeps_ended_windows_and_the_cap_bounds_each_table() {
+        let clock = ManualClock::default();
+        let budgets = RateBudgets {
+            ip: 5,
+            gated_preauth: 5,
+            address: 5,
+        };
+        let rates = MemoryRates::with_max_keys(clock.clone(), budgets, 4);
+        for i in 0..50 {
+            assert!(rates.check(RateScope::Public, &format!("ip{i}")));
+            assert!(rates.check(RateScope::GatedPreauth, &format!("ip{i}")));
+            assert!(rates.check(RateScope::Address, &format!("0x{i}")));
+            assert!(rates.key_count() <= 12, "3 tables x 4 keys");
+        }
+        assert_eq!(rates.key_count(), 12);
+        clock.advance(59_999);
+        rates.prune();
+        assert_eq!(rates.key_count(), 12, "windows still running are kept");
+        clock.advance(1);
+        rates.prune();
+        assert_eq!(rates.key_count(), 0, "every ended window is swept");
+        // the default bound is large but finite
+        assert_eq!(DEFAULT_RATE_MAX_KEYS, 100_000);
     }
 
     #[test]

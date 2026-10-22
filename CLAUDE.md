@@ -15,7 +15,7 @@ rate / redemption state machines, the header / path / CORS / config policy and t
 A gateway is an adapter that supplies only I/O: `gateway-rust/` (hyper / axum / Redis) and the Cloudflare Worker.
 
 The maintainer's standing rule is **no JS/TS backend code**. The live Worker `gateway-workers/` (TypeScript) is therefore
-being replaced by the Rust Worker `worker/` (workers-rs) on the same core. Status (0.0.28): **built and tested, shadow not yet
+being replaced by the Rust Worker `worker/` (workers-rs) on the same core. Status (0.0.29): **built and tested, shadow not yet
 deployed**. `gateway-workers/` is marked superseded-pending-cutover and is NOT deleted: it is the live deployment and the rollback until
 the maintainer has shadow-deployed the Rust Worker (`deploy-worker-rust.yml`, mode `shadow`), read the CPU-time p99 ≤ 5 ms and p99.9 ≤ 10 ms in
 Workers analytics over a week on Free, cut over (same Worker name, Durable Object class `NonceRateState`, migration tag `v1`, so the live DO data is kept), and

@@ -17,7 +17,8 @@
 | `src/headers.rs` | applies the core's header policy to `http::HeaderMap` |
 | `src/grpc.rs`, `src/sui_rpc.rs` | `HyperTransport`; `new_sui_rpc`; hermetic gRPC-web fixtures |
 | `src/http_client.rs` | `HttpClient` — shared hyper/rustls async client |
-| `Dockerfile` | Multi-stage Docker build (builder → distroless); build context is the repository root |
+| `Dockerfile` | Multi-stage Docker build (notices → builder → distroless); build context is the repository root |
+| `about.toml`, `about.hbs` | `cargo-about` configuration (accepted licences) and template for `/app/THIRD_PARTY_LICENSES.txt` |
 | `Cargo.toml` | Crate manifest (version, edition and MSRV inherited from the workspace) |
 
 Decision logic lives in `../core/src`: `decision.rs` (verify_access_request, `Denied`), `sig.rs`, `proof.rs`, `chain.rs`,

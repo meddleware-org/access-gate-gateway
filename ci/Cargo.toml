@@ -13,5 +13,5 @@ name = "nft-gate-ci"
 path = "src/main.rs"
 
 [dependencies]
-nft-gate-core = { version = "=0.0.28", path = "../core" }
+nft-gate-core = { version = "=0.0.29", path = "../core" }
 anyhow = "1"

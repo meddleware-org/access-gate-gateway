@@ -1,6 +1,6 @@
 # worker — the nft-gate gateway as a Cloudflare Worker, in Rust
 
-**Status (0.0.28, 2026-10-22): built and tested; the shadow deploy has not been made.** This crate replaces the
+**Status (0.0.29, 2026-10-22): built and tested; the shadow deploy has not been made.** This crate replaces the
 TypeScript Worker ([`../gateway-workers`](../gateway-workers/), still the live deployment and the rollback) 1:1,
 under the maintainer's standing rule of no JS/TS backend code. All decisions are the shared
 [`nft-gate-core`](../core/); this crate supplies only I/O: Durable Object state, a streamed `fetch` upstream, the

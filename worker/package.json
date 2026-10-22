@@ -1,6 +1,6 @@
 {
   "name": "@meddleware/nft-gate-worker-harness",
-  "version": "0.0.28",
+  "version": "0.0.29",
   "private": true,
   "type": "module",
   "description": "Black-box test harness and deploy tooling for the Rust Worker (wrangler + workerd). Test code only: no Worker logic lives here.",
