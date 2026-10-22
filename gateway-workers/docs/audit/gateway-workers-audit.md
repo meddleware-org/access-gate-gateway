@@ -1501,7 +1501,7 @@ enabled); an unknown field now fails loudly.
 
 ### F51 — Rust Worker: a panic is an uncatchable wasm trap (Rust Worker, built, not deployed)
 
-**Severity:** Low   **Disposition:** MITIGATED (0.0.27; commit pending)
+**Severity:** Low   **Disposition:** MITIGATED (0.0.27; commit 5ff4ddf)
 **Where:** `worker/Cargo.toml` (`[lints.clippy]`), `worker/scripts/lint-canary.sh`, `worker/tests/panic.test.mjs`, `.github/workflows/rust-ci.yml` (`worker` job).
 
 **Issue:** On wasm32 a Rust panic is a trap: it cannot be caught and turned into the JSON + CORS answer every other failure gets. The TypeScript Worker has a
@@ -1517,7 +1517,7 @@ Residual: arithmetic overflow aborts (`overflow-checks = true`, as in the native
 
 ### F52 — Rust Worker: workers-rs, wasm-bindgen and worker-build are 0.x and move together (Rust Worker, built, not deployed)
 
-**Severity:** Low   **Disposition:** ACCEPTED-RISK (0.0.27; commit pending)
+**Severity:** Low   **Disposition:** ACCEPTED-RISK (0.0.27; commit 5ff4ddf)
 **Where:** `worker/Cargo.toml`, `worker/README.md` ("Toolchain"), `.github/dependabot.yml`.
 
 **Issue:** workers-rs is 0.x (its MSRV rose in a patch release), the `wasm-bindgen` CLI that `worker-build` runs must equal the crate exactly, and the generated JS glue (about 32 KB, build output) ships in the bundle.
@@ -1529,7 +1529,7 @@ this crate only (core and gateway-rust stay at 1.88; the `msrv` job keeps checki
 
 ### F53 — Rust Worker: build-time downloads of wasm-bindgen, Binaryen and esbuild (Rust Worker, built, not deployed)
 
-**Severity:** Low   **Disposition:** MITIGATED (0.0.27; commit pending)
+**Severity:** Low   **Disposition:** MITIGATED (0.0.27; commit 5ff4ddf)
 **Where:** `worker/scripts/fetch-build-tools.sh`, `rust-ci.yml`, `deploy-worker-rust.yml`.
 
 **Issue:** `worker-build` downloads three binaries at build time without verifying them.
@@ -1541,7 +1541,7 @@ this crate only (core and gateway-rust stay at 1.88; the `msrv` job keeps checki
 
 ### F54 — Rust Worker: Durable Object continuity across the cutover (Rust Worker, built, not deployed)
 
-**Severity:** Medium   **Disposition:** MITIGATED (0.0.27; commit pending)
+**Severity:** Medium   **Disposition:** MITIGATED (0.0.27; commit 5ff4ddf)
 **Where:** `worker/src/do_state.rs`, `worker/wrangler.toml`, `worker/tests/state.test.mjs`, `deploy-worker-rust.yml`.
 
 **Issue:** A deploy under a different script name, class or migration tag starts with empty Durable Object storage: the 30-day redemption record is lost, so every spent consume becomes redeemable once more (a replay window bounded by the 5-day consume age, F24).
@@ -1555,7 +1555,7 @@ TypeScript Worker keeps working because both read the same tables.
 
 ### F55 — Rust Worker: CPU time of the wasm Worker on Free is not measurable locally (Rust Worker, built, not deployed)
 
-**Severity:** Medium   **Disposition:** MITIGATED (0.0.27; commit pending) — the edge percentiles are read after the shadow deploy (as F11)
+**Severity:** Medium   **Disposition:** MITIGATED (0.0.27; commit 5ff4ddf) — the edge percentiles are read after the shadow deploy (as F11)
 **Where:** `worker/README.md` ("Runbook", "Measurements"), `worker/scripts/coldstart.mjs`.
 
 **Issue:** The Free plan allows 10 ms of CPU per request. workerd exposes no CPU clock; whether the platform charges wasm instantiation to the first request can only be read from a deployment.
@@ -1578,7 +1578,7 @@ for the shadow Worker; if it fails, the options are listed (opt-level, bundle si
 
 ### F57 — Rust Worker: the test-hooks build is a different binary from the deployed one (Rust Worker, built, not deployed)
 
-**Severity:** Low   **Disposition:** MITIGATED (0.0.27; commit pending)
+**Severity:** Low   **Disposition:** MITIGATED (0.0.27; commit 5ff4ddf)
 **Where:** `worker/src/hooks.rs`, `worker/Cargo.toml` (`[features] test-hooks`), `worker/tests/panic.test.mjs`.
 
 **Issue:** Seams the suites need (the Durable Object with a pinned clock, fault injection, a signature benchmark, the quota GraphQL URL override, a panic route) exist only under the cargo feature `test-hooks`, so part of the suites run on a build that is not the deployed one.
@@ -1590,7 +1590,7 @@ redemption, config, limits, chain, differential) runs on the feature-less build,
 
 ### F58 — The digest check was shape-only, and this Worker's answers were not pinned to the shared contract
 
-**Severity:** Info   **Disposition:** RESOLVED (0.0.28; commit pending; needs `@meddleware/nft-gate-client` 0.0.18)
+**Severity:** Info   **Disposition:** RESOLVED (0.0.28; commit 5ff4ddf; needs `@meddleware/nft-gate-client` 0.0.18)
 **Where:** `src/wire.ts` (re-exports `isTransactionDigest`), `src/verify.ts:268`, `src/index.ts`, `src/redemption.ts`, the new `src/responses.ts`.
 **Issue:** `isTransactionDigest` (imported from the client) accepted any 32-44 character base58 string, so a digest that decodes to 31 or 33 bytes reached the fullnode (and ended as a 403 after the bounded retries; F14). The
 status and `{ error, code? }` body of this Worker's own answers were inline in `index.ts` and `redemption.ts` and asserted only by this repository's tests, with no shared expectation to catch drift against the Rust implementations.
@@ -1942,7 +1942,7 @@ PROXY lens §C:
 - [x] admission-state tests (stale holder, lapsed lease, store error) green; sibling passes the shared
   vectors — F3, I25
 - [x] Rust Worker (`worker/`, 0.0.27, replacing this Worker): panic lints enforced with a canary, wasm build with a 1.5 MiB gzip size gate, the workerd suites and the differential
-  run against this Worker in CI (`rust-ci.yml` `worker` job), build tools checksummed — F51, F53, F56, F57 (commit pending)
+  run against this Worker in CI (`rust-ci.yml` `worker` job), build tools checksummed — F51, F53, F56, F57 (commit 5ff4ddf)
 
 ### pre-mainnet
 

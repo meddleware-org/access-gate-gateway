@@ -1503,7 +1503,7 @@ path was already pinned. Not done: shared `headerExtraction` / `redemptionConfli
 
 ### F49 — Two codebases for one decision logic: the TypeScript / Rust drift class
 
-**Severity:** Low   **Disposition:** MITIGATED (0.0.26; commit pending) — one implementation on the Rust side; the class closes when the TypeScript Worker is retired
+**Severity:** Low   **Disposition:** MITIGATED (0.0.26; commit 5ff4ddf) — one implementation on the Rust side; the class closes when the TypeScript Worker is retired
 **Where:** before 0.0.26, `gateway-rust/src/{verify,proof,grpc,sui_rpc,config,headers,challenge,ratelimit,proxy,main}.rs` mirrored by
 `gateway-workers/src/*.ts`; now `core/src/*` (shared) and `gateway-rust/src/*` (adapter).
 **Issue:** The decision logic existed twice, written in two languages and kept in step by shared vectors and hand-written parity tests. Every
@@ -1513,7 +1513,7 @@ is no JS/TS backend code, so the live Worker is to be rebuilt in Rust; a feasibi
 **Impact:** Each drift was a latent security or parity defect; a fix in one gateway only left the other exposed, and an undeployed
 gateway aged unnoticed (Risks).
 
-**Remediation / evidence:** 0.0.26 (commit pending). The decision logic moved into `nft-gate-core` (`core/`, no hyper / tokio / clock / RNG /
+**Remediation / evidence:** 0.0.26 (commit 5ff4ddf). The decision logic moved into `nft-gate-core` (`core/`, no hyper / tokio / clock / RNG /
 logging; builds natively and for `wasm32-unknown-unknown`), a Cargo workspace at the repository root with one version (D16). Moves:
 
 | Before (`gateway-rust/src`) | Now |
@@ -1550,7 +1550,7 @@ Docker build context is now the repository root.
 
 ### F50 — `is_safe_path` disagreed between the gateways on a literal `..` segment
 
-**Severity:** Info   **Disposition:** RESOLVED (0.0.26; commit pending)
+**Severity:** Info   **Disposition:** RESOLVED (0.0.26; commit 5ff4ddf)
 **Where:** `core/src/headers.rs::is_safe_path`; the TypeScript `gateway-workers/src/headers.ts::isSafePath` (unchanged, retiring).
 **Issue:** The Rust rule refused a literal `..` path segment; the TypeScript rule did not (found by the spike, 2026-10-19). On Workers this was not exploitable, because the URL
 parser resolves dot segments before the Worker sees the path. For the Rust Worker's parity, and because here `hyper::Uri` keeps the path as received, one rule had to be chosen.
@@ -1562,7 +1562,7 @@ for every platform. The router-level test `unsafe_paths_and_oversize_or_stalled_
 
 ### F51 — The core's consume-digest check was a shape test, and the gateway answers were not pinned to the shared contract
 
-**Severity:** Info   **Disposition:** RESOLVED (0.0.28; commit pending)
+**Severity:** Info   **Disposition:** RESOLVED (0.0.28; commit 5ff4ddf)
 **Where:** `core/src/proof.rs::is_tx_digest` (used by `decode_access_proof`, `personal_message` and `decision.rs`); `core/src/gateway.rs` (the answers); `conformance/vectors.json`.
 **Issue:** `is_tx_digest` accepted any 32-44 character base58 string. 43 characters can decode to 31 bytes and 44 to 33, and a leading `1` is a zero byte, so a malformed digest reached the fullnode
 and came back as "not found" (the same 403 `ConsumeMissing`, after up to four lookups; F14). The client side had the same gap (nft-gate-client F18). Separately, the status and `{ error, code? }` body each outcome
