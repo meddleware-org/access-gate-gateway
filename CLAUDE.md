@@ -15,7 +15,7 @@ rate / redemption state machines, the header / path / CORS / config policy and t
 A gateway is an adapter that supplies only I/O: `gateway-rust/` (hyper / axum / Redis) and the Cloudflare Worker.
 
 The maintainer's standing rule is **no JS/TS backend code**. The live Worker `gateway-workers/` (TypeScript) is therefore
-being replaced by the Rust Worker `worker/` (workers-rs) on the same core. Status (0.0.27): **built and tested, shadow not yet
+being replaced by the Rust Worker `worker/` (workers-rs) on the same core. Status (0.0.28): **built and tested, shadow not yet
 deployed**. `gateway-workers/` is marked superseded-pending-cutover and is NOT deleted: it is the live deployment and the rollback until
 the maintainer has shadow-deployed the Rust Worker (`deploy-worker-rust.yml`, mode `shadow`), read the CPU-time p99 ≤ 5 ms and p99.9 ≤ 10 ms in
 Workers analytics over a week on Free, cut over (same Worker name, Durable Object class `NonceRateState`, migration tag `v1`, so the live DO data is kept), and
@@ -80,7 +80,9 @@ If you change any of the following, update the core AND (until it is retired) th
 
 The vectors are generated and published by `@meddleware/nft-gate-client` (`scripts/gen-vectors.mjs`,
 `@meddleware/nft-gate-client/vectors.json`). After a wire-format change: release the client, bump it
-in `gateway-workers`, then `node scripts/sync-vectors.mjs` (CI runs it with `--check`).
+in `gateway-workers` (and `worker/package.json`, which pins it exactly), then `node scripts/sync-vectors.mjs` (CI runs it with `--check` against
+the PUBLISHED package). Before the client is published, produce the copy from a local checkout with
+`NFT_GATE_CLIENT_VECTORS=../nft-gate-client/vectors.json node scripts/sync-vectors.mjs`; the override is refused when `CI` is set.
 
 ## Conformance vectors (`conformance/vectors.json`)
 
@@ -91,6 +93,15 @@ Covers:
 - `proofDecode` — base64(JSON) proof token → decoded fields
 - `signatures[]` — one entry per signature scheme (ed25519, secp256k1, secp256r1) with a real
   Sui personal-message signature and the corresponding proof token
+- `txDigest` — the consume-digest rule: base58 (Bitcoin alphabet) that decodes to **exactly 32 bytes** (not just 32–44
+  base58 characters; a leading `1` is a zero byte). `is_tx_digest` in the core and `isTransactionDigest` in the client
+  (which the TypeScript Worker imports) apply it.
+- `responses` — the answer for each gateway outcome (status and `{ error, code? }` body): missing / malformed proof,
+  every denial, rate limit, loop, `redeemed` / `leased` conflict, commit failure, lost lease, store outage. Each
+  implementation maps every outcome name to a stimulus of its own and fails on a name it cannot drive: core
+  `gateway.rs` (`the_shared_response_vectors_are_what_the_gateway_answers`), `gateway-workers/test/conformance.test.ts`
+  (+ `router.test.ts` through the real router) and `worker/tests/conformance.test.mjs` (black box; only a lease that
+  lapses mid-request is unreachable). A new outcome therefore needs all three.
 
 The `gateway-workers` tests (vitest) and the core's tests (`cargo test -p nft-gate-core`, `core/tests/conformance.rs`) load and
 verify the vectors. A test failure here means the implementations have diverged on the wire format.

@@ -324,6 +324,7 @@ verification is a risk to watch, not a measured failure: after each deploy, read
 | `src/index.ts` | `core/src/gateway.rs` + `gateway-rust/src/main.rs` | Request router (challenge / public / gated paths) |
 | `src/config.ts` | `core/src/config.rs` | `env` → typed config (same var names as Rust) |
 | `src/wire.ts` | `core/src/proof.rs` | Proof helpers reused from `@meddleware/nft-gate-client` |
+| `src/responses.ts` | `core/src/gateway.rs` (`JsonReply`, `denied_reply`) | The gateway's own answers (status + `{ error, code? }`), pinned by the shared `responses` vectors |
 | `src/verify.ts` | `core/src/decision.rs`, `sig.rs` | Signature verification + allow/deny decision |
 | `src/chain.ts` | `core/src/chain.rs`, `grpc.rs` | Sui gRPC ownership and consume-event queries |
 | `src/proxy.ts` | `gateway-rust/src/proxy.rs` + `core/src/forward.rs`, `headers.rs` | Body-capped reverse proxy; strips `Host`/`Authorization` |

@@ -70,6 +70,8 @@ cd gateway-workers && npm run type-check
 
 ```bash
 node scripts/sync-vectors.mjs   # vectors come from @meddleware/nft-gate-client
+# before a client release is published (refused when CI is set):
+NFT_GATE_CLIENT_VECTORS=../nft-gate-client/vectors.json node scripts/sync-vectors.mjs
 ```
 
 Both test suites will pick up the new vectors automatically.

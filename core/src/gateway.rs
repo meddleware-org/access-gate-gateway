@@ -937,4 +937,202 @@ mod tests {
         assert!(!state.calls().iter().any(|c| c.starts_with("lease")));
         assert!(up.seen().is_empty());
     }
+
+    /// A chain whose gate is paused with `pause_blocks_access`.
+    struct Paused;
+
+    impl ChainQuery for Paused {
+        async fn owns_nft(&self, _: &str, _: &str, _: Option<&str>) -> anyhow::Result<bool> {
+            Ok(true)
+        }
+        async fn consume_tx_valid(
+            &self,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: Option<&str>,
+            _: u64,
+        ) -> anyhow::Result<bool> {
+            Ok(true)
+        }
+        async fn gate_access_blocked(&self, _: &str) -> anyhow::Result<bool> {
+            Ok(true)
+        }
+    }
+
+    /// The outcomes `conformance/vectors.json` `responses` names, each driven to the answer the gateway
+    /// really produces. A vector outcome without an arm here fails the test, and so does an arm without
+    /// a vector, so the shared contract and this gateway cannot drift apart unnoticed.
+    const DRIVEN: [&str; 16] = [
+        "missing-proof",
+        "bad-proof",
+        "bad-signature",
+        "nonce-invalid",
+        "not-owner",
+        "consume-missing",
+        "gate-paused",
+        "chain-error",
+        "state-unavailable",
+        "rate-limited",
+        "method-not-allowed",
+        "loop-detected",
+        "consume-redeemed",
+        "consume-leased",
+        "commit-failed",
+        "lease-lost",
+    ];
+
+    fn answer(outcome: &str) -> JsonReply {
+        let up = Up::new(200);
+        let (token, _) = golden("ed25519");
+        let owner = || with_token(head("POST", "/v1/x"), &token);
+        let ok = Chain::ok();
+        match outcome {
+            "missing-proof" => json_of(run(
+                &cfg(false),
+                &Fake::new(),
+                &ok,
+                &up,
+                &head("POST", "/v1/x"),
+            )),
+            "bad-proof" => json_of(run(
+                &cfg(false),
+                &Fake::new(),
+                &ok,
+                &up,
+                &with_token(head("POST", "/v1/x"), "!!!"),
+            )),
+            "bad-signature" => {
+                let mut other = cfg(false);
+                other.gateway_origin = "https://other.example".into();
+                json_of(run(&other, &Fake::new(), &ok, &up, &owner()))
+            }
+            "nonce-invalid" => {
+                let state = Fake::new();
+                *state.nonce_valid.lock().unwrap() = false;
+                json_of(run(&cfg(false), &state, &ok, &up, &owner()))
+            }
+            "not-owner" => {
+                let chain = Chain {
+                    owns: Ok(false),
+                    consume: Ok(true),
+                };
+                json_of(run(&cfg(false), &Fake::new(), &chain, &up, &owner()))
+            }
+            "consume-missing" => {
+                let chain = Chain {
+                    owns: Ok(true),
+                    consume: Ok(false),
+                };
+                json_of(run(
+                    &cfg(true),
+                    &Fake::new(),
+                    &chain,
+                    &up,
+                    &single_use_head(),
+                ))
+            }
+            "gate-paused" => {
+                let g = Gateway {
+                    cfg: &cfg(false),
+                    state: &Fake::new(),
+                    chain: &Paused,
+                    upstream: &up,
+                };
+                json_of(pollster::block_on(g.handle(&owner(), "req".to_string())))
+            }
+            "chain-error" => {
+                let chain = Chain {
+                    owns: Err(anyhow::anyhow!("rpc down")),
+                    consume: Ok(true),
+                };
+                json_of(run(&cfg(false), &Fake::new(), &chain, &up, &owner()))
+            }
+            "state-unavailable" => {
+                let state = Fake {
+                    fail_nonce: true,
+                    ..Fake::new()
+                };
+                json_of(run(&cfg(false), &state, &ok, &up, &owner()))
+            }
+            "rate-limited" => {
+                let state = Fake::new();
+                *state.deny_scope.lock().unwrap() = Some(RateScope::Address);
+                json_of(run(&cfg(false), &state, &ok, &up, &owner()))
+            }
+            "method-not-allowed" => json_of(run(
+                &cfg(false),
+                &Fake::new(),
+                &ok,
+                &up,
+                &head("DELETE", "/v1/x"),
+            )),
+            "loop-detected" => {
+                let mut h = head("POST", "/v1/x");
+                h.via = Some("1.1 nft-gate".into());
+                json_of(run(&cfg(false), &Fake::new(), &ok, &up, &h))
+            }
+            "consume-redeemed" | "consume-leased" => {
+                let state = Fake::new();
+                *state.lease.lock().unwrap() = Some(Ok(if outcome == "consume-redeemed" {
+                    Lease::Redeemed
+                } else {
+                    Lease::Leased
+                }));
+                json_of(run(&cfg(true), &state, &ok, &up, &single_use_head()))
+            }
+            "commit-failed" => {
+                let state = Fake::new();
+                *state.commit.lock().unwrap() = Some(Err(anyhow::anyhow!("redis gone")));
+                json_of(run(&cfg(true), &state, &ok, &up, &single_use_head()))
+            }
+            "lease-lost" => {
+                let state = Fake::new();
+                *state.commit.lock().unwrap() = Some(Ok(Commit::Lost));
+                json_of(run(&cfg(true), &state, &ok, &up, &single_use_head()))
+            }
+            other => panic!(
+                "conformance `responses` names an outcome this gateway cannot drive: {other}"
+            ),
+        }
+    }
+
+    #[test]
+    fn the_shared_response_vectors_are_what_the_gateway_answers() {
+        let v: Value = serde_json::from_str(VECTORS).unwrap();
+        let responses = &v["responses"];
+        let cases = responses["cases"].as_array().unwrap();
+        let mut seen: Vec<&str> = Vec::new();
+        for c in cases {
+            let outcome = c["outcome"].as_str().unwrap();
+            let reply = answer(outcome);
+            let expected = match c.get("code") {
+                Some(code) => json!({ "error": c["error"], "code": code }),
+                None => json!({ "error": c["error"] }),
+            };
+            assert_eq!(
+                (u64::from(reply.status), &reply.body),
+                (c["status"].as_u64().unwrap(), &expected),
+                "{outcome}"
+            );
+            seen.push(outcome);
+        }
+        let mut driven = DRIVEN.to_vec();
+        driven.sort_unstable();
+        seen.sort_unstable();
+        assert_eq!(seen, driven, "vector outcomes and driven outcomes differ");
+        // The vectors' own tables agree with what the code emits: a 409 always carries a known code.
+        let codes: Vec<&str> = responses["conflictCodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c.as_str().unwrap())
+            .collect();
+        assert_eq!(codes, ["redeemed", "leased"]);
+        for c in cases.iter().filter(|c| c["status"] == 409) {
+            assert!(codes.contains(&c["code"].as_str().unwrap()));
+        }
+        assert_eq!(responses["statuses"]["loopDetected"], 508);
+        assert_eq!(responses["statuses"]["methodNotAllowed"], 405);
+    }
 }

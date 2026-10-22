@@ -3,7 +3,7 @@
 //! crate alone, natively. The wasm32 build is checked by `worker/tests` through workerd.
 use base64::prelude::*;
 use nft_gate_core::origin::is_canonical_origin;
-use nft_gate_core::proof::{decode_access_proof, personal_message, MessageContext};
+use nft_gate_core::proof::{decode_access_proof, is_tx_digest, personal_message, MessageContext};
 use nft_gate_core::sig::{normalize_address, verify_personal_message_signature};
 
 const VECTORS: &str = include_str!("../../conformance/vectors.json");
@@ -57,6 +57,14 @@ fn conformance_shared_vectors() {
             "must reject: {}",
             case["name"]
         );
+    }
+    for case in v["txDigest"]["valid"].as_array().unwrap() {
+        let d = case["digest"].as_str().unwrap();
+        assert!(is_tx_digest(d), "must accept: {}", case["name"]);
+    }
+    for case in v["txDigest"]["invalid"].as_array().unwrap() {
+        let d = case["digest"].as_str().unwrap();
+        assert!(!is_tx_digest(d), "must refuse: {}", case["name"]);
     }
     for case in v["addressNormalization"]["cases"].as_array().unwrap() {
         let input = case["input"].as_str().unwrap();

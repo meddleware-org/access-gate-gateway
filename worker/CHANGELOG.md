@@ -3,6 +3,18 @@
 All notable changes to the Rust Cloudflare Worker (`nft-gate-worker`, not published to crates.io; built with `worker-build`) are documented here. It is versioned with the
 repository (one version for every artifact).
 
+## [0.0.28] - 2026-10-22
+
+Not deployed. Picks up the core's exact-32-byte consume-digest rule (`nft-gate-core` 0.0.28) with no change to the Worker's own code.
+
+### Added
+
+- `tests/conformance.test.mjs`: the shared `responses` vectors, black box (15 of the 16 outcomes: missing and malformed proof, bad signature, replayed nonce, no pass, no consume, paused gate, chain down, store outage, rate limit, 405, 508, redeemed, leased, failed commit; a lease that lapses mid-request cannot be reached from outside and is pinned in the core).
+
+### Changed
+
+- The harness pins `@meddleware/nft-gate-client` 0.0.18; the stub fullnode's `txDigest()` counts leading zero bytes (a random digest with a zero first byte decoded to 31 bytes under the exact-length rule).
+
 ## [0.0.27] - 2026-10-19
 
 First version. **Built and tested; not deployed** (the maintainer shadow-deploys it with `deploy-worker-rust.yml`, reads the CPU-time p99/p99.9 in Workers analytics, then cuts over;

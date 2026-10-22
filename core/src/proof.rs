@@ -22,7 +22,7 @@
 //! `base64(UTF-8 JSON)` of `{ "address", "nonce", "signature", "consumeDigest"? }` (camelCase
 //! `consumeDigest`, normalised to `consume_digest` here). Every field is validated by the same
 //! grammar the client applies when it encodes: address `0x` + 1-64 hex digits, nonce
-//! `[A-Za-z0-9._~-]{1,128}`, signature base64 (at most 1024 characters), consume digest base58.
+//! `[A-Za-z0-9._~-]{1,128}`, signature base64 (at most 1024 characters), consume digest base58 that decodes to 32 bytes.
 
 use base64::prelude::*;
 
@@ -67,11 +67,39 @@ pub fn is_nonce(s: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'~' | b'-'))
 }
 
-/// A base58 Sui transaction digest: 32-44 characters of the Bitcoin alphabet (no `0 O I l`).
+/// The Bitcoin base58 alphabet (no `0 O I l`).
+const BASE58: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+/// A Sui transaction digest is a 32-byte hash.
+const TX_DIGEST_BYTES: usize = 32;
+
+/// The number of bytes the base58 string `s` decodes to (every leading `1` is one zero byte), or `None`
+/// if it holds a character outside the alphabet. No dependency; callers bound `s` to 44 characters first,
+/// so the quadratic loop is tiny.
+fn base58_decoded_len(s: &str) -> Option<usize> {
+    let zeros = s.bytes().take_while(|&b| b == b'1').count();
+    let mut magnitude: Vec<u8> = Vec::new(); // little-endian, no high zero byte
+    for b in s.bytes().skip(zeros) {
+        let mut carry = u32::try_from(BASE58.iter().position(|&a| a == b)?).ok()?;
+        for byte in &mut magnitude {
+            carry += u32::from(*byte) * 58;
+            *byte = (carry & 0xff) as u8;
+            carry >>= 8;
+        }
+        while carry > 0 {
+            magnitude.push((carry & 0xff) as u8);
+            carry >>= 8;
+        }
+    }
+    Some(zeros + magnitude.len())
+}
+
+/// A Sui transaction digest: base58 (Bitcoin alphabet, no `0 O I l`) that decodes to exactly 32 bytes.
+/// 32 bytes encode to 32-44 characters (each leading zero byte is a `1`), but the length alone is not
+/// enough: 43 characters can be 31 bytes and 44 can be 33. Mirror of `isTransactionDigest` in
+/// `@meddleware/nft-gate-client`; the shared `txDigest` vectors pin both.
 pub fn is_tx_digest(s: &str) -> bool {
-    (32..=44).contains(&s.len())
-        && s.bytes()
-            .all(|b| b.is_ascii_alphanumeric() && !matches!(b, b'0' | b'O' | b'I' | b'l'))
+    (32..=44).contains(&s.len()) && base58_decoded_len(s) == Some(TX_DIGEST_BYTES)
 }
 
 /// `0x` followed by 1-64 hex digits (either case).
@@ -234,6 +262,58 @@ mod tests {
         assert!(String::from_utf8(single)
             .unwrap()
             .ends_with(&format!("\nconsume:{DIGEST}")));
+    }
+
+    #[test]
+    fn tx_digest_is_base58_that_decodes_to_32_bytes() {
+        assert!(is_tx_digest(DIGEST));
+        assert!(is_tx_digest(&"1".repeat(32))); // 32 zero bytes
+        assert!(is_tx_digest(&"z".repeat(43))); // 58^43 - 1 fits in 32 bytes
+        assert!(is_tx_digest(&format!("1{}", "z".repeat(42)))); // a zero byte, then 31 bytes
+        assert!(!is_tx_digest(""));
+        assert!(!is_tx_digest(&"1".repeat(31)));
+        assert!(!is_tx_digest(&"1".repeat(33)));
+        assert!(!is_tx_digest(&"z".repeat(44))); // 33 bytes
+        assert!(!is_tx_digest(&"z".repeat(45)));
+        assert!(!is_tx_digest(&format!("1{}", "z".repeat(43)))); // a leading 1 is a byte: 33
+        assert!(!is_tx_digest(&"2".repeat(32))); // 24 bytes
+        for bad in ['0', 'O', 'I', 'l', '+', '_', 'é'] {
+            let d = format!("{}{bad}{}", &DIGEST[..5], &DIGEST[6..]);
+            assert!(!is_tx_digest(&d), "{d}");
+        }
+    }
+
+    proptest::proptest! {
+        // The decoder agrees with an independent big-integer encoding of 32 random bytes.
+        #[test]
+        fn every_32_byte_value_round_trips(bytes in proptest::collection::vec(proptest::prelude::any::<u8>(), 32)) {
+            proptest::prop_assert!(is_tx_digest(&encode_base58(&bytes)));
+        }
+
+        #[test]
+        fn other_lengths_are_refused(n in 0usize..=40, fill in proptest::prelude::any::<u8>()) {
+            proptest::prop_assume!(n != 32);
+            proptest::prop_assert!(!is_tx_digest(&encode_base58(&vec![fill; n])));
+        }
+    }
+
+    /// Reference encoder for the tests: repeated division of a big-endian byte string by 58.
+    fn encode_base58(bytes: &[u8]) -> String {
+        let zeros = bytes.iter().take_while(|&&b| b == 0).count();
+        let mut digits: Vec<u8> = Vec::new();
+        let mut rest: Vec<u8> = bytes.to_vec();
+        while rest.iter().any(|&b| b != 0) {
+            let mut rem = 0u32;
+            for b in &mut rest {
+                let cur = rem * 256 + u32::from(*b);
+                *b = (cur / 58) as u8;
+                rem = cur % 58;
+            }
+            digits.push(BASE58[rem as usize]);
+        }
+        let mut out = "1".repeat(zeros);
+        out.extend(digits.iter().rev().map(|&d| d as char));
+        out
     }
 
     #[test]

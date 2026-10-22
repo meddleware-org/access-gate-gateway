@@ -1,5 +1,5 @@
 {
-  "description": "Conformance vectors shared by the nft-gate gateways and clients (protocol nft-gate:access:v2). `personalMessage.cases` are the exact signed bytes for a context; `personalMessageRejects` are contexts no implementation may sign or accept; `signatures` are real Sui personal-message signatures that must verify against the message rebuilt from `context`; `audienceMismatch` are valid signatures whose verifier-side context differs in one bound field and must be refused; `negativeSignatures` must be refused; `zip215` pins ed25519 to ZIP-215 (Sui's rule); `proofDecode*` pin the token grammar; `addressNormalization` pins canonical addresses. Regenerate with: node scripts/gen-vectors.mjs > vectors.json",
+  "description": "Conformance vectors shared by the nft-gate gateways and clients (protocol nft-gate:access:v2). `personalMessage.cases` are the exact signed bytes for a context; `personalMessageRejects` are contexts no implementation may sign or accept; `signatures` are real Sui personal-message signatures that must verify against the message rebuilt from `context`; `audienceMismatch` are valid signatures whose verifier-side context differs in one bound field and must be refused; `negativeSignatures` must be refused; `zip215` pins ed25519 to ZIP-215 (Sui's rule); `proofDecode*` pin the token grammar; `txDigest` pins the consume digest rule (base58 that decodes to exactly 32 bytes); `responses` pins the status and error body each gateway answers per outcome; `addressNormalization` pins canonical addresses. Regenerate with: node scripts/gen-vectors.mjs > vectors.json",
   "version": "nft-gate:access:v2",
   "personalMessage": {
     "cases": [
@@ -146,6 +146,26 @@
         "nonce": "GOLDEN-NONCE-123",
         "consumeDigest": "DIGEST-1"
       }
+    },
+    {
+      "name": "consume digest: 43 characters that decode to 31 bytes",
+      "context": {
+        "origin": "https://gateway.example",
+        "gateId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "network": "testnet",
+        "nonce": "GOLDEN-NONCE-123",
+        "consumeDigest": "4uQeVj5tqViQh7yWWGStvkEG1Zmhx6uasJtWCJziofL"
+      }
+    },
+    {
+      "name": "consume digest: 44 characters that decode to 33 bytes",
+      "context": {
+        "origin": "https://gateway.example",
+        "gateId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "network": "testnet",
+        "nonce": "GOLDEN-NONCE-123",
+        "consumeDigest": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+      }
     }
   ],
   "proofDecode": {
@@ -216,6 +236,26 @@
         "token": "eyJhZGRyZXNzIjoiMHgxIiwibm9uY2UiOiJuIiwic2lnbmF0dXJlIjoiQUFBQSIsImNvbnN1bWVEaWdlc3QiOjd9"
       },
       {
+        "name": "consume digest decodes to 31 bytes (43 characters)",
+        "token": "eyJhZGRyZXNzIjoiMHgxIiwibm9uY2UiOiJuIiwic2lnbmF0dXJlIjoiQUFBQSIsImNvbnN1bWVEaWdlc3QiOiI0dVFlVmo1dHFWaVFoN3lXV0dTdHZrRUcxWm1oeDZ1YXNKdFdDSnppb2ZMIn0="
+      },
+      {
+        "name": "consume digest decodes to 33 bytes (44 characters)",
+        "token": "eyJhZGRyZXNzIjoiMHgxIiwibm9uY2UiOiJuIiwic2lnbmF0dXJlIjoiQUFBQSIsImNvbnN1bWVEaWdlc3QiOiJ6enp6enp6enp6enp6enp6enp6enp6enp6enp6enp6enp6enp6enp6enp6eiJ9"
+      },
+      {
+        "name": "consume digest with a leading 1 that makes it 33 bytes",
+        "token": "eyJhZGRyZXNzIjoiMHgxIiwibm9uY2UiOiJuIiwic2lnbmF0dXJlIjoiQUFBQSIsImNvbnN1bWVEaWdlc3QiOiIxenp6enp6enp6enp6enp6enp6enp6enp6enp6enp6enp6enp6enp6enp6eiJ9"
+      },
+      {
+        "name": "consume digest with a 0 (not in the base58 alphabet)",
+        "token": "eyJhZGRyZXNzIjoiMHgxIiwibm9uY2UiOiJuIiwic2lnbmF0dXJlIjoiQUFBQSIsImNvbnN1bWVEaWdlc3QiOiI1V3E5dDA0Z1h6OGhFdkZoWXQ4S2tUSmIyUHA2cVhxajhjUmszeE4xbVlkTCJ9"
+      },
+      {
+        "name": "consume digest with an l (not in the base58 alphabet)",
+        "token": "eyJhZGRyZXNzIjoiMHgxIiwibm9uY2UiOiJuIiwic2lnbmF0dXJlIjoiQUFBQSIsImNvbnN1bWVEaWdlc3QiOiI1V3E5dGw0Z1h6OGhFdkZoWXQ4S2tUSmIyUHA2cVhxajhjUmszeE4xbVlkTCJ9"
+      },
+      {
         "name": "JSON array",
         "token": "WyIweDEiXQ=="
       },
@@ -266,6 +306,200 @@
       {
         "name": "JSON nested 128 levels deep",
         "token": "eyJhZGRyZXNzIjoiMHgxIiwibm9uY2UiOiJuIiwic2lnbmF0dXJlIjoiQUFBQSIsImsiOltbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tdXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dfQ=="
+      }
+    ]
+  },
+  "txDigest": {
+    "description": "A Sui transaction digest is base58 (Bitcoin alphabet: no 0 O I l) that decodes to exactly 32 bytes; a leading 1 is a zero byte. Every implementation accepts `valid` and refuses `invalid`.",
+    "valid": [
+      {
+        "name": "golden digest (44 characters)",
+        "digest": "5Wq9tE4gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL"
+      },
+      {
+        "name": "32 zero bytes: 32 leading 1s, the shortest valid digest",
+        "digest": "11111111111111111111111111111111"
+      },
+      {
+        "name": "one leading zero byte, then 31 bytes of 0xff (44 characters)",
+        "digest": "14uQeVj5tqViQh7yWWGStvkEG1Zmhx6uasJtWCJziofL"
+      },
+      {
+        "name": "smallest value without a leading zero byte (0x01, then zeros)",
+        "digest": "4uQeVj5tqViQh7yWWGStvkEG1Zmhx6uasJtWCJziofM"
+      },
+      {
+        "name": "all 0xff (44 characters)",
+        "digest": "JEKNVnkbo3jma5nREBBJCDoXFVeKkD56V3xKrvRmWxFG"
+      },
+      {
+        "name": "43 characters that decode to 32 bytes (all z)",
+        "digest": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+      }
+    ],
+    "invalid": [
+      {
+        "name": "empty",
+        "digest": ""
+      },
+      {
+        "name": "31 characters (31 zero bytes)",
+        "digest": "1111111111111111111111111111111"
+      },
+      {
+        "name": "33 zero bytes",
+        "digest": "111111111111111111111111111111111"
+      },
+      {
+        "name": "45 characters",
+        "digest": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+      },
+      {
+        "name": "43 characters that decode to 31 bytes",
+        "digest": "4uQeVj5tqViQh7yWWGStvkEG1Zmhx6uasJtWCJziofL"
+      },
+      {
+        "name": "44 characters that decode to 33 bytes (all z)",
+        "digest": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+      },
+      {
+        "name": "32 characters that decode to 24 bytes",
+        "digest": "22222222222222222222222222222222"
+      },
+      {
+        "name": "a leading 1 adds a zero byte: 1 + 43 z decode to 33 bytes",
+        "digest": "1zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+      },
+      {
+        "name": "golden digest with a 0 (not in the alphabet)",
+        "digest": "5Wq9t04gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL"
+      },
+      {
+        "name": "golden digest with an O (not in the alphabet)",
+        "digest": "5Wq9tO4gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL"
+      },
+      {
+        "name": "golden digest with an I (not in the alphabet)",
+        "digest": "5Wq9tI4gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL"
+      },
+      {
+        "name": "golden digest with an l (not in the alphabet)",
+        "digest": "5Wq9tl4gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL"
+      },
+      {
+        "name": "golden digest with a non-base58 symbol",
+        "digest": "5Wq9t+4gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL"
+      },
+      {
+        "name": "golden digest with a non-ASCII letter",
+        "digest": "5Wq9té4gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL"
+      },
+      {
+        "name": "hex-looking 64 characters",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ]
+  },
+  "responses": {
+    "description": "The gateways' answer for each outcome: HTTP status and the JSON body { error, code? } (`code` only on a 409 conflict). `statuses` is GATEWAY_STATUS, `conflictCodes` is GATEWAY_CONFLICT_CODES, and each case names an `outcome` every implementation must be able to produce and then answer exactly so. Upstream transport faults (413, 504, an upstream 502) are not listed: they depend on the upstream, not on the protocol.",
+    "statuses": {
+      "missingProof": 401,
+      "denied": 403,
+      "methodNotAllowed": 405,
+      "conflict": 409,
+      "bodyTooLarge": 413,
+      "rateLimited": 429,
+      "badGateway": 502,
+      "stateUnavailable": 503,
+      "gatewayTimeout": 504,
+      "loopDetected": 508
+    },
+    "conflictCodes": [
+      "redeemed",
+      "leased"
+    ],
+    "cases": [
+      {
+        "outcome": "missing-proof",
+        "status": 401,
+        "error": "missing access proof"
+      },
+      {
+        "outcome": "bad-proof",
+        "status": 403,
+        "error": "malformed access proof"
+      },
+      {
+        "outcome": "bad-signature",
+        "status": 403,
+        "error": "signature does not recover address"
+      },
+      {
+        "outcome": "nonce-invalid",
+        "status": 403,
+        "error": "challenge nonce invalid, expired, or already used"
+      },
+      {
+        "outcome": "not-owner",
+        "status": 403,
+        "error": "address does not hold the required access NFT"
+      },
+      {
+        "outcome": "consume-missing",
+        "status": 403,
+        "error": "no matching single-use consume for this address"
+      },
+      {
+        "outcome": "gate-paused",
+        "status": 403,
+        "error": "the gate is paused"
+      },
+      {
+        "outcome": "chain-error",
+        "status": 502,
+        "error": "on-chain verification failed"
+      },
+      {
+        "outcome": "state-unavailable",
+        "status": 503,
+        "error": "gateway state unavailable"
+      },
+      {
+        "outcome": "rate-limited",
+        "status": 429,
+        "error": "rate limit exceeded"
+      },
+      {
+        "outcome": "method-not-allowed",
+        "status": 405,
+        "error": "method not allowed"
+      },
+      {
+        "outcome": "loop-detected",
+        "status": 508,
+        "error": "loop detected"
+      },
+      {
+        "outcome": "consume-redeemed",
+        "status": 409,
+        "error": "this consume has already been redeemed for an upload",
+        "code": "redeemed"
+      },
+      {
+        "outcome": "consume-leased",
+        "status": 409,
+        "error": "an upload for this consume is already in progress",
+        "code": "leased"
+      },
+      {
+        "outcome": "commit-failed",
+        "status": 502,
+        "error": "redemption commit failed"
+      },
+      {
+        "outcome": "lease-lost",
+        "status": 502,
+        "error": "redemption lease lost"
       }
     ]
   },

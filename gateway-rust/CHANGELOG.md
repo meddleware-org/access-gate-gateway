@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.28] - 2026-10-22
+
+Released with the Workers gateway 0.0.28 (one version for every artifact). Still undeployed.
+
+### Changed
+
+- `nft-gate-core`: `proof::is_tx_digest` decodes the base58 and requires exactly 32 bytes (a leading `1` is a zero byte), instead of accepting any 32-44 base58 characters. It is the rule of `@meddleware/nft-gate-client` 0.0.18; a digest that decodes to 31 or 33 bytes is now a malformed proof (403) and cannot be signed into a message. No new dependency.
+- The vendored `conformance/vectors.json` is the client 0.0.18 file; `scripts/sync-vectors.mjs` accepts a local `NFT_GATE_CLIENT_VECTORS` override for the step before the client is published (refused when `CI` is set).
+
+### Added
+
+- Tests: the shared `txDigest` vectors (`core/tests/conformance.rs`), property tests that every 32-byte value is accepted and every other length refused, and the shared `responses` vectors (`gateway.rs`: `the_shared_response_vectors_are_what_the_gateway_answers` drives all sixteen outcomes through `Gateway::handle` and compares status and body).
+
 ## [0.0.27] - 2026-10-19
 
 Released with the Workers gateway 0.0.27 (one version for every artifact). Still undeployed. **Behaviour is unchanged.**

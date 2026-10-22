@@ -2,6 +2,19 @@
 
 All notable changes to `@meddleware/nft-gate-gateway` are documented here.
 
+## [0.0.28] - 2026-10-22
+
+Released with `@meddleware/nft-gate-client` 0.0.18 (the dependency is `^0.0.18`; publish the client first).
+
+### Changed
+
+- The consume-digest check is now the client's real one: base58 that decodes to exactly 32 bytes (`isTransactionDigest`, imported through `wire.ts`), not a 32-44 character shape. A digest that decodes to 31 or 33 bytes is a malformed proof (403) before any RPC call.
+- The gateway's own answers (`deny`, `deniedResponse`, 401, 405, 429, 503, 508) moved to `src/responses.ts`, which the router and `redemption.ts` share. Behaviour and texts are unchanged.
+
+### Added
+
+- Tests: the shared `txDigest` vectors and the shared `responses` vectors (every outcome driven to the real `Response`: through `verifyAccessRequest` for each denial, through `redeemAndForward` for `redeemed` / `leased` / commit failure / lost lease), and the same outcomes through the real router in workerd (`router.test.ts`). A vector outcome without a driver fails.
+
 ## [0.0.27] - 2026-10-19
 
 No change to the Worker's code or package contents; the version moves with the Cargo workspace (one version for every artifact).

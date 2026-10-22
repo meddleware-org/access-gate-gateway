@@ -153,6 +153,7 @@ npm run test:unit           # local vitest unit tests (including conformance vec
 npm run test:integration    # vitest with cloudflare-integration pool (requires wrangler)
 npm run test:all            # both
 node ../scripts/sync-vectors.mjs   # vectors are generated and published by @meddleware/nft-gate-client
+# (before a release is published: NFT_GATE_CLIENT_VECTORS=../../nft-gate-client/vectors.json, refused when CI is set)
 ```
 
 Both test projects consume `../../conformance/vectors.json` — changes there automatically

@@ -67,7 +67,8 @@
   A verification bypass gives unpaid uploads at the operator's cost, and a redemption flaw lets one
   paid consume buy many uploads. It holds no user funds and signs nothing on-chain, so nothing reaches
   Critical.
-**Status:** re-verified 2026-10-09 — 40 findings dispositioned (23 RESOLVED, 5 MITIGATED, 5 ADJUDICATED,
+**Status:** 0.0.28 (2026-10-22, committed locally, unreleased, not deployed): F58 added (the digest check was shape-only and this Worker's own answers were not pinned to the shared contract; RESOLVED), so this Worker's counts are
+  31 RESOLVED, 3 MITIGATED, 5 ADJUDICATED, 4 ACCEPTED-RISK, 0 DEFERRED, 6 Positive (49 findings); the Rust Worker's F51–F57 stay separate. Earlier status, kept: re-verified 2026-10-09 — 40 findings dispositioned (23 RESOLVED, 5 MITIGATED, 5 ADJUDICATED,
   5 ACCEPTED-RISK, 2 DEFERRED) plus 6 Positive; F42–F46 added in this pass. Fix wave 2026-10-10 (47 findings; the
   final counts are in the log): released as 0.0.22 and deployed to the live Worker the same day. Release status
   re-checked 2026-10-19: 0.0.23 released and the Worker redeployed from `main`. Decisions and the F43 fix of
@@ -792,7 +793,7 @@ one), `src/proxy.ts:139-145` and `src/index.ts:181-188` (the public cache stores
 **Remediation / evidence:**
 
 - `decodeAccessProof` validates the digest shape and `verifyAccessRequest` re-checks it with
-  `isTransactionDigest` before any RPC call (a malformed digest is `ConsumeMissing`, 403).
+  `isTransactionDigest` before any RPC call (a malformed digest is `ConsumeMissing`, 403). Since 0.0.28 that function decodes the base58 and requires exactly 32 bytes (F58), where it had been a shape check.
 - `SuiGrpc.getTransaction` retries (4 × 500 ms) only when the SDK reports `reason === 'notFound'`; a
   final not-found returns `null` and denies with 403; any other failure is thrown at once and surfaces
   as `ChainError` (502).
@@ -1587,6 +1588,26 @@ for the shadow Worker; if it fails, the options are listed (opt-level, bundle si
 **Remediation / evidence:** The deployed build (`build/`, the size gate, `wrangler deploy`) never enables the feature; `panic.test.mjs` asserts the deployed build serves none of the `/__test/*` routes; every behavioural suite (router, proxy,
 redemption, config, limits, chain, differential) runs on the feature-less build, and only the Durable-Object-direct, fault-injection, quota, conformance-benchmark and streaming-memory cases use the feature build.
 
+### F58 — The digest check was shape-only, and this Worker's answers were not pinned to the shared contract
+
+**Severity:** Info   **Disposition:** RESOLVED (0.0.28; commit pending; needs `@meddleware/nft-gate-client` 0.0.18)
+**Where:** `src/wire.ts` (re-exports `isTransactionDigest`), `src/verify.ts:268`, `src/index.ts`, `src/redemption.ts`, the new `src/responses.ts`.
+**Issue:** `isTransactionDigest` (imported from the client) accepted any 32-44 character base58 string, so a digest that decodes to 31 or 33 bytes reached the fullnode (and ended as a 403 after the bounded retries; F14). The
+status and `{ error, code? }` body of this Worker's own answers were inline in `index.ts` and `redemption.ts` and asserted only by this repository's tests, with no shared expectation to catch drift against the Rust implementations.
+**Impact:** Low: never a bypass (the chain refuses an unknown digest), but a drift risk across three implementations.
+
+**Remediation / evidence:** 0.0.28.
+
+- The dependency is `@meddleware/nft-gate-client` `^0.0.18`, whose `isTransactionDigest` requires exactly 32 decoded bytes (nft-gate-client F18). `decodeAccessProof` and `personalMessage` apply it, so a bad digest is `malformed access proof` (403)
+  before any RPC call. No Worker code changed for this; the vectors prove it (`conformance.test.ts`: 6 valid and 15 invalid `txDigest` cases, plus the digest `proofDecodeRejects` through the existing router loop).
+- The Worker's own answers are one definition each in `src/responses.ts` (`deny`, `missingProof`, `deniedResponse`, `rateLimited`, `stateUnavailable`, `loopDetected`, `methodNotAllowed`), used by `index.ts` and `redemption.ts`. Texts and statuses are
+  unchanged (all existing tests pass).
+- `test/conformance.test.ts` "response vectors" drives each of the sixteen shared outcomes to the real `Response`: the real `verifyAccessRequest` with the golden proofs and scripted stores for each denial, the real `redeemAndForward` for
+  `redeemed` / `leased` / commit failure / lost lease; it fails on an outcome without a driver. `test/router.test.ts` ("router answers the shared response vectors") sends the four outcomes a request alone can reach (401, 403 malformed, 405, 508)
+  through the real router in workerd.
+- Not changed: the TypeScript gateway reports a failing nonce store as a thrown `StoreError`, which the router answers 503; the `state-unavailable` driver checks the builder, and the existing `gateway-state.test.ts` / `state.test.ts` pin the path.
+  The dead `RedeemConflict` variant of `Denied` (`verify.ts`) is never produced; it retires with this Worker.
+
 ---
 
 ## Section A — Invariant verification matrix
@@ -1620,6 +1641,7 @@ redemption, config, limits, chain, differential) runs on the feature-less build,
 | I25 | Wire parity with `gateway-rust` | `conformance/vectors.json` (published by nft-gate-client, `--check` in CI) | `conformance.test.ts` | HOLDS for covered fields; remaining uncovered rows in B.SC-3 |
 | I26 | Only listed methods and safe paths are forwarded; public paths are `GET`/`HEAD` | `index.ts`, `proxy.ts::FORWARDED_METHODS`, `headers.ts::isSafePath` | router "public paths are read-only…", "gated paths refuse methods…"; proxy "refuses a method outside the list and an unsafe path…" | HOLDS (F10, F42) |
 | I27 | A request that has already passed through the gateway is refused | `config.ts` (literal self-origin), `headers.ts::isLooped` + `index.ts::handle` (`Via: 1.1 nft-gate` → 508) | config "refuses an upstream that is the gateway itself"; proxy `VIA_TABLE`; router "refuses a request that already carries the gateway Via marker…" | HOLDS (F43, 0.0.24) |
+| I28 | A consume digest is base58 that decodes to exactly 32 bytes; every gateway answer matches the shared `responses` vectors | `wire.ts` → `isTransactionDigest`; `src/responses.ts`, `redemption.ts` | `conformance.test.ts` (`txDigest`, `responses`); `router.test.ts` ("router answers the shared response vectors") | HOLDS (F58, 0.0.28) |
 
 ---
 
@@ -1735,7 +1757,8 @@ Rust column from `gateway-rust` 0.0.22 (its own audit is canonical for it). Thre
 | Address derivation + normalisation | `deriveAddress`, `normalizeAddress` | same | `addressNormalization` ✓ |
 | Header extraction | `/^Bearer\s+(.+)$/i`, then `X-Access-Proof` | Bearer parsed like Workers (0.0.19), then `X-Access-Proof` | none (unit tests in both) |
 | Verification order | decode → sig → normalise → nonce → pause → consume/own | same | per-suite unit tests; no vector |
-| Status mapping | missing 401; ChainError 502; others 403; store 503 | same | none shared (`GATEWAY_STATUS` constants in nft-gate-client are not imported by either) |
+| Status mapping | missing 401; ChainError 502; others 403; store 503 | same | the `responses` vectors (0.0.28, F58): sixteen outcomes with exact status and body, driven in core, this Worker and the Rust Worker harness ✓ |
+| Consume digest | base58 that decodes to exactly 32 bytes (`isTransactionDigest`, 0.0.28) | `is_tx_digest` (same rule) | `txDigest` vectors + digest `proofDecodeRejects` ✓ (F58) |
 | Redemption conflict | 409 with `code: redeemed \| leased` | 409 with `code` | router tests in both (Rust `router_tests.rs`, 0.0.22, gateway-rust F47); vocabulary `GATEWAY_CONFLICT_CODES` in nft-gate-client |
 | Store error | 503 (`StoreError`) | 503 | router tests in both (gateway-rust F47, 0.0.22) |
 | Consume success check | `$kind === 'Transaction'` + `status.success` | effects status must be success (0.0.22, gateway-rust F21) | unit tests in both; router test in Rust |
@@ -1909,7 +1932,7 @@ PROXY lens §C:
 - [x] consumed IDs verified as the latest version — B.SC-1 (gate read live 2026-10-09; the walrus-ui
   build arg is recorded only in `post-bootstrap/walrus/README.md`)
 - [x] parity vectors cover all decision-affecting behaviour — vectors with negatives per audience field
-  from nft-gate-client; the remaining unshared rows in B.SC-3 are covered by per-suite unit tests (S1)
+  from nft-gate-client; since 0.0.28 also the status and body per outcome (`responses`) and the exact-length digest rule (`txDigest`) (F58); the remaining unshared rows in B.SC-3 are covered by per-suite unit tests (S1)
 - [x] `SECURITY.md` present — root; invariants 4–7 describe the current behaviour
 - [x] B.AUTH-1 inventory complete; Access token expiry tracked — F31 (inventory and expiry date in
   `CLOUDFLARE.md`; API-token scopes remain the maintainer's, pre-mainnet below)
@@ -2347,6 +2370,14 @@ PROXY lens:
     clippy `-D warnings` (native and wasm32, with and without `test-hooks`), `cargo deny check`, `cargo +1.88 check` of core and gateway-rust, lint canary, size gate (357.5 KiB gzip dry-run total, 978,002 B wasm).
   - Not run: the shadow deploy, Workers analytics (CPU percentiles), the cutover, `deploy-worker-rust.yml` itself (the maintainer runs it), a Docker build of `gateway-rust` (the context was reproduced and `cargo check` run in it).
 
+- 2026-10-22 (0.0.28, committed locally, unreleased, not deployed) — F58: the exact-length digest rule and the shared `responses` vectors.
+  - **Done:** `package.json` depends on `@meddleware/nft-gate-client` `^0.0.18` (the lockfile entry is regenerated with `npm install` once 0.0.18 is published, until then `npm ci` fails by design);
+    `src/responses.ts` extracted from `index.ts` and `redemption.ts` (behaviour unchanged); conformance tests for `txDigest` and `responses`; router test for the four request-reachable outcomes; `conformance/vectors.json` is the 0.0.18 file.
+  - **Measured 2026-10-22 (Node 26.12.0, against a local pack of the 0.0.18 client installed in `node_modules`, not the registry):** `tsc --noEmit` and `eslint .` clean; `vitest run` 305 tests (302 passed, 3 skipped; 251 before); `npm audit --audit-level=high` 0;
+    `scripts/check-versions.sh` passes (0.0.28); `sync-vectors.mjs --check` passes against the local pack.
+  - **Findings:** F58 added (RESOLVED). Counts: **31 RESOLVED, 3 MITIGATED, 5 ADJUDICATED, 4 ACCEPTED-RISK, 0 DEFERRED**; 6 Positive (49 findings; the Rust Worker's F51–F57 are counted separately).
+  - **Not done / not verified here:** the registry install of 0.0.18 (not published); a GitHub CI run; deployment (this Worker stays live at 0.0.23+ until the maintainer deploys; the new rule takes effect on the next deploy).
+
 ## Pre-save consistency checklist (this pass)
 
 - [x] Section A ↔ findings — every row's status matches its linked finding (HOLDS beside RESOLVED;
@@ -2361,4 +2392,4 @@ PROXY lens:
   cite F11, F31 and the maintainer items.
 - [x] Executive summary reflects current dispositions.
 - [x] Counts and versions re-measured 2026-10-10.
-- [x] Re-verification log entry added.
+- [x] Re-verification log entry added (2026-10-22, F58).

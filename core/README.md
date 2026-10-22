@@ -82,7 +82,7 @@ cargo test -p nft-gate-core                              # native, the core alon
 cargo build -p nft-gate-core --target wasm32-unknown-unknown   # the Worker's target (CI job `core`)
 ```
 
-`tests/conformance.rs` runs the shared golden vectors (`../conformance/vectors.json`); `tests/decision.rs`
+`tests/conformance.rs` runs the shared golden vectors (`../conformance/vectors.json`, including the `txDigest` rule: `is_tx_digest` is base58 that decodes to exactly 32 bytes); the `gateway` unit test `the_shared_response_vectors_are_what_the_gateway_answers` drives every `responses` outcome and compares the status and body; `tests/decision.rs`
 builds real ed25519 / secp256k1 / secp256r1 proofs and judges them; `tests/scenario.rs` runs
 `tests/scenario.json` (39 steps, explicit clock) against the state machines, and the same file runs against
 the Worker's Durable Object so the SQL and the Rust rules cannot drift; `tests/transport_stub.rs` runs the

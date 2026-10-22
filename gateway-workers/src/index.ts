@@ -13,7 +13,8 @@ import type { NonceBackend, RedemptionStore } from './state/types.js'
 import { NONCE_SHARDS } from './state/types.js'
 import { makeBackends } from './state/select.js'
 import { SuiGrpc } from './chain.js'
-import { verifyAccessRequest, deniedReason } from './verify.js'
+import { verifyAccessRequest } from './verify.js'
+import { deny, deniedResponse, loopDetected, methodNotAllowed, missingProof, rateLimited, stateUnavailable } from './responses.js'
 import { forward, FORWARDED_METHODS } from './proxy.js'
 import { isLooped } from './headers.js'
 import { runQuotaGuard } from './quota.js'
@@ -121,19 +122,6 @@ function json(status: number, body: unknown): Response {
   })
 }
 
-/**
- * Build a JSON `{"error": reason}` response with the given status code, optionally with a stable
- * machine-readable `code` (e.g. `"redeemed"` vs `"leased"`) so the client can react precisely.
- *
- * @param status - HTTP status code.
- * @param reason - Short, client-visible error description.
- * @param code - Optional stable code for programmatic handling.
- * @returns A JSON error response.
- */
-function deny(status: number, reason: string, code?: string): Response {
-  return json(status, code ? { error: reason, code } : { error: reason })
-}
-
 /** Prefer `Authorization: Bearer <token>`; fall back to an explicit `X-Access-Proof` header. */
 function extractProofToken(request: Request): string | undefined {
   const auth = request.headers.get('authorization')
@@ -194,7 +182,7 @@ async function forwardPublic(
   ctx: ExecutionContext,
 ): Promise<Response> {
   if (!(await backend.rateCheck(`ip:${clientIp(request)}`, cfg.publicRateLimitPerMin, region))) {
-    return deny(429, 'rate limit exceeded')
+    return rateLimited()
   }
 
   if (request.method !== 'GET' || cfg.publicCacheTtlSecs <= 0) return forward(cfg, request)
@@ -240,7 +228,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
 
   // A request that already carries this gateway's own `Via` entry has looped back through it (the
   // upstream resolves to this route): refuse it before any nonce, rate-limit or redemption work.
-  if (isLooped(request.headers)) return deny(508, 'loop detected')
+  if (isLooped(request.headers)) return loopDetected()
 
   let state: GatewayState
   try {
@@ -258,7 +246,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     // Per-IP budget (parity with the Rust gateway): issuing a nonce writes state, so an
     // unauthenticated flood must be bounded before it reaches the store.
     if (!(await backend.rateCheck(`chal:${clientIp(request)}`, cfg.challengeRateLimitPerMin, region))) {
-      return deny(429, 'rate limit exceeded')
+      return rateLimited()
     }
     const { nonce, expiresAt } = await backend.issue(region, cfg.challengeTtlSecs)
     return json(200, { nonce, expiresAt })
@@ -269,31 +257,28 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
   if (isPublicPath(cfg, path)) {
     // Unauthenticated paths are read-only: a body-carrying method would reach the relay with no proof.
     if (request.method !== 'GET' && request.method !== 'HEAD') {
-      const res = deny(405, 'method not allowed')
-      res.headers.set('allow', 'GET, HEAD')
-      return res
+      return methodNotAllowed('GET, HEAD')
     }
     return forwardPublic(cfg, backend, request, regionOf(cfg, request), ctx)
   }
 
-  if (!FORWARDED_METHODS.includes(request.method)) return deny(405, 'method not allowed')
+  if (!FORWARDED_METHODS.includes(request.method)) return methodNotAllowed()
 
   const token = extractProofToken(request)
-  if (!token) return deny(401, 'missing access proof')
+  if (!token) return missingProof()
 
   // Verification costs CPU and a Durable Object call per request, so bound it per client first.
   if (!(await backend.rateCheck(`pre:${clientIp(request)}`, cfg.gatedPreauthRateLimitPerMin, regionOf(cfg, request)))) {
-    return deny(429, 'rate limit exceeded')
+    return rateLimited()
   }
 
   const result = await verifyAccessRequest(cfg, backend, token, chain)
   if (!result.ok) {
-    const status = result.denied === 'ChainError' ? 502 : 403
-    return deny(status, deniedReason(result.denied))
+    return deniedResponse(result.denied)
   }
 
   if (!(await backend.rateCheck(result.address, cfg.rateLimitPerMin, regionOf(cfg, request)))) {
-    return deny(429, 'rate limit exceeded')
+    return rateLimited()
   }
 
   // Single-use: the permanent on-chain `consumeDigest` is the one-time redemption token. Lease it,
@@ -321,7 +306,7 @@ export default {
       // Fail closed with a JSON body the browser can read (CORS is still applied below).
       if (e instanceof StoreError) {
         console.error('state backend error:', e.message)
-        res = deny(503, 'gateway state unavailable')
+        res = stateUnavailable()
       } else {
         console.error('unhandled gateway error:', (e as Error).message)
         res = deny(502, 'bad gateway')

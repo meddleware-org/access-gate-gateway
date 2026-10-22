@@ -227,3 +227,22 @@ describe('public-path edge cache', () => {
   })
 })
 
+// The shared `responses` vectors, for the outcomes a request alone can reach (no chain or store fault
+// needed): the router really answers what the contract says. The rest are driven in conformance.test.ts.
+describe('router answers the shared response vectors', () => {
+  const stimuli: Record<string, () => Promise<Response>> = {
+    'missing-proof': () => call('POST', '/v1/blob-upload'),
+    'bad-proof': () => call('POST', '/v1/blob-upload', { authorization: 'Bearer !!!not-base64!!!' }),
+    'method-not-allowed': () => call('DELETE', '/v1/blob-upload'),
+    'loop-detected': () => call('POST', '/v1/blob-upload', { via: '1.1 nft-gate' }),
+  }
+  for (const [outcome, stimulus] of Object.entries(stimuli)) {
+    it(outcome, async () => {
+      const expected = vectors.responses.cases.find((c) => c.outcome === outcome)
+      if (!expected) throw new Error(`the vectors have no outcome ${outcome}`)
+      const res = await stimulus()
+      expect(res.status).toBe(expected.status)
+      expect(await res.json()).toEqual({ error: expected.error })
+    })
+  }
+})

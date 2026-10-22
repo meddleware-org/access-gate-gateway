@@ -5,14 +5,7 @@
 
 import type { Config } from './config.js'
 import type { RedemptionStore } from './state/types.js'
-
-/** JSON `{"error": reason, code?}` response. */
-function deny(status: number, reason: string, code?: string): Response {
-  return new Response(JSON.stringify(code ? { error: reason, code } : { error: reason }), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  })
-}
+import { deny } from './responses.js'
 
 /**
  * Single-use: the permanent on-chain `consumeDigest` is the one-time redemption token. Lease it

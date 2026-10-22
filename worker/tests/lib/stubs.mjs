@@ -38,12 +38,13 @@ const consumeTx = (sender, gate, ageMs, success = true) => {
 const ownedList = (gate) => len(1, objectMsg('0x' + 'ab'.repeat(32), `${NFT_PKG}::access_gate::SoulboundAccessNFT`, structOf([['data', structOf([['gate_id', strVal(gate)], ['variant', structOf([['@variant', strVal('UnlimitedPass')]])]])]])))
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
-/** A random 32-byte transaction digest in base58 (the form the proof carries). */
+/** A random 32-byte transaction digest in base58 (the form the proof carries): each leading zero byte is a `1`. */
 export function txDigest() {
-  let n = BigInt('0x' + [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, '0')).join(''))
+  const bytes = crypto.getRandomValues(new Uint8Array(32))
+  let n = BigInt('0x' + [...bytes].map((b) => b.toString(16).padStart(2, '0')).join(''))
   let s = ''
   while (n > 0n) { s = B58[Number(n % 58n)] + s; n /= 58n }
-  return s.padStart(43, '1')
+  return '1'.repeat(bytes.findIndex((b) => b !== 0) === -1 ? 32 : bytes.findIndex((b) => b !== 0)) + s
 }
 
 /**

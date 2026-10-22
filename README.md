@@ -19,7 +19,7 @@ deployment target:
 | Rust / Axum | [`gateway-rust/`](gateway-rust/) | [crates.io](https://crates.io/crates/nft-gate-gateway) / Docker | Docker / k8s | In-memory or Redis |
 
 The live Workers gateway is still TypeScript (`gateway-workers/`) and is **superseded, pending cutover, by a Rust
-Worker (workers-rs) built on the same core**: [`worker/`](worker/) (0.0.27) is built and tested (workerd suites that
+Worker (workers-rs) built on the same core**: [`worker/`](worker/) (0.0.28) is built and tested (workerd suites that
 port every behavioural case of the TypeScript tests, plus a differential run against it), but not yet deployed. The
 maintainer deploys it as a shadow first and cuts over after reading the CPU-time p99 in Workers analytics; the
 TypeScript gateway stays as the rollback until then and is retired afterwards, leaving one implementation of the
@@ -118,7 +118,11 @@ redeemed, so no use is lost.
 ```bash
 node scripts/sync-vectors.mjs          # copy the installed package's vectors
 node scripts/sync-vectors.mjs --check  # CI: fail if the copy differs
+# Before a client release is published (local checkout; refused when CI is set):
+NFT_GATE_CLIENT_VECTORS=../nft-gate-client/vectors.json node scripts/sync-vectors.mjs
 ```
+
+Beyond the signed-message and token vectors, the file pins the consume-digest rule (`txDigest`: base58 that decodes to exactly 32 bytes) and the status and error body each gateway answers for every outcome (`responses`), so all three implementations (core, TypeScript Worker, Rust Worker) are tested against the same expected answers.
 
 ## Choosing an implementation
 
