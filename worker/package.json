@@ -15,10 +15,10 @@
   },
   "devDependencies": {
     "@meddleware/nft-gate-client": "0.0.18",
-    "@mysten/sui": "2.36.0",
+    "@mysten/sui": "2.37.0",
     "esbuild": "0.28.2",
-    "smol-toml": "1.4.2",
-    "wrangler": "4.151.0"
+    "smol-toml": "1.9.1",
+    "wrangler": "4.151.2"
   },
   "allowScripts": {
     "esbuild": true,
