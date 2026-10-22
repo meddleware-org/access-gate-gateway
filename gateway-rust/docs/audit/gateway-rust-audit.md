@@ -71,7 +71,7 @@
   upstream, and a redemption-store failure would let one paid single-use consume buy unlimited
   uploads. The gateway holds no user funds and signs nothing on-chain, so nothing here reaches
   Critical.
-**Status:** Digest rule and response vectors 2026-10-22 (0.0.28, committed locally, unreleased) — F51 added (the core's consume-digest check was
+**Status:** Digest rule and response vectors 2026-10-22 (0.0.28, released as v0.0.28 = `a6b86ae`; `gateway-rust` itself stays undeployed by decision OQ9) — F51 added (the core's consume-digest check was
   shape-only; RESOLVED): 43 findings dispositioned (27 RESOLVED, 4 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED) plus 8 Positive.
   Core extraction 2026-10-19 (0.0.26, committed locally, unreleased) — 42 findings dispositioned (26 RESOLVED,
   4 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED) plus 8 Positive; F49 (one implementation of the decision logic,
@@ -1543,9 +1543,9 @@ a flag); `ALLOWED_ORIGINS` hosts are lower-case ASCII (TypeScript accepted any h
 whitespace or a backslash in a URL is refused (TypeScript's `new URL` did; Rust did not). The TypeScript test cases of `config.test.ts` are carried into the core's tests.
 The Workers KV nonce backend is not carried over (it was refused with `SINGLE_USE=true` and only eventually consistent otherwise).
 
-**Not done / what remains:** the Rust Worker adapter is built (0.0.27, `worker/`; Durable Object state, streamed `fetch` upstream); what remains is the shadow deploy and the measured cutover (CPU-time p99/p99.9 in Workers analytics on a shadow
-deploy, which the maintainer runs); until then the TypeScript Worker stays the live implementation and its tests (248 passed, 3 skipped on 2026-10-19) keep consuming the
-shared vectors. This finding closes when it is retired. Two operator notes: `nft-gate-core` is a new crate to publish (its crates.io trusted publisher is a maintainer step, `crates-publish.yml` publishes it first), and the
+**Not done / what remains (updated 2026-10-22):** the Rust Worker adapter (v0.0.27, `worker/`; Durable Object state, streamed `fetch` upstream) was shadow-deployed and **cut over on 2026-10-20** (nft-gate *Deploy Worker (Rust)* run 39418735654;
+the CPU gate was revised because neither implementation can meet the original p99 ≤ 5 ms, see `gateway-workers` audit F55). What remains is retiring the TypeScript Worker after a clean week (maintainer: `OPERATOR_TASKS.md`); until then it stays the rollback
+and its tests keep consuming the shared vectors. This finding closes when it is retired. Two operator notes: `nft-gate-core` is a new crate to publish (its crates.io trusted publisher is a maintainer step, `crates-publish.yml` publishes it first), and the
 Docker build context is now the repository root.
 
 ### F50 — `is_safe_path` disagreed between the gateways on a literal `..` segment
@@ -2374,6 +2374,11 @@ PROXY lens:
     `cargo build -p nft-gate-core --target wasm32-unknown-unknown --locked` passes; `scripts/check-versions.sh` passes (0.0.28).
   - **Findings:** F51 added (RESOLVED). Counts: **27 RESOLVED, 4 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED**; 8 Positive.
   - **Not done / not verified here:** `cargo deny` and the 1.88 MSRV check (not re-run; no dependency or edition change); the GitHub CI run.
+
+- 2026-10-22 (audit close-out) — status text only; no code change.
+  - 0.0.28 is released (tag `v0.0.28` = `a6b86ae`; npm, crates.io and Docker publish runs succeeded 2026-10-22) and includes the `rustls-webpki` 0.103.16 / `webpki-roots` 1.0.10 update (RUSTSEC-2026-0382, -0381) in the Cargo lockfile. F49 "what remains" updated:
+    the Rust Worker is live (cutover 2026-10-20, `gateway-workers` audit); the TypeScript Worker is retired after a clean week (maintainer). Counts unchanged.
+  - Not verified here: the advisory fix against `cargo deny` (taken from the release commit message and the green `Rust CI` run of 2026-10-22 on `main`).
 
 ## Pre-save consistency checklist (this pass)
 
