@@ -12,7 +12,7 @@ use crate::testkit::{
 use axum::body::Body;
 use axum::http::HeaderMap;
 use http_body_util::BodyExt;
-use nft_gate_core::config::GatewayConfig;
+use access_gate_gateway_core::config::GatewayConfig;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tower::ServiceExt;

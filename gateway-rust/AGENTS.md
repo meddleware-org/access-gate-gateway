@@ -2,8 +2,8 @@
 
 ## Crate
 
-`nft-gate-gateway` — the Rust/Axum adapter of the nft-gate gateway. The decision logic is the sibling crate
-`nft-gate-core` (`../core`), shared with the Cloudflare Worker; this crate supplies I/O only.
+`access-gate-gateway` — the Rust/Axum adapter of the access-gate gateway. The decision logic is the sibling crate
+`access-gate-gateway-core` (`../core`), shared with the Cloudflare Worker; this crate supplies I/O only.
 
 ## Key files
 
@@ -28,10 +28,10 @@ Decision logic lives in `../core/src`: `decision.rs` (verify_access_request, `De
 
 ```bash
 # from the repository root (the Cargo workspace)
-cargo build -p nft-gate-gateway            # debug build
-cargo build --release -p nft-gate-gateway  # release build
+cargo build -p access-gate-gateway            # debug build
+cargo build --release -p access-gate-gateway  # release build
 cargo test --workspace                     # core + gateway-rust (unit, router, shared vectors)
-cargo test -p nft-gate-core                # the core alone
+cargo test -p access-gate-gateway-core                # the core alone
 cargo test --workspace -- --nocapture      # with test output
 ```
 
@@ -39,14 +39,14 @@ cargo test --workspace -- --nocapture      # with test output
 
 ```bash
 # Build image (from the repository root: the build context is the Cargo workspace)
-docker build -f gateway-rust/Dockerfile -t nft-gate-gateway .
+docker build -f gateway-rust/Dockerfile -t access-gate-gateway .
 
 # Run (minimum required env vars)
 docker run \
   -e UPSTREAM_URL=https://your-relay.example.com \
   -e SUI_RPC_URL=https://fullnode.mainnet.sui.io:443 \
   -e NFT_TYPE=0x<pkg>::access_gate::AccessNFT \
-  -p 8080:8080 nft-gate-gateway
+  -p 8080:8080 access-gate-gateway
 
 # With Redis for horizontal scale-out
 docker run \
@@ -54,27 +54,27 @@ docker run \
   -e SUI_RPC_URL=https://fullnode.mainnet.sui.io:443 \
   -e NFT_TYPE=0x<pkg>::access_gate::AccessNFT \
   -e REDIS_URL=redis://dragonfly:6379 \
-  -p 8080:8080 nft-gate-gateway
+  -p 8080:8080 access-gate-gateway
 ```
 
 ## Install from crates.io
 
 ```bash
-cargo install nft-gate-gateway
-UPSTREAM_URL=https://relay.example.com SUI_RPC_URL=https://... NFT_TYPE=0x... nft-gate-gateway
+cargo install access-gate-gateway
+UPSTREAM_URL=https://relay.example.com SUI_RPC_URL=https://... NFT_TYPE=0x... access-gate-gateway
 ```
 
 ## Version
 
 One version for every artifact (D16): the `[workspace.package]` version in the root `Cargo.toml`, inherited by
-`nft-gate-core` and `nft-gate-gateway`, equals `gateway-workers/package.json`; the gateway pins `nft-gate-core`
+`access-gate-gateway-core` and `access-gate-gateway`, equals `gateway-workers/package.json`; the gateway pins `access-gate-gateway-core`
 at exactly that version. `scripts/check-versions.sh` enforces it. The tag's `crates-publish.yml` publishes the
 core first, then the gateway.
 
 ## Conformance vectors
 
-`../core/tests/conformance.rs` loads `../../conformance/vectors.json` via `include_str!`. Run `node scripts/sync-vectors.mjs` (the vectors are generated and published by `@meddleware/nft-gate-client`)
-(from the `nft-gate` repo root) to regenerate after any wire-format change.
+`../core/tests/conformance.rs` loads `../../conformance/vectors.json` via `include_str!`. Run `node scripts/sync-vectors.mjs` (the vectors are generated and published by `@meddleware/access-gate-gateway-client`)
+(from the `access-gate-gateway` repo root) to regenerate after any wire-format change.
 
 ## Relation to gateway-workers
 

@@ -8,10 +8,10 @@ This policy covers security issues in:
   (Rust, Cloudflare Workers; built, not yet deployed) and `gateway-rust/` (Rust/Axum) — including signature-verification bypass, nonce replay, single-use
   double-spend, consume-event forgery, open-proxy/SSRF, header injection, secret disclosure, and any
   behavioural divergence between the two implementations
-- The shared decision logic, `core/` (the `nft-gate-core` crate, used by `gateway-rust/` and by the Rust Worker `worker/` that is
+- The shared decision logic, `core/` (the `access-gate-gateway-core` crate, used by `gateway-rust/` and by the Rust Worker `worker/` that is
   replacing the TypeScript one), and the CI helper `ci/`
 - The shared wire protocol and conformance vectors (`conformance/vectors.json`)
-- The published artifacts (`@meddleware/nft-gate-gateway` npm package, `nft-gate-gateway` and `nft-gate-core` crates,
+- The published artifacts (`@meddleware/access-gate-gateway` npm package, `access-gate-gateway` and `access-gate-gateway-core` crates,
   container images)
 
 It does not cover:

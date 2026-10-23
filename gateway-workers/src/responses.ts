@@ -1,9 +1,9 @@
 /**
  * The answers the gateway generates itself: status plus the JSON body `{ "error", "code"? }` of the
- * response contract in `@meddleware/nft-gate-client` (`contract.ts`). One definition per outcome, used
+ * response contract in `@meddleware/access-gate-gateway-client` (`contract.ts`). One definition per outcome, used
  * by the router and by the redemption flow, so the shared `responses` conformance vectors
  * (`conformance/vectors.json`) can be checked against the real answers (`test/conformance.test.ts`).
- * Mirror of `JsonReply` and `denied_reply` in `nft-gate-core` (`gateway.rs`).
+ * Mirror of `JsonReply` and `denied_reply` in `access-gate-gateway-core` (`gateway.rs`).
  *
  * Kept out of the Worker entry module, which may only export the fetch/scheduled handlers and Durable
  * Object classes.

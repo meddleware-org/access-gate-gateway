@@ -6,7 +6,7 @@ Superseded, pending cutover (0.0.27): the Rust Worker `../worker` replaces this 
 
 ## Package
 
-`@meddleware/nft-gate-gateway` — Cloudflare Workers implementation of the nft-gate gateway.
+`@meddleware/access-gate-gateway` — Cloudflare Workers implementation of the access-gate gateway.
 
 ## Key files
 
@@ -19,7 +19,7 @@ Superseded, pending cutover (0.0.27): the Rust Worker `../worker` replaces this 
 | `src/crypto.ts` | Hash + encoding helpers (`blake2b256`, `base64ToBytes`, etc.) |
 | `src/proxy.ts` | `forward` — reverse proxy to upstream |
 | `src/quota.ts` | `runQuotaGuard` — optional plan-aware quota check (cron; `WORKERS_PLAN` free/paid) |
-| `src/wire.ts` | Re-exports from `@meddleware/nft-gate-client` |
+| `src/wire.ts` | Re-exports from `@meddleware/access-gate-gateway-client` |
 | `src/responses.ts` | The answers the gateway generates (`deny`, `deniedResponse`, 401/405/429/503/508); pinned by the `responses` conformance vectors |
 | `src/state/types.ts` | `NonceBackend` interface; `shardOfNonce`; `randomHex24` |
 | `src/state/select.ts` | `makeBackend` — picks DO or KV backend |

@@ -1,6 +1,6 @@
 name: Publish (npm)
 
-# Publishes the Workers gateway source (@meddleware/nft-gate-gateway) to npmjs on
+# Publishes the Workers gateway source (@meddleware/access-gate-gateway) to npmjs on
 # a v* tag, gated on a self-contained verify job against the exact tagged commit.
 # Uses npm OIDC trusted publishing — no long-lived NPM_TOKEN. Opt-in via the repository
 # variable NPM_PUBLISH=true (matches the other @meddleware publish workflows).
@@ -45,13 +45,13 @@ jobs:
 
   # ── Workers gateway: npmjs (source-distribution for forkers) ───────────────
   # Uses OIDC trusted publisher — no static NPM_TOKEN secret required. The npmjs.com
-  # Trusted Publisher for @meddleware/nft-gate-gateway must name this repo
-  # (meddleware-org/nft-gate) and this workflow file (npm-publish.yml).
+  # Trusted Publisher for @meddleware/access-gate-gateway must name this repo
+  # (meddleware-org/access-gate-gateway) and this workflow file (npm-publish.yml).
   # A failed publish fails the job (and the run) — no continue-on-error — so a red run
   # is the signal that the npm release did not happen. An already-published version is
   # still treated as success (idempotent re-runs / manual publishes).
   publish-npm:
-    name: npmjs (@meddleware/nft-gate-gateway)
+    name: npmjs (@meddleware/access-gate-gateway)
     runs-on: ubuntu-latest
     needs: verify
     permissions:

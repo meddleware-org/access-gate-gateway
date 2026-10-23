@@ -80,7 +80,7 @@ export interface Env {
    * Comma-separated list of browser origins allowed to make cross-origin requests.
    * Only origins in this list receive an `Access-Control-Allow-Origin` header.
    * Defaults to NONE (no cross-origin access). Each entry must be a canonical origin.
-   * Example: `"https://sui-walrus.meddleware.co.uk,https://dash.meddleware.co.uk,https://sui-token-deployer.meddleware.co.uk"`
+   * Example: `"https://sui-walrus-storage.meddleware.co.uk,https://dash.meddleware.co.uk,https://sui-token-issuance.meddleware.co.uk"`
    */
   ALLOWED_ORIGINS?: string
   // ── bindings ──────────────────────────────────────────────────────────────

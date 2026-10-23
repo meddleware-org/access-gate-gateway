@@ -7,7 +7,7 @@ const ID: &str = "0123456789abcdef0123456789abcdef.access";
 const SECRET: &str = "cfast_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL";
 
 fn run(args: &[&str], upstream_auth: Option<&str>) -> Output {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_nft-gate-ci"));
+    let mut c = Command::new(env!("CARGO_BIN_EXE_access-gate-gateway-ci"));
     c.args(args).env_remove("UPSTREAM_AUTH_HEADERS");
     if let Some(v) = upstream_auth {
         c.env("UPSTREAM_AUTH_HEADERS", v);
@@ -52,7 +52,7 @@ fn bad_values_fail_the_deploy_without_echoing_them() {
 #[test]
 fn the_curl_config_is_private() {
     use std::os::unix::fs::PermissionsExt;
-    let dir = std::env::temp_dir().join(format!("nft-gate-ci-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("access-gate-gateway-ci-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("curl.conf");
     let o = run(
@@ -75,7 +75,7 @@ fn the_curl_config_is_private() {
 
 #[test]
 fn origin_probes_are_classified_and_reported() {
-    let dir = std::env::temp_dir().join(format!("nft-gate-ci-h-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("access-gate-gateway-ci-h-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let hdrs = dir.join("h.txt");
     std::fs::write(

@@ -1,5 +1,5 @@
 //! Configuration of the native server. The shared part (origin, network, upstream, NFT type, gate,
-//! windows, limits, credentials) is `nft_gate_core::config::GatewayConfig`, validated once for every
+//! windows, limits, credentials) is `access_gate_gateway_core::config::GatewayConfig`, validated once for every
 //! platform; this module adds only what a long-lived process has and a Worker does not: the listen
 //! address, the connection limits, the trusted-proxy count and the Redis store.
 //!
@@ -21,12 +21,12 @@
 //!   address is the client IP). With N > 0 the client IP is the Nth `X-Forwarded-For` entry from
 //!   the right, i.e. the address the outermost trusted proxy saw.
 //!
-//! The shared variables are documented in `nft_gate_core::config`.
+//! The shared variables are documented in `access_gate_gateway_core::config`.
 
-use nft_gate_core::config::{boolean, int, Env, GatewayConfig};
+use access_gate_gateway_core::config::{boolean, int, Env, GatewayConfig};
 use std::net::SocketAddr;
 
-pub use nft_gate_core::config::AuthHeader;
+pub use access_gate_gateway_core::config::AuthHeader;
 
 /// Configuration read from the process environment.
 pub struct ProcessEnv;

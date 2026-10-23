@@ -1,16 +1,16 @@
-# AGENTS.md — nft-gate
+# AGENTS.md — access-gate-gateway
 
 ## Repo layout
 
 One core (the decision logic, Rust, native + wasm32), two adapters.
 
 ```
-nft-gate/
+access-gate-gateway/
 ├── Cargo.toml, Cargo.lock      # Cargo workspace: core + gateway-rust (one version, D16)
 ├── deny.toml                   # cargo-deny policy for the workspace (incl. the wasm32 target)
 ├── conformance/
 │   └── vectors.json            # Shared golden wire-format test vectors (core + TypeScript consume this)
-├── core/                       # nft-gate-core: ALL the decision logic (no hyper/tokio/clock/RNG/logging)
+├── core/                       # access-gate-gateway-core: ALL the decision logic (no hyper/tokio/clock/RNG/logging)
 │   ├── src/
 │   │   ├── gateway.rs          # Gateway::handle / redeem_and_forward over the ports (the request flow)
 │   │   ├── decision.rs         # verify_access_request, ChainQuery, Denied
@@ -25,16 +25,16 @@ nft-gate/
 │   ├── src/                    # lib.rs, state.rs + do_state.rs (Durable Object), upstream.rs (streamed proxy), transport.rs, config.rs, quota_guard.rs ...
 │   ├── tests/                  # black-box workerd suites + the differential run against gateway-workers (Node, test code only)
 │   └── scripts/                # build, checksummed tool download, size gate, lint canary, shadow config, cold-start instruments
-├── ci/                         # nft-gate-ci: UPSTREAM_AUTH_HEADERS check and origin-lock verdicts for the workflows
+├── ci/                         # access-gate-gateway-ci: UPSTREAM_AUTH_HEADERS check and origin-lock verdicts for the workflows
 ├── gateway-workers/            # Cloudflare Workers gateway (TypeScript; LIVE; superseded pending cutover, not deleted: it is the rollback)
 │   ├── src/                    # index.ts, config.ts, verify.ts, chain.ts, proxy.ts, quota.ts, state/ (DO + KV) ...
 │   ├── test/                   # vitest unit + cloudflare-integration tests
 │   ├── wrangler.toml           # Cloudflare Workers config (edit routes here)
-│   └── package.json            # @meddleware/nft-gate-gateway
+│   └── package.json            # @meddleware/access-gate-gateway
 ├── gateway-rust/               # Rust / Axum adapter (I/O only: hyper server, hyper client, Redis, clock, entropy)
 │   ├── src/                    # main.rs, config.rs, state.rs, challenge.rs, proxy.rs, headers.rs, grpc.rs, sui_rpc.rs, http_client.rs
 │   ├── Dockerfile              # build context = the repository root
-│   └── Cargo.toml              # nft-gate-gateway (version from the workspace)
+│   └── Cargo.toml              # access-gate-gateway (version from the workspace)
 └── README.md                   # Top-level quickstart + wire protocol docs
 ```
 
@@ -56,8 +56,8 @@ cargo test --locked --workspace
 cd worker && npm ci && bash scripts/build.sh all && bash scripts/size-gate.sh && npm test
 
 # The core alone, and its wasm32 build (the Worker's target)
-cargo test --locked -p nft-gate-core
-cargo build --locked -p nft-gate-core --target wasm32-unknown-unknown
+cargo test --locked -p access-gate-gateway-core
+cargo build --locked -p access-gate-gateway-core --target wasm32-unknown-unknown
 ```
 
 ### Type-check (Workers)
@@ -69,9 +69,9 @@ cd gateway-workers && npm run type-check
 ### Regenerate conformance vectors
 
 ```bash
-node scripts/sync-vectors.mjs   # vectors come from @meddleware/nft-gate-client
+node scripts/sync-vectors.mjs   # vectors come from @meddleware/access-gate-gateway-client
 # before a client release is published (refused when CI is set):
-NFT_GATE_CLIENT_VECTORS=../nft-gate-client/vectors.json node scripts/sync-vectors.mjs
+ACCESS_GATE_GATEWAY_CLIENT_VECTORS=../access-gate-gateway-client/vectors.json node scripts/sync-vectors.mjs
 ```
 
 Both test suites will pick up the new vectors automatically.
@@ -89,18 +89,18 @@ wrangler secret put UPSTREAM_URL
 
 ```bash
 # from the repository root (the Cargo workspace is the build context)
-docker build -f gateway-rust/Dockerfile -t nft-gate-gateway .
+docker build -f gateway-rust/Dockerfile -t access-gate-gateway .
 docker run -e UPSTREAM_URL=http://relay:8080 \
            -e SUI_RPC_URL=https://fullnode.mainnet.sui.io:443 \
            -e NFT_TYPE=0x<pkg>::access_gate::AccessNFT \
-           -p 8080:8080 nft-gate-gateway
+           -p 8080:8080 access-gate-gateway
 ```
 
 ### Build Rust binary locally
 
 ```bash
-cargo build --release -p nft-gate-gateway
-UPSTREAM_URL=http://relay:8080 SUI_RPC_URL=https://... NFT_TYPE=0x... ./target/release/nft-gate-gateway
+cargo build --release -p access-gate-gateway
+UPSTREAM_URL=http://relay:8080 SUI_RPC_URL=https://... NFT_TYPE=0x... ./target/release/access-gate-gateway
 ```
 
 ## Key environment variables
@@ -126,7 +126,7 @@ Rust-only extras: `REDIS_URL`, `BIND_ADDR`, `TRUSTED_PROXY_HOPS`, the connection
 Each side has its own GitHub Actions CI:
 - `gateway-workers` (`node-ci.yml`): type-check + lint + vitest unit and workerd tests
 - Rust (`rust-ci.yml`): fmt, clippy `-D warnings`, `cargo test --workspace`, the Redis round trip, coverage, `cargo deny`; a `core`
-  job (native tests of the core alone + `cargo build -p nft-gate-core --target wasm32-unknown-unknown`); an MSRV job (1.88); a Trivy
+  job (native tests of the core alone + `cargo build -p access-gate-gateway-core --target wasm32-unknown-unknown`); an MSRV job (1.88); a Trivy
   scan of the Dockerfile
 
 The conformance vector tests run in the core's suite and in the TypeScript suite.

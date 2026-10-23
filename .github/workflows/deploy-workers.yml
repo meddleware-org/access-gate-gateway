@@ -1,6 +1,6 @@
 name: Deploy Workers
 
-# Deploys the LIVE NFT-gated relay Worker (`nft-gate-gateway`). Manual only: a deploy can require a
+# Deploys the LIVE NFT-gated relay Worker (`access-gate-gateway`). Manual only: a deploy can require a
 # coordinated secret change (see the walrus runbook), so it never runs on push. The job re-runs the
 # full CI first and executes in the protected `production` environment (configure required
 # reviewers in the repository settings).

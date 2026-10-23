@@ -1,6 +1,6 @@
 [package]
-name = "nft-gate-ci"
-description = "CI helpers for the nft-gate deploy workflows: validate UPSTREAM_AUTH_HEADERS with the core's parser, and classify origin-lock probe responses. Not published."
+name = "access-gate-gateway-ci"
+description = "CI helpers for the access-gate-gateway deploy workflows: validate UPSTREAM_AUTH_HEADERS with the core's parser, and classify origin-lock probe responses. Not published."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,9 +9,9 @@ repository.workspace = true
 publish = false
 
 [[bin]]
-name = "nft-gate-ci"
+name = "access-gate-gateway-ci"
 path = "src/main.rs"
 
 [dependencies]
-nft-gate-core = { version = "=0.0.29", path = "../core" }
+access-gate-gateway-core = { version = "=0.0.30", path = "../core" }
 anyhow = "1"

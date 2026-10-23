@@ -8,8 +8,8 @@ const h = (o: Record<string, string>) => new Headers(o)
 
 describe('classifyOriginResponse', () => {
   it('401 or 403 from Cloudflare Access is locked', () => {
-    expect(classifyOriginResponse(401, h({ 'cf-access-domain': 'walrus-relay-origin.example.com' })).state).toBe('locked')
-    expect(classifyOriginResponse(403, h({ 'cf-access-domain': 'walrus-relay-origin.example.com' })).state).toBe('locked')
+    expect(classifyOriginResponse(401, h({ 'cf-access-domain': 'walrus-storage-relay-origin.example.com' })).state).toBe('locked')
+    expect(classifyOriginResponse(403, h({ 'cf-access-domain': 'walrus-storage-relay-origin.example.com' })).state).toBe('locked')
   })
 
   it('a redirect to the Access login is locked', () => {

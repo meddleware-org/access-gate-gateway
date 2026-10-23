@@ -2,6 +2,12 @@
 
 All notable changes to `@meddleware/nft-gate-gateway` are documented here.
 
+## [0.0.30] - 2026-10-24
+
+### Changed
+
+- Renamed from `nft-gate` to `access-gate-gateway` (workspace naming convention, `docs/architecture/ADR-0003-naming.md`). No code change beyond names, paths, hostnames and dependency names; the history below keeps the old names.
+
 ## [0.0.29] - 2026-10-22
 
 No change to the Worker's code or package contents; the version moves with the Cargo workspace (one version for every artifact).

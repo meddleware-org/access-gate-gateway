@@ -1,12 +1,12 @@
-# nft-gate
+# access-gate-gateway
 
-[![npm](https://img.shields.io/npm/v/%40meddleware%2Fnft-gate-gateway)](https://www.npmjs.com/package/@meddleware/nft-gate-gateway)
-[![Crates.io](https://img.shields.io/crates/v/nft-gate-gateway)](https://crates.io/crates/nft-gate-gateway)
+[![npm](https://img.shields.io/npm/v/%40meddleware%2Fnft-gate-gateway)](https://www.npmjs.com/package/@meddleware/access-gate-gateway)
+[![Crates.io](https://img.shields.io/crates/v/access-gate-gateway)](https://crates.io/crates/access-gate-gateway)
 [![License: 0BSD](https://img.shields.io/badge/license-0BSD-blue)](LICENSE)
 
 A generic NFT-gated reverse proxy for the [access_gate](https://github.com/meddleware-org/access-gate-sui) primitive on Sui. Put it in front of any HTTP upstream — an upload relay, a website, a game API — to restrict access to holders of an on-chain access NFT.
 
-The decision logic exists **once**, in [`core/`](core/) (`nft-gate-core`, Rust): proof decoding, Sui signature
+The decision logic exists **once**, in [`core/`](core/) (`access-gate-gateway-core`, Rust): proof decoding, Sui signature
 verification, the allow / deny decision, the Sui reads, the nonce / rate / redemption state machines, the
 header, path and configuration policy, and the request flow itself. A gateway is a thin adapter around it that
 supplies only I/O (HTTP, state storage, clock, entropy). Two adapters exist; choose one based on your
@@ -14,9 +14,9 @@ deployment target:
 
 | Implementation | Directory | Distributed as | Deploy target | State backend |
 | --- | --- | --- | --- | --- |
-| Cloudflare Workers (live, TypeScript; superseded pending cutover) | [`gateway-workers/`](gateway-workers/) | [npm package](https://www.npmjs.com/package/@meddleware/nft-gate-gateway) | Wrangler deploy | Durable Objects or KV |
+| Cloudflare Workers (live, TypeScript; superseded pending cutover) | [`gateway-workers/`](gateway-workers/) | [npm package](https://www.npmjs.com/package/@meddleware/access-gate-gateway) | Wrangler deploy | Durable Objects or KV |
 | Cloudflare Workers (Rust; built, shadow not yet deployed) | [`worker/`](worker/) | built from source (`worker-build`) | `deploy-worker-rust.yml` (shadow, then cutover) | Durable Objects |
-| Rust / Axum | [`gateway-rust/`](gateway-rust/) | [crates.io](https://crates.io/crates/nft-gate-gateway) / Docker | Docker / k8s | In-memory or Redis |
+| Rust / Axum | [`gateway-rust/`](gateway-rust/) | [crates.io](https://crates.io/crates/access-gate-gateway) / Docker | Docker / k8s | In-memory or Redis |
 
 The live Workers gateway is still TypeScript (`gateway-workers/`) and is **superseded, pending cutover, by a Rust
 Worker (workers-rs) built on the same core**: [`worker/`](worker/) (0.0.29) is built and tested (workerd suites that
@@ -28,7 +28,7 @@ logic on both platforms. See [worker/README.md](worker/README.md) (build, test m
 Both gateways serve the same wire protocol and verify the same [conformance vectors](conformance/).
 
 The client-side counterparts are on npm: the wire protocol (challenge fetching, proof construction) in
-[`@meddleware/nft-gate-client`](https://github.com/meddleware-org/nft-gate-client), and the `access_gate`
+[`@meddleware/access-gate-gateway-client`](https://github.com/meddleware-org/access-gate-gateway-client), and the `access_gate`
 reads and transaction builders in [`@meddleware/access-gate-client`](https://github.com/meddleware-org/access-gate-client).
 
 ## Quickstart (Cloudflare Workers)
@@ -37,8 +37,8 @@ reads and transaction builders in [`@meddleware/access-gate-client`](https://git
 
 ```bash
 # 1. Clone or fork this repo
-git clone https://github.com/meddleware-org/nft-gate.git
-cd nft-gate/gateway-workers
+git clone https://github.com/meddleware-org/access-gate-gateway.git
+cd access-gate-gateway/gateway-workers
 
 # 2. Install dependencies
 npm install
@@ -64,20 +64,20 @@ See [gateway-workers/README.md](gateway-workers/README.md) for the full configur
 
 ```bash
 # Docker
-docker pull meddleware/nft-gate-gateway:latest
+docker pull meddleware/access-gate-gateway:latest
 docker run -e UPSTREAM_URL=http://relay:8080 \
            -e SUI_RPC_URL=https://fullnode.mainnet.sui.io:443 \
            -e NFT_TYPE=0x<pkg>::access_gate::AccessNFT \
            -e GATE_ID=0x<gate id> \
-           -p 8080:8080 meddleware/nft-gate-gateway
+           -p 8080:8080 meddleware/access-gate-gateway
 
 # From source (the image is built from the repository root, which is the Cargo workspace)
-docker build -f gateway-rust/Dockerfile -t nft-gate-gateway .
+docker build -f gateway-rust/Dockerfile -t access-gate-gateway .
 
 # Or from crates.io (requires Rust stable)
-cargo install nft-gate-gateway
+cargo install access-gate-gateway
 UPSTREAM_URL=http://relay:8080 SUI_RPC_URL=https://fullnode.mainnet.sui.io:443 \
-  NFT_TYPE=0x<pkg>::access_gate::AccessNFT GATE_ID=0x<gate id> nft-gate-gateway
+  NFT_TYPE=0x<pkg>::access_gate::AccessNFT GATE_ID=0x<gate id> access-gate-gateway
 ```
 
 (`GATEWAY_ORIGIN=https://<this gateway's public origin>` and `NETWORK=<localnet|devnet|testnet|mainnet>` are also required: they are signed into every proof.)
@@ -113,13 +113,13 @@ redeemed, so no use is lost.
 
 ## Conformance
 
-`conformance/vectors.json` contains golden wire-format vectors signed with real Sui keypairs for all three signature schemes, plus audience-mismatch, negative-signature, ZIP-215 and token-grammar cases. They are generated and published by [`@meddleware/nft-gate-client`](https://github.com/meddleware-org/nft-gate-client) (the protocol's home); this repository keeps a copy so the Rust gateway can read it, and CI checks the copy against the installed package. Both gateway implementations test against it. After a protocol change, release the client, bump it here, then:
+`conformance/vectors.json` contains golden wire-format vectors signed with real Sui keypairs for all three signature schemes, plus audience-mismatch, negative-signature, ZIP-215 and token-grammar cases. They are generated and published by [`@meddleware/access-gate-gateway-client`](https://github.com/meddleware-org/access-gate-gateway-client) (the protocol's home); this repository keeps a copy so the Rust gateway can read it, and CI checks the copy against the installed package. Both gateway implementations test against it. After a protocol change, release the client, bump it here, then:
 
 ```bash
 node scripts/sync-vectors.mjs          # copy the installed package's vectors
 node scripts/sync-vectors.mjs --check  # CI: fail if the copy differs
 # Before a client release is published (local checkout; refused when CI is set):
-NFT_GATE_CLIENT_VECTORS=../nft-gate-client/vectors.json node scripts/sync-vectors.mjs
+ACCESS_GATE_GATEWAY_CLIENT_VECTORS=../access-gate-gateway-client/vectors.json node scripts/sync-vectors.mjs
 ```
 
 Beyond the signed-message and token vectors, the file pins the consume-digest rule (`txDigest`: base58 that decodes to exactly 32 bytes) and the status and error body each gateway answers for every outcome (`responses`), so all three implementations (core, TypeScript Worker, Rust Worker) are tested against the same expected answers.
@@ -148,7 +148,7 @@ Meddleware's own deployment decision (audit OQ9, 2026-10-19): the Rust gateway *
 cargo fmt --check
 cargo clippy --all-targets --locked --workspace -- -D warnings
 cargo test --locked --workspace                      # core + gateway-rust + worker (glue) + ci
-cargo build -p nft-gate-core --target wasm32-unknown-unknown   # the Worker's target
+cargo build -p access-gate-gateway-core --target wasm32-unknown-unknown   # the Worker's target
 (cd worker && npm ci && bash scripts/build.sh all && npm test)  # the Rust Worker: wasm build, workerd suites, differential
 (cd gateway-workers && npm ci && npm run test:all)   # the TypeScript Workers gateway (until it is retired)
 bash scripts/check-versions.sh                       # one version for every artifact

@@ -1,9 +1,9 @@
-//! gRPC-web codec and chain client: moved to `nft-gate-core` (shared with the Worker). This module keeps
+//! gRPC-web codec and chain client: moved to `access-gate-gateway-core` (shared with the Worker). This module keeps
 //! only the hyper-backed [`Transport`].
 use crate::config::AuthHeader;
 use crate::http_client::HttpClient;
 use bytes::Bytes;
-pub use nft_gate_core::grpc::*;
+pub use access_gate_gateway_core::grpc::*;
 use std::time::Duration;
 
 /// [`Transport`] over the shared hyper-rustls [`HttpClient`].

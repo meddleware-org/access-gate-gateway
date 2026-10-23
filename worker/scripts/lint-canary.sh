@@ -21,7 +21,7 @@ pub fn canary(v: &[u8], o: Option<u8>) -> u8 {
 RS
 printf '\nmod zz_lint_canary;\n' >> src/lib.rs
 set +e
-out="$(cargo clippy --locked -p nft-gate-worker --lib 2>&1)"
+out="$(cargo clippy --locked -p access-gate-gateway-worker --lib 2>&1)"
 status=$?
 set -e
 [ "$status" -ne 0 ] || { echo "::error::clippy accepted unwrap/expect/panic/indexing in the Worker"; exit 1; }

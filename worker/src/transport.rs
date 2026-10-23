@@ -1,8 +1,8 @@
 //! The core's gRPC-web [`Transport`] over `fetch`. Only the I/O is Worker-specific: framing, protobuf
-//! parsing, retries and the decision are `nft_gate_core::{grpc, chain, decision}`.
+//! parsing, retries and the decision are `access_gate_gateway_core::{grpc, chain, decision}`.
 
-use nft_gate_core::config::AuthHeader;
-use nft_gate_core::grpc::{Transport, MAX_GRPC_MESSAGE_BYTES};
+use access_gate_gateway_core::config::AuthHeader;
+use access_gate_gateway_core::grpc::{Transport, MAX_GRPC_MESSAGE_BYTES};
 use std::time::Duration;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;

@@ -8,7 +8,7 @@ name: Origin lock
 # Read-only and secret-free: it sends GET requests to the origin hostname held in the repository
 # VARIABLE `UPSTREAM_CHECK_URL` (a public URL, not a secret) and sends no credential. A failed run
 # means the origin answered, or was refused by something other than Access, or could not be reached:
-# check the Access application ("Walrus relay origin (nft-gate Worker only)") in Cloudflare Zero Trust
+# check the Access application ("Walrus relay origin (access-gate Worker only)") in Cloudflare Zero Trust
 # first (docs/networking/CLOUDFLARE.md section 2.4 in the workspace repository).
 #
 # GitHub disables scheduled workflows after 60 days without repository activity; a manual run
@@ -48,7 +48,7 @@ jobs:
           key: origin-lock
           save-if: false
 
-      # curl makes the requests; the verdict is the Rust helper's (nft-gate-ci classify-origin), the same
+      # curl makes the requests; the verdict is the Rust helper's (access-gate-gateway-ci classify-origin), the same
       # logic the TypeScript script had, with the same cases tested (ci/src/lib.rs).
       - name: Direct requests without the service token are refused by Access
         env:

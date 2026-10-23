@@ -1,12 +1,12 @@
 [package]
-name = "nft-gate-core"
-description = "The nft-gate decision logic in one place: proof, Sui signature verification, gRPC-web chain reads, redemption/nonce/rate state machines, header and config policy, and the request orchestration. No hyper, no tokio; builds natively and for wasm32-unknown-unknown."
+name = "access-gate-gateway-core"
+description = "The access-gate-gateway decision logic in one place: proof, Sui signature verification, gRPC-web chain reads, redemption/nonce/rate state machines, header and config policy, and the request orchestration. No hyper, no tokio; builds natively and for wasm32-unknown-unknown."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-documentation = "https://github.com/meddleware-org/nft-gate/tree/main/core"
+documentation = "https://github.com/meddleware-org/access-gate-gateway/tree/main/core"
 readme = "README.md"
 # The tests read ../conformance/vectors.json from the repository checkout; they are not part of the published package.
 exclude = ["tests/"]

@@ -1,4 +1,4 @@
-# Cargo workspace for the Rust side of nft-gate: ONE implementation of the decision logic
+# Cargo workspace for the Rust side of access-gate-gateway: ONE implementation of the decision logic
 # (`core`, compiled natively AND to wasm32 for the Cloudflare Worker) plus the hyper/axum adapter
 # (`gateway-rust`), the Cloudflare Worker adapter (`worker`, wasm32; its own rust-version 1.91) and the
 # CI helper binary (`ci`).
@@ -8,12 +8,12 @@ resolver = "2"
 
 # One version for every artifact (D16): core, gateway-rust, the image and the npm package move together.
 [workspace.package]
-version = "0.0.29"
+version = "0.0.30"
 edition = "2021"
 # The dependency graph's floor (checked in CI by the `msrv` job for core and gateway-rust).
 rust-version = "1.88"
 license = "0BSD"
-repository = "https://github.com/meddleware-org/nft-gate"
+repository = "https://github.com/meddleware-org/access-gate-gateway"
 
 [profile.release]
 # Arithmetic overflow aborts instead of wrapping silently, even in release builds.

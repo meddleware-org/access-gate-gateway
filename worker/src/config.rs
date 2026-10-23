@@ -1,5 +1,5 @@
 //! Worker configuration: the core's validated [`GatewayConfig`] plus the Worker-only variables.
-//! All validation rules are the core's (`nft_gate_core::config`); this file only reads the
+//! All validation rules are the core's (`access_gate_gateway_core::config`); this file only reads the
 //! variables that exist on Cloudflare alone.
 //!
 //! | Variable | Meaning | Default |
@@ -11,8 +11,8 @@
 //! | `WORKERS_PLAN` | `free` or `paid` | `free` |
 //! | `NONCE_BACKEND` | only `durable-object` is accepted (the KV backend is not carried over) | unset |
 
-use nft_gate_core::config::{boolean, int, Env, GatewayConfig};
-use nft_gate_core::quota::{parse_workers_plan, WorkersPlan};
+use access_gate_gateway_core::config::{boolean, int, Env, GatewayConfig};
+use access_gate_gateway_core::quota::{parse_workers_plan, WorkersPlan};
 
 /// Everything the Worker reads at startup.
 #[derive(Clone)]

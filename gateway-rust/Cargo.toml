@@ -1,22 +1,22 @@
 [package]
-name = "nft-gate-gateway"
+name = "access-gate-gateway"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 description = "Generic NFT-gated reverse-proxy: verifies wallet-signed access proofs against on-chain NFT ownership, then forwards to any upstream."
 repository.workspace = true
-documentation = "https://github.com/meddleware-org/nft-gate/tree/main/gateway-rust"
+documentation = "https://github.com/meddleware-org/access-gate-gateway/tree/main/gateway-rust"
 readme = "README.md"
 keywords = ["nft", "sui", "gateway", "access-control", "reverse-proxy"]
 categories = ["network-programming", "web-programming::http-server", "authentication"]
 
 [[bin]]
-name = "nft-gate-gateway"
+name = "access-gate-gateway"
 path = "src/main.rs"
 
 [dependencies]
-nft-gate-core = { version = "=0.0.29", path = "../core" }
+access-gate-gateway-core = { version = "=0.0.30", path = "../core" }
 axum = "0.7"
 # In-flight request cap + load shedding (MAX_CONCURRENT_REQUESTS); same tower as axum 0.7.
 tower = { version = "0.5", features = ["limit", "load-shed"] }

@@ -1,11 +1,11 @@
 //! The native platform ports: the system clock and OS entropy, and [`NativeState`], the
-//! [`StateStore`] the shared orchestration (`nft_gate_core::gateway`) talks to. It composes the nonce /
+//! [`StateStore`] the shared orchestration (`access_gate_gateway_core::gateway`) talks to. It composes the nonce /
 //! redemption backend chosen at startup ([`NonceStore`]: memory or Redis) with the in-memory rate
 //! windows, so the gateway's state rules are the core's, whichever backend holds the bytes.
 
 use crate::challenge::NonceStore;
-use nft_gate_core::redemption::{Commit, Lease};
-use nft_gate_core::state::{Clock, MemoryRates, RateScope, Rng, StateStore};
+use access_gate_gateway_core::redemption::{Commit, Lease};
+use access_gate_gateway_core::state::{Clock, MemoryRates, RateScope, Rng, StateStore};
 use rand_core::{OsRng, RngCore};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 

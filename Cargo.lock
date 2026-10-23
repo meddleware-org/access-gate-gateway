@@ -3,6 +3,73 @@
 version = 4
 
 [[package]]
+name = "access-gate-gateway"
+version = "0.0.30"
+dependencies = [
+ "access-gate-gateway-core",
+ "anyhow",
+ "axum",
+ "base64",
+ "bytes",
+ "ed25519-dalek",
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "rand_core 0.6.4",
+ "redis",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "access-gate-gateway-ci"
+version = "0.0.30"
+dependencies = [
+ "access-gate-gateway-core",
+ "anyhow",
+]
+
+[[package]]
+name = "access-gate-gateway-core"
+version = "0.0.30"
+dependencies = [
+ "anyhow",
+ "base64",
+ "blake2",
+ "ed25519-consensus",
+ "ed25519-dalek",
+ "getrandom 0.2.17",
+ "hex",
+ "k256",
+ "p256",
+ "pollster",
+ "proptest",
+ "serde_json",
+]
+
+[[package]]
+name = "access-gate-gateway-worker"
+version = "0.0.30"
+dependencies = [
+ "access-gate-gateway-core",
+ "anyhow",
+ "console_error_panic_hook",
+ "getrandom 0.2.17",
+ "js-sys",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "worker",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1172,73 +1239,6 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "nft-gate-ci"
-version = "0.0.29"
-dependencies = [
- "anyhow",
- "nft-gate-core",
-]
-
-[[package]]
-name = "nft-gate-core"
-version = "0.0.29"
-dependencies = [
- "anyhow",
- "base64",
- "blake2",
- "ed25519-consensus",
- "ed25519-dalek",
- "getrandom 0.2.17",
- "hex",
- "k256",
- "p256",
- "pollster",
- "proptest",
- "serde_json",
-]
-
-[[package]]
-name = "nft-gate-gateway"
-version = "0.0.29"
-dependencies = [
- "anyhow",
- "axum",
- "base64",
- "bytes",
- "ed25519-dalek",
- "futures-util",
- "http-body-util",
- "hyper",
- "hyper-rustls",
- "hyper-util",
- "nft-gate-core",
- "rand_core 0.6.4",
- "redis",
- "serde_json",
- "tokio",
- "tower",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "nft-gate-worker"
-version = "0.0.29"
-dependencies = [
- "anyhow",
- "console_error_panic_hook",
- "getrandom 0.2.17",
- "js-sys",
- "nft-gate-core",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "worker",
 ]
 
 [[package]]

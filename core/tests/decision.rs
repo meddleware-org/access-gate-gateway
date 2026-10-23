@@ -1,15 +1,15 @@
 //! The allow/deny decision and the Sui signature schemes, end to end with real signatures: ed25519,
 //! secp256k1 and secp256r1 proofs are built here, then judged by [`verify_access_request`] against a
 //! scripted chain and a single-use nonce store. (Moved from `gateway-rust/src/verify.rs`: the code under
-//! test now lives in `nft-gate-core`.)
+//! test now lives in `access-gate-gateway-core`.)
 use base64::prelude::*;
 use ed25519_dalek::{Signer, SigningKey};
-use nft_gate_core::config::GatewayConfig;
-use nft_gate_core::decision::{
+use access_gate_gateway_core::config::GatewayConfig;
+use access_gate_gateway_core::decision::{
     verify_access_request as decide, ChainQuery, Denied, NonceTake, Verified, VerifyParams,
 };
-use nft_gate_core::proof::{decode_access_proof, personal_message, AccessProof, MessageContext};
-use nft_gate_core::sig::{
+use access_gate_gateway_core::proof::{decode_access_proof, personal_message, AccessProof, MessageContext};
+use access_gate_gateway_core::sig::{
     derive_address, normalize_address, signing_digest, verify_personal_message_signature,
     FLAG_ED25519, FLAG_MULTISIG, FLAG_SECP256K1, FLAG_SECP256R1, FLAG_ZKLOGIN,
 };

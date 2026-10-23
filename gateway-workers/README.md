@@ -1,6 +1,6 @@
-# @meddleware/nft-gate-gateway
+# @meddleware/access-gate-gateway
 
-[![npm](https://img.shields.io/npm/v/%40meddleware%2Fnft-gate-gateway)](https://www.npmjs.com/package/@meddleware/nft-gate-gateway)
+[![npm](https://img.shields.io/npm/v/%40meddleware%2Fnft-gate-gateway)](https://www.npmjs.com/package/@meddleware/access-gate-gateway)
 [![License: 0BSD](https://img.shields.io/badge/license-0BSD-blue)](LICENSE)
 
 > **Superseded, pending cutover (0.0.27).** The standing rule is no JS/TS backend code, so this Worker is being replaced 1:1 by the Rust Worker
@@ -12,7 +12,7 @@
 > 3. Workers analytics for the shadow: **CPU time p99 ≤ 5 ms and p99.9 ≤ 10 ms over a week of real traffic on Free.** 4. *Deploy Worker (Rust)* → `mode=cutover`, `confirm=cutover` (same name, class and migration tag: the live
 > nonce, rate and redemption data are kept). 5. Rollback = *Deploy Workers* (this package) at the last TypeScript tag. 6. Retire this package. Details: [`../worker/README.md`](../worker/README.md) "Runbook".
 
-Cloudflare Workers implementation of the [nft-gate](../README.md) NFT-gated reverse proxy.
+Cloudflare Workers implementation of the [access-gate-gateway](../README.md) NFT-gated reverse proxy.
 Wire-identical to the [Rust gateway](../gateway-rust/): same routes, status codes, proof format,
 Sui RPC calls, and env-var names. Deploy it at the same URL the Rust gateway serves and nothing
 else changes.
@@ -33,15 +33,15 @@ else changes.
 Clone or fork the repo, then work from the `gateway-workers/` directory:
 
 ```bash
-git clone https://github.com/meddleware-org/nft-gate.git
-cd nft-gate/gateway-workers
+git clone https://github.com/meddleware-org/access-gate-gateway.git
+cd access-gate-gateway/gateway-workers
 npm install
 ```
 
 Alternatively, the package is published to npm for reference:
 
 ```bash
-npm install @meddleware/nft-gate-gateway
+npm install @meddleware/access-gate-gateway
 ```
 
 ### 2. Configure `wrangler.toml`
@@ -316,14 +316,14 @@ verification is a risk to watch, not a measured failure: after each deploy, read
 
 ## Module layout
 
-> This Worker is being replaced by a Rust Worker (workers-rs) built on `nft-gate-core`, the decision logic that `gateway-rust` already shares
+> This Worker is being replaced by a Rust Worker (workers-rs) built on `access-gate-gateway-core`, the decision logic that `gateway-rust` already shares
 > (status: in progress; see the repository `CLAUDE.md` and `core/README.md`). It stays the live deployment and the rollback until a measured cutover.
 
 | Module | Rust analog (`core/src` is shared; `gateway-rust/src` is the adapter) | Role |
 | --- | --- | --- |
 | `src/index.ts` | `core/src/gateway.rs` + `gateway-rust/src/main.rs` | Request router (challenge / public / gated paths) |
 | `src/config.ts` | `core/src/config.rs` | `env` → typed config (same var names as Rust) |
-| `src/wire.ts` | `core/src/proof.rs` | Proof helpers reused from `@meddleware/nft-gate-client` |
+| `src/wire.ts` | `core/src/proof.rs` | Proof helpers reused from `@meddleware/access-gate-gateway-client` |
 | `src/responses.ts` | `core/src/gateway.rs` (`JsonReply`, `denied_reply`) | The gateway's own answers (status + `{ error, code? }`), pinned by the shared `responses` vectors |
 | `src/verify.ts` | `core/src/decision.rs`, `sig.rs` | Signature verification + allow/deny decision |
 | `src/chain.ts` | `core/src/chain.rs`, `grpc.rs` | Sui gRPC ownership and consume-event queries |

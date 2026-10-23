@@ -1,6 +1,6 @@
-# nft-gate-core
+# access-gate-gateway-core
 
-The one implementation of what an [nft-gate](../README.md) gateway decides and does. A request is
+The one implementation of what an [access-gate-gateway](../README.md) gateway decides and does. A request is
 admitted when it carries a Sui personal-message signature over an audience-bound message plus either live
 ownership of an `access_gate` pass (ownership mode) or the digest of a recent successful on-chain consume
 (single-use mode). Everything in that sentence lives here, once.
@@ -10,7 +10,7 @@ The crate has **no hyper, no tokio, no clock, no RNG and no logging**. It compil
 and in the Cloudflare Worker (workers-rs). A platform is an adapter that supplies I/O only.
 
 ```text
-            ┌──────────────── nft-gate-core ────────────────┐
+            ┌──────────────── access-gate-gateway-core ────────────────┐
  request ──▶│ RequestHead ─▶ Gateway::handle ─▶ Reply        │──▶ response
             │   loop guard · challenge · public paths ·      │
             │   proof → decision → redemption lease/commit   │
@@ -78,8 +78,8 @@ only eventual consistency in ownership mode).
 ## Build and test
 
 ```sh
-cargo test -p nft-gate-core                              # native, the core alone (its own minimal feature set)
-cargo build -p nft-gate-core --target wasm32-unknown-unknown   # the Worker's target (CI job `core`)
+cargo test -p access-gate-gateway-core                              # native, the core alone (its own minimal feature set)
+cargo build -p access-gate-gateway-core --target wasm32-unknown-unknown   # the Worker's target (CI job `core`)
 ```
 
 `tests/conformance.rs` runs the shared golden vectors (`../conformance/vectors.json`, including the `txDigest` rule: `is_tx_digest` is base58 that decodes to exactly 32 bytes); the `gateway` unit test `the_shared_response_vectors_are_what_the_gateway_answers` drives every `responses` outcome and compares the status and body; `tests/decision.rs`

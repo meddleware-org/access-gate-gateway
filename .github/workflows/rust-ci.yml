@@ -1,6 +1,6 @@
 name: Rust CI
 
-# CI for the Rust workspace: nft-gate-core (the shared decision logic, native and wasm32), the
+# CI for the Rust workspace: access-gate-gateway-core (the shared decision logic, native and wasm32), the
 # gateway-rust adapter, the Rust Cloudflare Worker (`worker` job: wasm build, size gate, workerd suites,
 # differential run against the TypeScript Worker), the CI helper binary, and the gateway-rust Dockerfile scan.
 # The TypeScript Workers gateway (retiring) is covered by node-ci.yml.
@@ -56,7 +56,7 @@ jobs:
       - name: Redis backend round trip
         env:
           REDIS_URL: redis://127.0.0.1:6379
-        run: cargo test --locked -p nft-gate-gateway -- --ignored redis_backend
+        run: cargo test --locked -p access-gate-gateway -- --ignored redis_backend
 
       # Coverage figure (RUST lens): printed to the job summary; informational, not a gate.
       - name: Install cargo-llvm-cov
@@ -82,7 +82,7 @@ jobs:
   # Worker. This job pins the core ALONE (no hyper, no tokio; its own minimal feature set, which the
   # workspace test above unifies away) and proves it still builds for the Worker's target.
   core:
-    name: nft-gate-core (native tests + wasm32 build)
+    name: access-gate-gateway-core (native tests + wasm32 build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -94,9 +94,9 @@ jobs:
           key: core
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Test (native, core alone)
-        run: cargo test --locked -p nft-gate-core
+        run: cargo test --locked -p access-gate-gateway-core
       - name: Build for the Worker target
-        run: cargo build --locked -p nft-gate-core --target wasm32-unknown-unknown
+        run: cargo build --locked -p access-gate-gateway-core --target wasm32-unknown-unknown
 
   # The Rust Worker (workers-rs, wasm32). Everything it needs that is downloaded at build time is pinned
   # and checksummed (worker/scripts/fetch-build-tools.sh); worker-build and the wasm-bindgen crate are
@@ -121,16 +121,16 @@ jobs:
       # with and without the test-only feature.
       - name: Clippy (native and wasm32, with and without test-hooks)
         run: |
-          cargo clippy --locked -p nft-gate-worker --all-targets -- -D warnings
-          cargo clippy --locked -p nft-gate-worker --all-targets --features test-hooks -- -D warnings
-          cargo clippy --locked -p nft-gate-worker --lib --target wasm32-unknown-unknown -- -D warnings
-          cargo clippy --locked -p nft-gate-worker --lib --target wasm32-unknown-unknown --features test-hooks -- -D warnings
+          cargo clippy --locked -p access-gate-gateway-worker --all-targets -- -D warnings
+          cargo clippy --locked -p access-gate-gateway-worker --all-targets --features test-hooks -- -D warnings
+          cargo clippy --locked -p access-gate-gateway-worker --lib --target wasm32-unknown-unknown -- -D warnings
+          cargo clippy --locked -p access-gate-gateway-worker --lib --target wasm32-unknown-unknown --features test-hooks -- -D warnings
 
       - name: Lint canary (the panic lints are enforced)
         run: bash worker/scripts/lint-canary.sh
 
       - name: Native unit tests (Worker glue, CI helper)
-        run: cargo test --locked -p nft-gate-worker -p nft-gate-ci
+        run: cargo test --locked -p access-gate-gateway-worker -p access-gate-gateway-ci
 
       - name: Install worker-build (pinned)
         run: command -v worker-build >/dev/null && worker-build --version | grep -q '0.8.7' || cargo install worker-build --version 0.8.7 --locked
@@ -176,7 +176,7 @@ jobs:
       - name: Install the declared minimum toolchain
         run: rustup toolchain install 1.88 --profile minimal --no-self-update && rustup default 1.88
       - name: Check on the declared minimum toolchain
-        run: cargo check --locked -p nft-gate-core -p nft-gate-gateway
+        run: cargo check --locked -p access-gate-gateway-core -p access-gate-gateway
 
   trivy-scan:
     name: Trivy (gateway-rust Dockerfile)
@@ -204,14 +204,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build the notices stage
-        run: docker build --file gateway-rust/Dockerfile --target notices --tag nft-gate-gateway:notices .
+        run: docker build --file gateway-rust/Dockerfile --target notices --tag access-gate-gateway:notices .
 
       - name: The notices cover the linked crates
         run: |
-          docker run --rm --entrypoint cat nft-gate-gateway:notices /out/THIRD_PARTY_LICENSES.txt > THIRD_PARTY_LICENSES.txt
+          docker run --rm --entrypoint cat access-gate-gateway:notices /out/THIRD_PARTY_LICENSES.txt > THIRD_PARTY_LICENSES.txt
           test -s THIRD_PARTY_LICENSES.txt
           grep -q 'Apache License' THIRD_PARTY_LICENSES.txt
-          grep -q '^Third-party software in the nft-gate-gateway image' THIRD_PARTY_LICENSES.txt
+          grep -q '^Third-party software in the access-gate-gateway image' THIRD_PARTY_LICENSES.txt
           # the gateway's own crates and a crate every build links (hyper) are listed
-          grep -q 'nft-gate-gateway ' THIRD_PARTY_LICENSES.txt
+          grep -q 'access-gate-gateway ' THIRD_PARTY_LICENSES.txt
           grep -q ' hyper ' THIRD_PARTY_LICENSES.txt

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # One version for every artifact (grounding log D16): the npm package, the Cargo workspace (the crates
-# nft-gate-core, nft-gate-gateway, nft-gate-worker and nft-gate-ci inherit it), the Worker test harness
+# access-gate-gateway-core, access-gate-gateway, access-gate-gateway-worker and access-gate-gateway-ci inherit it), the Worker test harness
 # package and the image.
 # Fails when gateway-workers/package.json (or worker/package.json) and the workspace version in Cargo.toml
-# differ, when a crate does not inherit the workspace version, when a crate pins a different nft-gate-core
+# differ, when a crate does not inherit the workspace version, when a crate pins a different access-gate-gateway-core
 # than the workspace carries, and, on a tag push, when the version differs from the tag.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -38,9 +38,9 @@ fi
 # Every crate that depends on the core pins the core of the same release (the gateway is published
 # against it; the Worker and the CI helper are built against it).
 for manifest in gateway-rust/Cargo.toml worker/Cargo.toml ci/Cargo.toml; do
-  core_pin="$(sed -n 's/^nft-gate-core = {.*version = "=\([^"]*\)".*$/\1/p' "$manifest" | head -n 1)"
+  core_pin="$(sed -n 's/^access-gate-gateway-core = {.*version = "=\([^"]*\)".*$/\1/p' "$manifest" | head -n 1)"
   if [ "$core_pin" != "$crate_version" ]; then
-    echo "::error::${manifest} pins nft-gate-core =${core_pin:-<none>} but the workspace version is ${crate_version}"
+    echo "::error::${manifest} pins access-gate-gateway-core =${core_pin:-<none>} but the workspace version is ${crate_version}"
     exit 1
   fi
 done

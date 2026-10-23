@@ -2,11 +2,11 @@
 //!
 //! Replaces the TypeScript deploy-time scripts of `gateway-workers` (`check-upstream-auth.mjs`,
 //! `origin-lock.ts`) so deploying the Rust Worker depends on no TypeScript. The parser is the core's
-//! (`nft_gate_core::config::parse_upstream_auth_headers`): the CI check and the Worker agree by
+//! (`access_gate_gateway_core::config::parse_upstream_auth_headers`): the CI check and the Worker agree by
 //! construction. The network calls themselves are done by `curl` in the workflows; this crate only
 //! validates, prints non-revealing diagnostics and classifies.
 
-use nft_gate_core::config::{parse_upstream_auth_headers, AuthHeader};
+use access_gate_gateway_core::config::{parse_upstream_auth_headers, AuthHeader};
 
 fn is_hex(s: &str, n: usize) -> bool {
     s.len() == n && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
@@ -370,7 +370,7 @@ mod tests {
         for s in [401, 403] {
             let (st, _) = classify_origin_response(
                 s,
-                &h(&[("cf-access-domain", "walrus-relay-origin.example.com")]),
+                &h(&[("cf-access-domain", "walrus-storage-relay-origin.example.com")]),
             );
             assert_eq!(st, OriginLock::Locked);
         }

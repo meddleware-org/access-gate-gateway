@@ -1,19 +1,19 @@
-//! `nft-gate-ci`: the helpers the deploy and origin-lock workflows call.
+//! `access-gate-gateway-ci`: the helpers the deploy and origin-lock workflows call.
 //!
 //! ```text
-//! nft-gate-ci check-upstream-auth [--curl-config FILE]
+//! access-gate-gateway-ci check-upstream-auth [--curl-config FILE]
 //!     Validates $UPSTREAM_AUTH_HEADERS with the core's parser; prints non-revealing diagnostics; exits 1
 //!     on a malformed value or a Cloudflare Access header of the wrong shape. With --curl-config it
 //!     writes a curl config (mode 0600) so the workflow can probe the origin without the secret on a
 //!     command line.
-//! nft-gate-ci report-origin-check --url URL --status N [--headers FILE] [--body FILE]
+//! access-gate-gateway-ci report-origin-check --url URL --status N [--headers FILE] [--body FILE]
 //!     The verdict on that probe (the workflow ran curl): exits 1 when the origin rejected the headers.
-//! nft-gate-ci classify-origin --status N [--headers FILE]
+//! access-gate-gateway-ci classify-origin --status N [--headers FILE]
 //!     Prints `locked|open|inconclusive <detail>` for a probe WITHOUT the service token (origin lock).
 //! ```
 //! No value is ever printed.
 
-use nft_gate_ci::{
+use access_gate_gateway_ci::{
     check_upstream_auth, classify_origin_response, curl_config, parse_header_dump,
     report_origin_check,
 };
@@ -106,7 +106,7 @@ fn run(args: &[String]) -> Result<bool, String> {
             Ok(true)
         }
         _ => {
-            Err("usage: nft-gate-ci check-upstream-auth|report-origin-check|classify-origin".into())
+            Err("usage: access-gate-gateway-ci check-upstream-auth|report-origin-check|classify-origin".into())
         }
     }
 }

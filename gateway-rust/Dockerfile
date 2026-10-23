@@ -1,5 +1,5 @@
 # =============================================================================
-# nft-gate-gateway — bespoke, minimal container image
+# access-gate-gateway — bespoke, minimal container image
 # =============================================================================
 # BUILD CONTEXT = THE REPOSITORY ROOT (the crate depends on ../core in the Cargo workspace):
 #   docker build -f gateway-rust/Dockerfile .
@@ -42,14 +42,14 @@ FROM chef AS builder
 COPY --from=planner /src/recipe.json recipe.json
 # This layer is re-used on every build where only src/ changes (not Cargo.lock). Only the gateway and
 # what it depends on are built: the workspace may hold crates (the Worker) that need another target.
-RUN cargo chef cook --release --locked -p nft-gate-gateway --recipe-path recipe.json
+RUN cargo chef cook --release --locked -p access-gate-gateway --recipe-path recipe.json
 COPY . .
-RUN cargo build --release --locked -p nft-gate-gateway && strip target/release/nft-gate-gateway
+RUN cargo build --release --locked -p access-gate-gateway && strip target/release/access-gate-gateway
 
 # ── Runtime: minimal distroless image ────────────────────────────────────────
 FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2
 WORKDIR /app
-COPY --from=builder /src/target/release/nft-gate-gateway /app/nft-gate-gateway
+COPY --from=builder /src/target/release/access-gate-gateway /app/access-gate-gateway
 # The lockfile makes the image's SBOM list the compiled crates (a stripped binary carries none);
 # it is inert at runtime.
 COPY --from=builder /src/Cargo.lock /app/Cargo.lock
@@ -57,4 +57,4 @@ COPY --from=builder /src/Cargo.lock /app/Cargo.lock
 COPY --from=notices /out/THIRD_PARTY_LICENSES.txt /app/THIRD_PARTY_LICENSES.txt
 USER nonroot:nonroot
 EXPOSE 8080
-ENTRYPOINT ["/app/nft-gate-gateway"]
+ENTRYPOINT ["/app/access-gate-gateway"]

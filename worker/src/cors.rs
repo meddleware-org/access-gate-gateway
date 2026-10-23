@@ -1,8 +1,8 @@
 //! CORS policy (parity with `gateway-workers/src/cors.ts`): only an exact `ALLOWED_ORIGINS` match is
 //! reflected, the same four grants and `Vary: Origin` ride on every response (errors included), and a
-//! preflight is answered before any other work. The lists live in `nft_gate_core::headers`.
+//! preflight is answered before any other work. The lists live in `access_gate_gateway_core::headers`.
 
-use nft_gate_core::headers::CORS_GRANTS;
+use access_gate_gateway_core::headers::CORS_GRANTS;
 
 /// The grants every response carries (name, value).
 pub fn grants() -> &'static [(&'static str, &'static str)] {
@@ -12,7 +12,7 @@ pub fn grants() -> &'static [(&'static str, &'static str)] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nft_gate_core::headers::cors_allowed_origin;
+    use access_gate_gateway_core::headers::cors_allowed_origin;
 
     #[test]
     fn only_an_exact_allow_list_match_is_reflected() {

@@ -53,7 +53,7 @@ export default defineConfig({
                 // A plain var in production (wrangler.toml); required by the config loader.
                 NFT_TYPE:
                   '0xd7ddaa94b74330979b2b618fc81206d160a264f1c9ca148a77fa2144301388c9::access_gate::SoulboundAccessNFT',
-                ALLOWED_ORIGINS: 'https://allowed.example.com,https://sui-walrus.meddleware.co.uk',
+                ALLOWED_ORIGINS: 'https://allowed.example.com,https://sui-walrus-storage.meddleware.co.uk',
               },
             },
           }),

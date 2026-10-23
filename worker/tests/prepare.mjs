@@ -4,7 +4,7 @@ import { build } from 'esbuild'
 import path from 'node:path'
 
 await build({
-  entryPoints: [path.resolve(import.meta.dirname, '../node_modules/@meddleware/nft-gate-client/src/index.ts')],
+  entryPoints: [path.resolve(import.meta.dirname, '../node_modules/@meddleware/access-gate-gateway-client/src/index.ts')],
   bundle: true,
   format: 'esm',
   platform: 'node',

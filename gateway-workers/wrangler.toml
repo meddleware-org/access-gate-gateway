@@ -1,4 +1,4 @@
-# nft-gate-gateway — Cloudflare Workers deployment.
+# access-gate-gateway — Cloudflare Workers deployment.
 #
 # Wire-identical to the Rust gateway (../gateway-rust). Bind it to the SAME public hostname the
 # Rust gateway serves (see [routes] below) to switch implementations with nothing else changing.
@@ -26,7 +26,7 @@
 #   CF_ACCOUNT_ID (optional — only if QUOTA_GUARD_ENABLED=true):
 #     wrangler secret put CF_ACCOUNT_ID
 
-name = "nft-gate-gateway"
+name = "access-gate-gateway"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
 compatibility_flags = ["nodejs_compat"]
@@ -45,14 +45,14 @@ SUI_RPC_URL = "https://fullnode.testnet.sui.io:443"
 NETWORK = "testnet"
 # The public origin of THIS gateway, signed into every access proof (nft-gate:access:v2): a proof made
 # for another gateway, gate or network is useless here. Must equal the route's hostname below.
-GATEWAY_ORIGIN = "https://sui-walrus-relay-testnet.meddleware.co.uk"
+GATEWAY_ORIGIN = "https://sui-walrus-storage-relay-testnet.meddleware.co.uk"
 
 # Required: the pass type this gateway accepts, `<access_gate original id>::access_gate::AccessNFT`
 # or `…::SoulboundAccessNFT`. A public on-chain type, so a plain var (it was a secret until 0.0.14).
 NFT_TYPE = "0xd7ddaa94b74330979b2b618fc81206d160a264f1c9ca148a77fa2144301388c9::access_gate::SoulboundAccessNFT"
 # Required: the gate whose passes are accepted — the testnet Walrus relay gate on access_gate
 # 0xd7ddaa94… (2026-10-09). Change GATE_ID and NFT_TYPE only together with the apps' VITE_ACCESS_GATE_ID_TESTNET
-# (walrus-ui, dashboard, token-deployer-ui) — never one without the others.
+# (walrus-storage-ui, dashboard, token-issuance-ui) — never one without the others.
 GATE_ID = "0x316f1bf9764db352e925bb598aff44ea77be4ab652f0bd2eb3fdcc0a378faddc"
 SINGLE_USE = "true"
 PUBLIC_PATHS = "/v1/tip-config"
@@ -95,7 +95,7 @@ QUOTA_GUARD_ENABLED = "false"
 WORKERS_PLAN = "free"
 # Comma-separated list of browser origins allowed to make cross-origin requests.
 # Only these origins receive Access-Control-Allow-Origin in responses.
-ALLOWED_ORIGINS = "https://sui-walrus.meddleware.co.uk,https://dash.meddleware.co.uk,https://sui-token-deployer.meddleware.co.uk"
+ALLOWED_ORIGINS = "https://sui-walrus-storage.meddleware.co.uk,https://dash.meddleware.co.uk,https://sui-token-issuance.meddleware.co.uk"
 
 # ── CPU ceiling (Workers Paid only; denial-of-wallet guard) ────────────────────────────────────
 # On Workers Free every request is capped at 10 ms CPU by the platform and this block must stay
@@ -126,7 +126,7 @@ new_sqlite_classes = ["NonceRateState"]
 # Configured via CF API (route ID 63427e4dbf9b4428ad9c492487953551).
 # wrangler deploy will create/update this automatically.
 [[routes]]
-pattern = "sui-walrus-relay-testnet.meddleware.co.uk/*"
+pattern = "sui-walrus-storage-relay-testnet.meddleware.co.uk/*"
 zone_name = "meddleware.co.uk"
 
 # ── optional quota guard (needs QUOTA_GUARD_ENABLED=true + the secrets above) ────────────────

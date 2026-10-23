@@ -2,12 +2,12 @@
 
 ## What this crate is
 
-The Rust/Axum **adapter** of the nft-gate gateway. Wire-identical to `gateway-workers/` on the
+The Rust/Axum **adapter** of the access-gate gateway. Wire-identical to `gateway-workers/` on the
 client-facing contract — same routes, status codes, proof format, and env-var config. Deployed as
 a Docker container or a Cargo binary; state backed by an in-memory store (single replica) or
 Redis/Dragonfly (horizontal scale-out).
 
-**One core, two adapters (0.0.26).** What the gateway decides and does is `nft-gate-core` (`../core`), shared with the
+**One core, two adapters (0.0.26).** What the gateway decides and does is `access-gate-gateway-core` (`../core`), shared with the
 Cloudflare Worker: `proof`, `sig`, `decision`, `grpc`/`chain`, `redemption`/`state`, `headers`, `forward`, `net`,
 `origin`, `config` and `gateway` (the request flow as a state machine over the ports `StateStore`, `ChainQuery`,
 `Upstream`, `Clock`, `Rng`, `Env`). **Change decision logic, header/path/config policy or the request flow in
@@ -27,7 +27,7 @@ lightweight build (same rationale as avoiding `reqwest`; see the HTTP-client not
 tiny protobuf writer/reader + gRPC-web framing over the platform's `Transport` (here `HyperTransport` over the
 shared `HttpClient`); only the fields the gateway reads are decoded. Field numbers are pinned from
 `MystenLabs/sui-apis` and pinned by hermetic gRPC-web fixtures in `sui_rpc.rs` (literal field numbers, no network) and checked against a real node by
-the optional `--ignored live_` tests, which take a fresh consume from `NFT_GATE_LIVE_*` env vars
+the optional `--ignored live_` tests, which take a fresh consume from `ACCESS_GATE_GATEWAY_LIVE_*` env vars
 (public fullnodes prune old transactions, so no digest is fixed in the source).
 
 - `consume_tx_valid` (single-use) is **digest-first**, mirroring the Workers gateway:
@@ -55,7 +55,7 @@ A commit failure after a 2xx upstream is `502 redemption commit failed` with the
 but never loses a paid use. Same in `gateway-workers`.
 
 Loop marker (F43): `headers::upstream_request_headers` sets `Via: 1.1 nft-gate` after dropping the
-client's; the core's `Gateway::handle` answers `508 loop detected` to a request whose `Via` already names `nft-gate`
+client's; the core's `Gateway::handle` answers `508 loop detected` to a request whose `Via` already names `access-gate-gateway`
 (after `/healthz` and the CORS preflight, before any state work). Foreign values pass. Parity table:
 `via_loop_table` in `../core/src/headers.rs` = `VIA_TABLE` in `gateway-workers/test/proxy.test.ts`.
 
@@ -89,7 +89,7 @@ core `Gateway` over `NativeState` (the `StateStore`), `SuiRpc` and `AppState` (t
 ## Nonce store options
 
 **In-memory** (default; `REDIS_URL` unset)
-- The core's `NonceTable` / `RedemptionTable` behind a `Mutex` (`nft_gate_core::state::MemoryStore`) — correct at `replicas: 1`.
+- The core's `NonceTable` / `RedemptionTable` behind a `Mutex` (`access_gate_gateway_core::state::MemoryStore`) — correct at `replicas: 1`.
 - Hard entry cap (`NONCE_MAX_ENTRIES`, default 1,000,000): when full, evict the soonest-to-expire
   entry before inserting (audit F3 — bounds memory independent of issue rate).
 - Background prune task (`NONCE_PRUNE_INTERVAL_SECS`, default 60s) drops expired entries.
@@ -119,7 +119,7 @@ compile-time dep chain (~10 min on GHA). All URLs are operator-configured ASCII 
 - **Kubernetes:** no manifests live in this repo, and the gateway is not deployed (the paywall runs on
   `gateway-workers/`; audit F32, OQ9). Deploy by image digest with a non-root, read-only-root pod.
 - **Decision (OQ9, 2026-10-19): stay undeployed.** No Meddleware small-body upstream exists; the Workers gateway on Workers Free costs nothing, while self-hosting the relay path would need streaming bodies (audit F6) and a persistent, highly available Redis for the 30-day redemption records, which is more operations for a sole maintainer and weaker consistency than Durable Objects. It stays CI-green at parity as the self-host / white-label artefact. Revisit when a small-body upstream appears, a white-label customer must self-host, or Workers Free proves insufficient while Workers Paid is unaffordable (then streaming, F6, comes first).
-- **Bare metal / VM:** `cargo install nft-gate-gateway` or `cargo build --release`.
+- **Bare metal / VM:** `cargo install access-gate-gateway` or `cargo build --release`.
 
 ## Ownership cache
 
@@ -131,7 +131,7 @@ live). Use with care on mainnet — a stolen/transferred NFT can still gate duri
 ## Invariants
 
 - Every gateway-generated answer is JSON `{"error": reason}` (`JsonReply` in the core). Do not return plain-text error bodies.
-- `nft_gate_core::headers::extract_proof_token` prefers `Authorization: Bearer` over `X-Access-Proof`. This order is
+- `access_gate_gateway_core::headers::extract_proof_token` prefers `Authorization: Bearer` over `X-Access-Proof`. This order is
   canonical — do not flip it without updating both impls and the client.
 - The verification logic is `../core/src/decision.rs` (and `sig.rs`), shared with the Rust Worker; the TypeScript
   Workers `verify.ts` is the retiring twin. Any behavioural change is made in the core once and, until the

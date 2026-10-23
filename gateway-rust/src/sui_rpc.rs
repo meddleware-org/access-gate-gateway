@@ -1,10 +1,10 @@
-//! Production [`ChainQuery`]: the chain logic moved to `nft-gate-core::chain` (generic over a
+//! Production [`ChainQuery`]: the chain logic moved to `access-gate-gateway-core::chain` (generic over a
 //! `Transport`, shared with the Cloudflare Worker); this module binds it to the hyper client.
 
 #[cfg(test)]
-use nft_gate_core::chain::*;
+use access_gate_gateway_core::chain::*;
 #[cfg(test)]
-use nft_gate_core::decision::ChainQuery;
+use access_gate_gateway_core::decision::ChainQuery;
 
 use crate::config::AuthHeader;
 use crate::grpc::HyperTransport;
@@ -29,10 +29,10 @@ fn now_ms() -> u64 {
 use crate::http_client::TimedOut;
 #[cfg(test)]
 #[allow(unused_imports)]
-use nft_gate_core::sig::{normalize_address, normalize_move_type};
+use access_gate_gateway_core::sig::{normalize_address, normalize_move_type};
 
 /// The native chain client.
-pub type SuiRpc = nft_gate_core::chain::SuiRpc<HyperTransport>;
+pub type SuiRpc = access_gate_gateway_core::chain::SuiRpc<HyperTransport>;
 
 /// Create a new client. `rpc_url` is the full-node origin; `cache_ttl_ms` `0` disables the ownership cache.
 pub fn new_sui_rpc(
@@ -42,7 +42,7 @@ pub fn new_sui_rpc(
     auth: Option<AuthHeader>,
     timeout: Duration,
 ) -> SuiRpc {
-    nft_gate_core::chain::SuiRpc::new(
+    access_gate_gateway_core::chain::SuiRpc::new(
         HyperTransport::new(client, auth, timeout),
         rpc_url,
         cache_ttl_ms,
@@ -631,18 +631,18 @@ mod tests {
     // gate is a long-lived shared object. `live_consume_tx_valid` replays a recent
     // `access_gate::consume`; public fullnodes prune old checkpoints within about a week, so it
     // takes the transaction from the environment instead of a fixed digest (audit F45):
-    //   NFT_GATE_LIVE_DIGEST   digest of a recent consume (listEvents on the AccessConsumedEvent
+    //   ACCESS_GATE_GATEWAY_LIVE_DIGEST   digest of a recent consume (listEvents on the AccessConsumedEvent
     //                          type, descending, on the same network)
-    //   NFT_GATE_LIVE_SENDER   the consume's sender address
-    //   NFT_GATE_LIVE_GATE     the gate id the consume was for
-    //   NFT_GATE_LIVE_PACKAGE  the access_gate package (original id) that emitted the event
-    //   NFT_GATE_LIVE_RPC      full-node URL (default https://fullnode.testnet.sui.io:443)
+    //   ACCESS_GATE_GATEWAY_LIVE_SENDER   the consume's sender address
+    //   ACCESS_GATE_GATEWAY_LIVE_GATE     the gate id the consume was for
+    //   ACCESS_GATE_GATEWAY_LIVE_PACKAGE  the access_gate package (original id) that emitted the event
+    //   ACCESS_GATE_GATEWAY_LIVE_RPC      full-node URL (default https://fullnode.testnet.sui.io:443)
     // Unset DIGEST: the test says so and returns without asserting.
 
     fn live_rpc() -> SuiRpc {
         new_sui_rpc(
             HttpClient::new().unwrap(),
-            std::env::var("NFT_GATE_LIVE_RPC")
+            std::env::var("ACCESS_GATE_GATEWAY_LIVE_RPC")
                 .unwrap_or_else(|_| "https://fullnode.testnet.sui.io:443".to_string()),
             0,
             None,
@@ -654,10 +654,10 @@ mod tests {
     #[ignore = "hits a Sui full node; run with --ignored"]
     async fn live_gate_and_ownership_requests_are_accepted() {
         // The testnet relay gate published 2026-10-09 (see gateway-workers/wrangler.toml).
-        let gate = std::env::var("NFT_GATE_LIVE_GATE").unwrap_or_else(|_| {
+        let gate = std::env::var("ACCESS_GATE_GATEWAY_LIVE_GATE").unwrap_or_else(|_| {
             "0x316f1bf9764db352e925bb598aff44ea77be4ab652f0bd2eb3fdcc0a378faddc".to_string()
         });
-        let pkg = std::env::var("NFT_GATE_LIVE_PACKAGE").unwrap_or_else(|_| {
+        let pkg = std::env::var("ACCESS_GATE_GATEWAY_LIVE_PACKAGE").unwrap_or_else(|_| {
             "0xd7ddaa94b74330979b2b618fc81206d160a264f1c9ca148a77fa2144301388c9".to_string()
         });
         let rpc = live_rpc();
@@ -677,18 +677,18 @@ mod tests {
     #[tokio::test]
     #[ignore = "hits a Sui full node; run with --ignored"]
     async fn live_consume_tx_valid() {
-        use nft_gate_core::sig::consumed_event_type;
+        use access_gate_gateway_core::sig::consumed_event_type;
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-        let Some(digest) = env("NFT_GATE_LIVE_DIGEST") else {
-            eprintln!("live_consume_tx_valid: NFT_GATE_LIVE_DIGEST is not set; nothing to check");
+        let Some(digest) = env("ACCESS_GATE_GATEWAY_LIVE_DIGEST") else {
+            eprintln!("live_consume_tx_valid: ACCESS_GATE_GATEWAY_LIVE_DIGEST is not set; nothing to check");
             return;
         };
         let (Some(addr), Some(gate), Some(pkg)) = (
-            env("NFT_GATE_LIVE_SENDER"),
-            env("NFT_GATE_LIVE_GATE"),
-            env("NFT_GATE_LIVE_PACKAGE"),
+            env("ACCESS_GATE_GATEWAY_LIVE_SENDER"),
+            env("ACCESS_GATE_GATEWAY_LIVE_GATE"),
+            env("ACCESS_GATE_GATEWAY_LIVE_PACKAGE"),
         ) else {
-            panic!("set NFT_GATE_LIVE_SENDER, NFT_GATE_LIVE_GATE and NFT_GATE_LIVE_PACKAGE too");
+            panic!("set ACCESS_GATE_GATEWAY_LIVE_SENDER, ACCESS_GATE_GATEWAY_LIVE_GATE and ACCESS_GATE_GATEWAY_LIVE_PACKAGE too");
         };
         let rpc = live_rpc();
         let consumed = consumed_event_type(&format!("{pkg}::access_gate::SoulboundAccessNFT"));

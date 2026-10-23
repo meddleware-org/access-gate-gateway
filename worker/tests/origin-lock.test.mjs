@@ -1,5 +1,5 @@
 // Port of gateway-workers/test/origin-lock.test.ts, "check-origin-locked.mjs" half: the script that runs
-// in .github/workflows/origin-lock.yml (scripts/check-origin-locked.sh, verdicts from `nft-gate-ci`).
+// in .github/workflows/origin-lock.yml (scripts/check-origin-locked.sh, verdicts from `access-gate-gateway-ci`).
 // The classification cases ("classifyOriginResponse") are unit-tested in ci/src/lib.rs.
 import { after, before, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
@@ -10,11 +10,11 @@ import { spawn, spawnSync } from 'node:child_process'
 import { freePort } from './lib/worker.mjs'
 
 const ROOT = path.resolve(import.meta.dirname, '../..')
-const CLI = path.join(ROOT, 'target/debug/nft-gate-ci')
+const CLI = path.join(ROOT, 'target/debug/access-gate-gateway-ci')
 
 before(() => {
   if (!fs.existsSync(CLI)) {
-    const b = spawnSync('cargo', ['build', '--quiet', '--locked', '-p', 'nft-gate-ci'], { cwd: ROOT, encoding: 'utf8' })
+    const b = spawnSync('cargo', ['build', '--quiet', '--locked', '-p', 'access-gate-gateway-ci'], { cwd: ROOT, encoding: 'utf8' })
     assert.equal(b.status, 0, b.stderr)
   }
 })
@@ -23,7 +23,7 @@ before(() => {
 function run(env, args = []) {
   return new Promise((resolve) => {
     const c = spawn('bash', [path.join(ROOT, 'scripts/check-origin-locked.sh'), ...args], {
-      env: { PATH: process.env.PATH, NFT_GATE_CI: CLI, ...env },
+      env: { PATH: process.env.PATH, ACCESS_GATE_GATEWAY_CI: CLI, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let out = ''

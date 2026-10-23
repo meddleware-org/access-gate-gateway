@@ -1,9 +1,9 @@
-# nft-gate — `gateway-rust` Security Audit
+# access-gate-gateway — `gateway-rust` Security Audit
 
 **Classification:** Internal security review
-**Project:** nft-gate/gateway-rust  (Rust/Axum reverse proxy that admits only holders of an on-chain
+**Project:** access-gate-gateway/gateway-rust  (Rust/Axum reverse proxy that admits only holders of an on-chain
   `access_gate` pass, verified by a Sui personal-message signature and a live gRPC-web chain read;
-  wire-identical sibling of `gateway-workers`; since 0.0.26 an I/O adapter on the shared `nft-gate-core`
+  wire-identical sibling of `gateway-workers`; since 0.0.26 an I/O adapter on the shared `access-gate-gateway-core`
   crate in `../core`, which holds the decision logic once — F49)
 **Project type:** Rust service (+ container image + crates.io crate)
 **Template:** AUDIT_TEMPLATE.md (2026-10-08) + AUDIT_TEMPLATE_RUST.md (2026-10-08) +
@@ -13,10 +13,10 @@
 **Deployment status:**
 
 - **0.0.26 is committed locally** (2026-10-19, unreleased): the decision logic moves into the shared crate
-  `nft-gate-core` (`core/`, a Cargo workspace at the repository root) and this crate becomes an I/O adapter on it
+  `access-gate-gateway-core` (`core/`, a Cargo workspace at the repository root) and this crate becomes an I/O adapter on it
   (F49, F50). Behaviour is unchanged apart from two stricter configuration checks; the 117 + 3 ignored tests are
   kept or moved to the core (176 + 3 ignored across the workspace). Still **not deployed**. The crate
-  `nft-gate-core` is new on crates.io at release time (its trusted publisher must be configured by the maintainer).
+  `access-gate-gateway-core` is new on crates.io at release time (its trusted publisher must be configured by the maintainer).
 - **Not deployed**, by decision (OQ9 (a), 2026-10-19): `gateway-rust` is kept at wire and behaviour parity with the
   live Workers gateway but is scoped to small-body upstreams (bodies are buffered, README "Scope"), so the
   paywall runs on `gateway-workers` only (root `CLAUDE.md`). No overlay, manifest or
@@ -30,8 +30,8 @@
   tag's runs, all green; both gateways move together, D16). It carries `rustls` 0.23.46 (RUSTSEC-2026-0346,
   RUSTSEC-2026-0347 and the Brotli certificate-decompression advisory, found by `cargo deny` after 0.0.22 and fixed on `main`
   on 2026-10-18) and the Dependabot cargo group (tokio 1.53.3, hyper 1.12.0, serde_json 1.0.154, proptest 1.12.0; lockfile read 2026-10-19).
-  Checked 2026-10-19: crates.io `nft-gate-gateway` max version 0.0.23 (updated 2026-10-19T01:17Z, not yanked); npm sibling 0.0.23
-  with an SLSA v1 provenance attestation; image `quay.io/meddleware-org/nft-gate-gateway:0.0.23` (also tagged `0.0` and `latest`) =
+  Checked 2026-10-19: crates.io `access-gate-gateway` max version 0.0.23 (updated 2026-10-19T01:17Z, not yanked); npm sibling 0.0.23
+  with an SLSA v1 provenance attestation; image `quay.io/meddleware-org/access-gate-gateway:0.0.23` (also tagged `0.0` and `latest`) =
   index `sha256:0d0be82ada8f757ebc0b036030962487914e2c0e39b8173455c595b97a3f535a` (quay API); `docker-publish` run 39184480792 passed
   "Scan the published image (Trivy)" before "Sign images (keyless)" (the self-hosted-mirror jobs failed at registry login as before). The
   cosign signature, SBOM and provenance were not verified by me. Still **not deployed** (see the first bullet): the published image now carries the
@@ -41,12 +41,12 @@
 - **0.0.22 was released** (tag `v0.0.22` = `3189969`, 2026-10-10; crate, npm sibling and image published by the
   tag's runs, all green) and carries the fixes recorded below: F17, F21, F26, F28, F29 (CI and Docker parts), F45,
   F46, F47; both gateways move together (D16). It was published but **not deployed**.
-- Crate `nft-gate-gateway` **0.0.22** on crates.io (default version 0.0.22 until 0.0.23, updated 2026-10-10T18:50Z; trusted
+- Crate `access-gate-gateway` **0.0.22** on crates.io (default version 0.0.22 until 0.0.23, updated 2026-10-10T18:50Z; trusted
   publishing, run of tag `v0.0.22` succeeded; checked 2026-10-18 through the crates.io API). 0.0.21 (published
   2026-10-08T08:19Z; 0.0.18–0.0.21 since the first pass) was the version of the 2026-10-09 and first 2026-10-10
-  reads. The npm sibling `@meddleware/nft-gate-gateway` 0.0.22 was published 2026-10-10T18:49Z with an SLSA v1
+  reads. The npm sibling `@meddleware/access-gate-gateway` 0.0.22 was published 2026-10-10T18:49Z with an SLSA v1
   provenance attestation (checked 2026-10-18).
-- Image `quay.io/meddleware-org/nft-gate-gateway:0.0.22` (tagged `0.0` and `latest` until 0.0.23; multi-arch index
+- Image `quay.io/meddleware-org/access-gate-gateway:0.0.22` (tagged `0.0` and `latest` until 0.0.23; multi-arch index
   `sha256:e207add604e54bda370f42e6429540b58f6f1467c6457241300232958fcab23d`, pushed 2026-10-10T18:54Z by
   `docker-publish.yml` run 38077120738, success; read on 2026-10-18 through quay's public API and `skopeo`). In
   that run the verify jobs (Rust gateway with the Redis round trip and coverage, MSRV, Trivy on the Dockerfile),
@@ -83,10 +83,10 @@
   re-verified 2026-10-09, F42–F48 added in that pass; 0.0.22 released 2026-10-10 and 0.0.23 released 2026-10-19 (crate, npm, image), not deployed
 
 **Toolchain:** `rust-version = "1.88"` (`[workspace.package]` in the root `Cargo.toml`, inherited by both crates; the MSRV job in
-  `rust-ci.yml` checks `nft-gate-core` and `nft-gate-gateway`; checked on 1.88.0 for 0.0.26) — no
+  `rust-ci.yml` checks `access-gate-gateway-core` and `access-gate-gateway`; checked on 1.88.0 for 0.0.26) — no
   `rust-toolchain.toml`   **Edition:** 2021
-**Crates published:** yes — `nft-gate-gateway` on crates.io via trusted publishing
-  (`crates-publish.yml`, `rust-lang/crates-io-auth-action`); from 0.0.26 also `nft-gate-core` (published first; the gateway pins it by exact version)
+**Crates published:** yes — `access-gate-gateway` on crates.io via trusted publishing
+  (`crates-publish.yml`, `rust-lang/crates-io-auth-action`); from 0.0.26 also `access-gate-gateway-core` (published first; the gateway pins it by exact version)
 **Runtime:** tokio multi-thread (`rt-multi-thread`, `macros`, `net`, `signal`, `sync`, `time`); the
   server is a hyper HTTP/1 accept loop (`serve` in `main.rs`) with a `TokioTimer`
 
@@ -121,10 +121,10 @@
 **Aggregator / publisher hosts:** n/a   **Tip ceiling:** n/a (client-side; relay-enforced)
 **Epoch default / maximum:** n/a   **Deletable default:** n/a
 
-**Images:** `quay.io/meddleware-org/nft-gate-gateway:<semver>` (0.0.23 = `@sha256:0d0be82a…535a`, read 2026-10-19; 0.0.22 = `@sha256:e207add6…b23d`, read 2026-10-18;
-  0.0.21 = `@sha256:f7d627eb…9281`) and `docker.io/<DOCKERHUB_NAMESPACE>/nft-gate-gateway:<semver>`
+**Images:** `quay.io/meddleware-org/access-gate-gateway:<semver>` (0.0.23 = `@sha256:0d0be82a…535a`, read 2026-10-19; 0.0.22 = `@sha256:e207add6…b23d`, read 2026-10-18;
+  0.0.21 = `@sha256:f7d627eb…9281`) and `docker.io/<DOCKERHUB_NAMESPACE>/access-gate-gateway:<semver>`
   (multi-arch index, signed at the index digest by the workflow; not re-verified here); best-effort
-  `<PRIVATE_REGISTRY>/<PRIVATE_NAMESPACE>/nft-gate-gateway:<semver>` (the same index digest, copied by `mirror-private`; it was an unsigned `<sha>-<arch>` rebuild before 2026-10-19)
+  `<PRIVATE_REGISTRY>/<PRIVATE_NAMESPACE>/access-gate-gateway:<semver>` (the same index digest, copied by `mirror-private`; it was an unsigned `<sha>-<arch>` rebuild before 2026-10-19)
 **Base images:** build `rust:1-slim@sha256:4cd82946…71ab7`; runtime
   `gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d…f1c2` on `main` (Dependabot `5c34762`, 2026-10-09;
   the 0.0.21 image was built on `sha256:54df941e…3f97`)
@@ -137,7 +137,7 @@
   e.g. a Cloudflare Access service token) and the RPC (`SUI_RPC_AUTH_HEADER`); credential-injecting
   proxy. Sui wallet proofs are out of the AUTH lens (Sui client lens home).
 **Identity provider:** none (Cloudflare Access is the upstream's lock, not an IdP the gateway talks to)
-**Token formats:** inbound: nft-gate access proof v2 (base64 JSON + Sui signature over an
+**Token formats:** inbound: access-gate-gateway access proof v2 (base64 JSON + Sui signature over an
   audience-bound message, F1); outbound: static headers
 **Signing / client credentials:** `UPSTREAM_AUTH_HEADERS`, `SUI_RPC_AUTH_HEADER`, `REDIS_URL`
   (may embed a password) — env at runtime; none is held today (undeployed); rotation cadence to be
@@ -149,8 +149,8 @@
 
 ## Executive summary
 
-`gateway-rust` is an Axum/hyper service (`#![forbid(unsafe_code)]`; ~3.7 kLOC of adapter plus the shared ~6.2 kLOC `nft-gate-core`
-crate, tests included, since 0.0.26) that sits in front of an HTTP upstream and admits a request only when it carries a valid nft-gate access proof: a
+`gateway-rust` is an Axum/hyper service (`#![forbid(unsafe_code)]`; ~3.7 kLOC of adapter plus the shared ~6.2 kLOC `access-gate-gateway-core`
+crate, tests included, since 0.0.26) that sits in front of an HTTP upstream and admits a request only when it carries a valid access-gate-gateway access proof: a
 Sui personal-message signature over the audience-bound `nft-gate:access:v2` message (this gateway's
 origin, the gate, the network, a gateway-issued nonce and, in single-use mode, the consume digest),
 plus either live ownership of a usable `access_gate` pass for the configured gate (ownership mode) or
@@ -170,7 +170,7 @@ changes only `Cargo.toml`/`Cargo.lock`).
 
 1. **Audience binding** (F1): protocol v2 binds origin, gate, network, nonce and consume digest; v1 is
    refused; `GATEWAY_ORIGIN` and `NETWORK` are required; the shared vectors (published by
-   `@meddleware/nft-gate-client`) carry a negative per bound field and pass in this suite.
+   `@meddleware/access-gate-gateway-client`) carry a negative per bound field and pass in this suite.
 2. **Single-use cannot weaken** (F2, F3, F4, F24): lease, commit and release are compare-and-set on a
    random owner token (Lua in Redis); the lease (900 s) is checked at startup to outlive the upstream
    deadline (600 s); `SINGLE_USE=true` is refused without `REDIS_URL` unless
@@ -228,7 +228,7 @@ negatives (high-S on both curves, a non-canonical ed25519 `s`, wrong intent, tru
 - the CI and release chain is pinned and signed (cosign keyless at the index digest, SBOM and
   provenance attestations, crates.io OIDC), and the release job runs the same workflow as CI.
 
-**One core, two adapters (0.0.26, F49, F50).** The decision logic no longer exists twice on the Rust side. `nft-gate-core`
+**One core, two adapters (0.0.26, F49, F50).** The decision logic no longer exists twice on the Rust side. `access-gate-gateway-core`
 (`core/`: proof, signature schemes, the decision, the Sui reads, the nonce / rate / redemption state machines, header, path, CORS and
 configuration policy, and the request flow as a state machine over the ports `StateStore`, `ChainQuery`, `Upstream`, `Clock`,
 `Rng`, `Env`) is shared by this gateway and the Rust Cloudflare Worker that is replacing the TypeScript one (the maintainer's no-JS/TS-backend rule;
@@ -308,7 +308,7 @@ multi-line `nft-gate:access:v2` message, which names this gateway's origin), **r
 | Party | Power | Consequence / bound |
 | --- | --- | --- |
 | Gateway in front of a relay (this project) | admits requests carrying an access proof | bypass if the relay is reachable without it — the origin lock is the upstream's (Access/mTLS) and is not verifiable from this repo (B.WAL / OQ9). The Workers gateway's lock is recorded in its audit (F32 there). |
-| Upload relay operator | receives the plaintext blob | out of scope here (walrus-relay/walrus-client audits) |
+| Upload relay operator | receives the plaintext blob | out of scope here (walrus-relay/walrus-storage-client audits) |
 | User wallet | pays and signs the consume | the consume digest is the redemption token (F2–F4); the signed message is bound to this gateway (F1) |
 
 ### Identity & credential matrix (AUTH lens)
@@ -345,14 +345,14 @@ and `Cargo.lock` only); its Rust CI run succeeded, and the local tree was not ad
   - `Cargo.toml`, `Cargo.lock`, `deny.toml`, `Dockerfile`, `.dockerignore`
   - `README.md`, `CLAUDE.md`, `AGENTS.md`, `CHANGELOG.md`
 - Repo-level:
-  - `conformance/vectors.json` (published by `@meddleware/nft-gate-client`; synced by
+  - `conformance/vectors.json` (published by `@meddleware/access-gate-gateway-client`; synced by
     `scripts/sync-vectors.mjs`), `SECURITY.md`, root `README.md` / `CLAUDE.md`
   - `scripts/check-versions.sh`, `.github/dependabot.yml`
   - `.github/workflows/{rust-ci,docker-publish,crates-publish}.yml`
 - Cross-repo evidence (read-only):
   - `access-gate-sui/CLAUDE.md` (digest-first verifier contract) and `Published.toml`
-  - `walrus-client/src/flow.ts` (409 handling: `code === 'redeemed'` / `'leased'`)
-  - `nft-gate-client/src/contract.ts` (`GATEWAY_STATUS`, `GATEWAY_CONFLICT_CODES`)
+  - `walrus-storage-client/src/flow.ts` (409 handling: `code === 'redeemed'` / `'leased'`)
+  - `access-gate-gateway-client/src/contract.ts` (`GATEWAY_STATUS`, `GATEWAY_CONFLICT_CODES`)
   - `gateway-workers-audit.md` (shared fixes and the B.SC-3 home table)
   - `OPERATOR_TASKS.md` (registry credentials)
 
@@ -371,11 +371,11 @@ and `Cargo.lock` only); its Rust CI run succeeded, and the local tree was not ad
 | `cargo test --locked --offline` | 2026-10-09: 93 tests (91 passed, 2 ignored). **2026-10-10 (0.0.22): 117 tests: 114 passed, 0 failed, 3 ignored** (`live_gate_and_ownership_requests_are_accepted`, `live_consume_tx_valid`, `challenge::tests::redis_backend_round_trip`); first pass 71 / 69 / 2 |
 | `cargo fmt --check` | clean |
 | `cargo clippy --locked --offline --all-targets -- -D warnings` | clean |
-| `cargo test --locked -- --ignored live_` | 2026-10-09: the old fixed-digest test **failed** (NOT_FOUND, `x-sui-lowest-available-checkpoint` 391126037: pruned; F45). 2026-10-10 after the fix: `live_gate_and_ownership_requests_are_accepted` passes; `live_consume_tx_valid` passes with a recent consume on the current relay gate (`NFT_GATE_LIVE_*`), which also confirms the `effects.status` field numbers (F21) |
+| `cargo test --locked -- --ignored live_` | 2026-10-09: the old fixed-digest test **failed** (NOT_FOUND, `x-sui-lowest-available-checkpoint` 391126037: pruned; F45). 2026-10-10 after the fix: `live_gate_and_ownership_requests_are_accepted` passes; `live_consume_tx_valid` passes with a recent consume on the current relay gate (`ACCESS_GATE_GATEWAY_LIVE_*`), which also confirms the `effects.status` field numbers (F21) |
 | `cargo llvm-cov --locked --summary-only` | 2026-10-10, local: 90.7 % of lines, 91.4 % of functions, 90.1 % of regions (test code included in the denominator) |
 | `redis_backend_round_trip` | not run (needs `REDIS_URL`; not in CI, S2) |
 | `cargo deny` / `cargo audit` | not installed locally. `cargo-deny-action` is green in CI on `main` (Rust CI run of 2026-10-09T17:52Z on `85b18e1`); `cargo audit` is covered by cargo-deny's `advisories` check (same RustSec database, F28). Dependabot security alerts are disabled for the repository (API 403). |
-| Published versions | crates.io `nft-gate-gateway` max 0.0.21 (2026-10-08T08:19Z, none yanked); npm sibling 0.0.21; quay.io `nft-gate-gateway:0.0.21` present (index `sha256:f7d627eb…9281`). (2026-10-18: crates.io default version 0.0.22; npm 0.0.22 published 2026-10-10T18:49Z with provenance; quay.io `0.0.22` present, index `sha256:e207add6…b23d`, pushed 2026-10-10T18:54Z). 2026-10-19: crates.io max 0.0.23 (not yanked), npm 0.0.23 with provenance, quay.io `0.0.23` index `sha256:0d0be82a…535a` |
+| Published versions | crates.io `access-gate-gateway` max 0.0.21 (2026-10-08T08:19Z, none yanked); npm sibling 0.0.21; quay.io `access-gate-gateway:0.0.21` present (index `sha256:f7d627eb…9281`). (2026-10-18: crates.io default version 0.0.22; npm 0.0.22 published 2026-10-10T18:49Z with provenance; quay.io `0.0.22` present, index `sha256:e207add6…b23d`, pushed 2026-10-10T18:54Z). 2026-10-19: crates.io max 0.0.23 (not yanked), npm 0.0.23 with provenance, quay.io `0.0.23` index `sha256:0d0be82a…535a` |
 | Dependabot | `.github/dependabot.yml`: weekly, grouped; npm (`/gateway-workers`), cargo and docker (`/gateway-rust`), github-actions. 2026-10-09 triage: merged cargo group, distroless digest, `ed25519-dalek` 3.0.0 (dev-dependency), `blake2` 0.11.0, Actions group; closed `k256`/`p256` 0.14 (PRs #4, #6, major declined), TypeScript 7 and vitest 5 (Workers). 2026-10-19: policy encoded as `ignore` rules (`@types/node` and `typescript` majors, `node` majors, `golang` minor/major, and for cargo the `axum`, `redis` and `base64` majors); the open grouped PRs were merged. |
 
 ---
@@ -399,7 +399,7 @@ the gate, the network or (in single-use mode) the consume digest being redeemed.
 anyone (`GET /v1/challenge`), and the wallet shows the user an opaque `nft-gate:access:<hex>` string.
 
 **Impact:** A malicious site can fetch a nonce from the real gateway, ask a visitor to sign it (the
-prompt is indistinguishable from any nft-gate service) and submit the proof itself.
+prompt is indistinguishable from any access-gate-gateway service) and submit the proof itself.
 
 - **Ownership mode:** this grants the attacker one request as the victim, using the victim's pass.
 - **Single-use mode:** the attacker also needs a consume digest whose event sender is the victim.
@@ -411,7 +411,7 @@ prompt is indistinguishable from any nft-gate service) and submit the proof itse
 
 The exposure is bounded to one request per phished signature. The nonce TTL is 300 s.
 
-**Remediation / evidence:** Protocol v2, one coordinated wire change (nft-gate-client 0.0.16 and both gateways, no v1
+**Remediation / evidence:** Protocol v2, one coordinated wire change (access-gate-gateway-client 0.0.16 and both gateways, no v1
 compatibility, per the pre-v0.2 policy):
 
 - The signed message is `nft-gate:access:v2`, multi-line ASCII, binding the gateway origin, the gate
@@ -421,7 +421,7 @@ compatibility, per the pre-v0.2 policy):
   nonce and, in single-use mode, its digest, never from the token. New required variables
   `GATEWAY_ORIGIN` (a canonical https origin, refused otherwise) and `NETWORK`. A proof made for
   another gateway, gate, network or mode fails signature verification here; v1 is refused.
-- Vectors are generated and published by nft-gate-client (`personalMessage`, `personalMessageRejects`
+- Vectors are generated and published by access-gate-gateway-client (`personalMessage`, `personalMessageRejects`
   13 cases, `audienceMismatch` 8, `signatures` 4, `negativeSignatures` 8, `zip215`), copied by
   `scripts/sync-vectors.mjs` and asserted by `verify::tests::conformance_shared_vectors`.
 - Tests: `refuses_a_proof_made_for_another_gateway_gate_or_network`,
@@ -446,7 +446,7 @@ compatibility, per the pre-v0.2 policy):
 gateway returns `{"error": …, "code": "redeemed"}` or `{"error": …, "code": "leased"}`
 (`gateway-workers/src/redemption.ts:30-35`).
 
-The client decides whether to spend a fresh use as follows (`walrus-client/src/flow.ts` ~L96):
+The client decides whether to spend a fresh use as follows (`walrus-storage-client/src/flow.ts` ~L96):
 
 - `e.status === 409 && e.error?.code === 'redeemed'`;
 - **otherwise** a message regex fallback on `/409/` and `/redeemed/`.
@@ -472,15 +472,15 @@ decision.
 - `Lease::Leased` → `409 {"error":"an upload for this consume is already in progress","code":"leased"}`;
 - an `Err` from the store → `503 gateway state unavailable`.
 
-This is the vocabulary walrus-client parses (`isRedeemedConflict`, `isLeasedConflict` in
-`walrus-client/src/flow.ts`; `GATEWAY_CONFLICT_CODES` in nft-gate-client). A failed Redis `SET` or
+This is the vocabulary walrus-storage-client parses (`isRedeemedConflict`, `isLeasedConflict` in
+`walrus-storage-client/src/flow.ts`; `GATEWAY_CONFLICT_CODES` in access-gate-gateway-client). A failed Redis `SET` or
 follow-up `GET` in `RedisNonceStore::try_lease_redemption` is now an `Err`, not `Leased`; a `GETDEL`
 error is `Denied::StateUnavailable` → `503`; a failed nonce write is `503` on `/v1/challenge`.
 
 Tests: the store behaviour is tested (`redemption_*` in `challenge.rs`). **There is no router- or
 dispatcher-level test of the 409 bodies or of the 503 mapping** (F47), no `redemptionConflict` section
 in the shared vectors, and `GATEWAY_CONFLICT_CODES` is a TypeScript constant the Rust suite does not
-consume. Dropping walrus-client's message-regex fallback is that audit's item.
+consume. Dropping walrus-storage-client's message-regex fallback is that audit's item.
 
 ### F3 — Redemption lease is not owner-bound and can expire while its request is still running
 
@@ -622,7 +622,7 @@ either rejects uploads or OOM-kills the pod. With the in-memory store, an OOM ki
 `AccessVariant::SingleUse { uses_remaining: 0 }` receipt (gates with `auto_burn_at_zero = false` keep
 it as a receipt per the access_gate invariant 4) passes.
 
-`seal-policies-sui` `nft_gate` explicitly rejects exhausted passes ("an exhausted (zero-use) pass is
+`sealed-storage-sui` `nft_gate` explicitly rejects exhausted passes ("an exhausted (zero-use) pass is
 rejected"), so the two consumers of the same pass disagree.
 
 **Impact:** On a gate configured with a positive `default_uses`, ownership mode gives unlimited access
@@ -1144,7 +1144,7 @@ Unlicense; a crate under any other licence fails the build, and the list is a su
 text once per licence, with the crates that use it); the runtime stage copies the result to
 `/app/THIRD_PARTY_LICENSES.txt` and the build fails unless it contains an Apache licence text. A new `notices` job in
 `rust-ci.yml` builds that stage alone on every push and pull request and checks the file (non-empty, the Apache text,
-the heading, `nft-gate-gateway` and `hyper` listed). Verified locally with rootless podman: the stage builds, and the file lists
+the heading, `access-gate-gateway` and `hyper` listed). Verified locally with rootless podman: the stage builds, and the file lists
 175 crates (108 Apache-2.0, 34 MIT, 19 Unicode-3.0, 7 BSD-3-Clause, 4 ISC, 2 0BSD, 1 CDLA-Permissive-2.0), 239 kB; the
 full image build is recorded in the log entry. Why MITIGATED stays: the first live run of the self-hosted-registry copy needs
 the registry credentials (maintainer, `OPERATOR_TASKS.md`), and CI compiles with `stable` while the image uses the
@@ -1201,7 +1201,7 @@ and the value of `TRUSTED_PROXY_HOPS`, cannot be verified.
 
 **Remediation / evidence:** Unchanged: there are no manifests in this repo and `gateway-rust/CLAUDE.md` points to a nonexistent
 tree (F27). The sizing is now known: a memory limit of at least ≈1.1 GiB at the defaults (F6). When the
-gateway is deployed, add `post-bootstrap/nft-gate-gateway/` with:
+gateway is deployed, add `post-bootstrap/access-gate-gateway/` with:
 
 - `runAsNonRoot` and `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, all capabilities
   dropped, `RuntimeDefault` seccomp and `automountServiceAccountToken: false`;
@@ -1389,7 +1389,7 @@ gateways at once; doing it only here would make the two decide differently.
 **Resolved 2026-10-19 (0.0.24, both gateways at once).** The check is cheap and has one correct form, so it
 is no longer conditional on a white-label deployment. `upstream_request_headers` still drops the client's
 `Via` (the PROXY lens wants forwarding fields set by the proxy, not copied) and now sets `Via: 1.1 nft-gate`;
-`handle` answers `508 {"error":"loop detected"}` to a request whose `Via` already names `nft-gate` as a
+`handle` answers `508 {"error":"loop detected"}` to a request whose `Via` already names `access-gate-gateway` as a
 received-by hop, after `/healthz` and the CORS preflight (both answered before) and before any rate-limit,
 nonce or redemption work, so a looped request spends nothing. Only our own token matches (a case-insensitive
 comparison of the second token of each comma-separated entry), so a foreign value such as a CDN's `1.1 google`
@@ -1401,7 +1401,7 @@ Tests: `headers::tests::via_loop_table` (14 inputs, the same table as `VIA_TABLE
 the strip test (the client's `via` is replaced by the marker), and router
 `the_upstream_sees_the_via_marker_and_a_looped_request_is_a_508_before_any_work` (foreign `Via` passes; 508 on
 the challenge, a public path and a gated path with CORS and no upstream call; `/healthz` and the preflight
-unaffected). The conformance vectors are generated by `nft-gate-client` and carry wire-format fields only, so
+unaffected). The conformance vectors are generated by `access-gate-gateway-client` and carry wire-format fields only, so
 the parity is an identical test table in each suite rather than a shared vector.
 
 ### F44 — Upstream error statuses and bodies pass through to the client
@@ -1416,7 +1416,7 @@ detail. For 4xx/5xx answers from the relay the gateway returns the relay's statu
 filtered, F12/F13); an upstream `WWW-Authenticate` is not stripped.
 
 **Impact:** The relay's own error JSON (for example a tip-payment or size rejection) reaches the
-client. The relay is first-party, its errors carry no secret, and the clients (`walrus-client`) need
+client. The relay is first-party, its errors carry no secret, and the clients (`walrus-storage-client`) need
 them to react. Network failures, timeouts, redirects (including an Access login redirect after the
 service token expires) and store errors are mapped to fixed `502`/`504`/`503` bodies, so no
 interactive-login challenge is relayed.
@@ -1449,7 +1449,7 @@ pinned by hermetic gRPC-web fixtures that need no network and no transaction, us
 `only_not_found_is_retried_and_ends_as_denied`. The real-node check stays optional and `--ignored`:
 `live_gate_and_ownership_requests_are_accepted` needs no fixture (it reads the long-lived testnet relay gate
 and lists a pass-less address, so it cannot age out) and `live_consume_tx_valid` takes a recent consume from
-`NFT_GATE_LIVE_DIGEST`, `_SENDER`, `_GATE`, `_PACKAGE` (and `_RPC`), documented in the README, and says so
+`ACCESS_GATE_GATEWAY_LIVE_DIGEST`, `_SENDER`, `_GATE`, `_PACKAGE` (and `_RPC`), documented in the README, and says so
 and returns when no digest is given. Both passed on 2026-10-10 against `fullnode.testnet.sui.io` (a consume on
 the current relay gate found with the GraphQL events query), which also confirmed the new `effects.status`
 field numbers (F21). A localnet path was not chosen (it needs a fresh `access_gate` publication per run)
@@ -1511,7 +1511,7 @@ chain mapping in `a_failed_or_unreadable_consume_never_reaches_the_upstream`,
 in `sui_rpc.rs`, the retry loop (`only_not_found_is_retried_and_ends_as_denied`). CI now runs the Redis
 round trip against a service container (S2) and prints a coverage figure (F28). The 405 method list on a gated
 path was already pinned. Not done: shared `headerExtraction` / `redemptionConflict` vectors, which belong to
-`@meddleware/nft-gate-client` (S1).
+`@meddleware/access-gate-gateway-client` (S1).
 
 ### F48 — Positive: audience-bound proofs, owner-bound redemption and strict configuration
 
@@ -1539,7 +1539,7 @@ is no JS/TS backend code, so the live Worker is to be rebuilt in Rust; a feasibi
 **Impact:** Each drift was a latent security or parity defect; a fix in one gateway only left the other exposed, and an undeployed
 gateway aged unnoticed (Risks).
 
-**Remediation / evidence:** 0.0.26 (commit 5ff4ddf). The decision logic moved into `nft-gate-core` (`core/`, no hyper / tokio / clock / RNG /
+**Remediation / evidence:** 0.0.26 (commit 5ff4ddf). The decision logic moved into `access-gate-gateway-core` (`core/`, no hyper / tokio / clock / RNG /
 logging; builds natively and for `wasm32-unknown-unknown`), a Cargo workspace at the repository root with one version (D16). Moves:
 
 | Before (`gateway-rust/src`) | Now |
@@ -1560,7 +1560,7 @@ unchanged through the new wiring. New: scripted-port tests of the whole request 
 public paths, 401 / 403 / 429 / 502 / 503 mapping, lease / commit / release including a lost lease and a failing commit, each asserting what the store was asked to do and that
 the operator-only detail never reaches the client body). `cargo fmt --check` and `cargo clippy --all-targets --locked --workspace -- -D warnings` clean; `cargo deny check`
 (advisories, bans, licences, sources; the graph now includes `wasm32-unknown-unknown`) green; `cargo check --locked` on 1.88.0 passes for both crates; `cargo build -p
-nft-gate-core --target wasm32-unknown-unknown` passes; the Docker image builds from the repository root (rootless `podman build -f gateway-rust/Dockerfile .`) and serves
+access-gate-gateway-core --target wasm32-unknown-unknown` passes; the Docker image builds from the repository root (rootless `podman build -f gateway-rust/Dockerfile .`) and serves
 `/healthz` and `/v1/challenge` with the CORS grants. CI: a `core` job runs the core's tests alone and the wasm32 build.
 
 Configuration rules were reconciled, not duplicated; where Rust and TypeScript disagreed the stricter rule is the single one (table in `core/README.md`): the lease must exceed
@@ -1569,9 +1569,9 @@ a flag); `ALLOWED_ORIGINS` hosts are lower-case ASCII (TypeScript accepted any h
 whitespace or a backslash in a URL is refused (TypeScript's `new URL` did; Rust did not). The TypeScript test cases of `config.test.ts` are carried into the core's tests.
 The Workers KV nonce backend is not carried over (it was refused with `SINGLE_USE=true` and only eventually consistent otherwise).
 
-**Not done / what remains (updated 2026-10-22):** the Rust Worker adapter (v0.0.27, `worker/`; Durable Object state, streamed `fetch` upstream) was shadow-deployed and **cut over on 2026-10-20** (nft-gate *Deploy Worker (Rust)* run 39418735654;
+**Not done / what remains (updated 2026-10-22):** the Rust Worker adapter (v0.0.27, `worker/`; Durable Object state, streamed `fetch` upstream) was shadow-deployed and **cut over on 2026-10-20** (access-gate-gateway *Deploy Worker (Rust)* run 39418735654;
 the CPU gate was revised because neither implementation can meet the original p99 ≤ 5 ms, see `gateway-workers` audit F55). What remains is retiring the TypeScript Worker after a clean week (maintainer: `OPERATOR_TASKS.md`); until then it stays the rollback
-and its tests keep consuming the shared vectors. This finding closes when it is retired. Two operator notes: `nft-gate-core` is a new crate to publish (its crates.io trusted publisher is a maintainer step, `crates-publish.yml` publishes it first), and the
+and its tests keep consuming the shared vectors. This finding closes when it is retired. Two operator notes: `access-gate-gateway-core` is a new crate to publish (its crates.io trusted publisher is a maintainer step, `crates-publish.yml` publishes it first), and the
 Docker build context is now the repository root.
 
 ### F50 — `is_safe_path` disagreed between the gateways on a literal `..` segment
@@ -1591,14 +1591,14 @@ for every platform. The router-level test `unsafe_paths_and_oversize_or_stalled_
 **Severity:** Info   **Disposition:** RESOLVED (0.0.28; commit 5ff4ddf)
 **Where:** `core/src/proof.rs::is_tx_digest` (used by `decode_access_proof`, `personal_message` and `decision.rs`); `core/src/gateway.rs` (the answers); `conformance/vectors.json`.
 **Issue:** `is_tx_digest` accepted any 32-44 character base58 string. 43 characters can decode to 31 bytes and 44 to 33, and a leading `1` is a zero byte, so a malformed digest reached the fullnode
-and came back as "not found" (the same 403 `ConsumeMissing`, after up to four lookups; F14). The client side had the same gap (nft-gate-client F18). Separately, the status and `{ error, code? }` body each outcome
+and came back as "not found" (the same 403 `ConsumeMissing`, after up to four lookups; F14). The client side had the same gap (access-gate-gateway-client F18). Separately, the status and `{ error, code? }` body each outcome
 produces were asserted only by this repository's own tests, so a change in one implementation (core, TypeScript Worker, Rust Worker) could not be caught by the other two.
 **Impact:** Low. A malformed digest cost at most the bounded `NOT_FOUND` retries and still ended in a 403, so it was never a bypass; the unpinned answers were a drift risk, not an observed divergence.
 
 **Remediation / evidence:** 0.0.28.
 
 - `is_tx_digest` decodes the base58 (Bitcoin alphabet, each leading `1` one zero byte; a dependency-free big-number loop, bounded by the 44-character prefilter) and requires exactly 32 bytes. The same rule
-  is in `@meddleware/nft-gate-client` 0.0.18 (`isTransactionDigest`, imported by the TypeScript Worker), so all three implementations agree. A digest that decodes to 31 or 33 bytes is now `malformed access proof` (403)
+  is in `@meddleware/access-gate-gateway-client` 0.0.18 (`isTransactionDigest`, imported by the TypeScript Worker), so all three implementations agree. A digest that decodes to 31 or 33 bytes is now `malformed access proof` (403)
   with no RPC call, and cannot be signed into a message.
 - Tests: `proof::tests::tx_digest_is_base58_that_decodes_to_32_bytes` (32/43/44/45 characters, leading `1`s, `0 O I l`, non-ASCII), two property tests against a reference encoder (every 32-byte value accepted, every other length
   refused), the shared `txDigest` vectors in `core/tests/conformance.rs` (6 valid, 15 invalid; checked against the Sui SDK in the client's suite), and five new `proofDecodeRejects` / `personalMessageRejects`
@@ -1606,7 +1606,7 @@ produces were asserted only by this repository's own tests, so a change in one i
 - The shared `responses` vectors (client 0.0.18) name sixteen outcomes with their exact status and body. `gateway.rs::tests::the_shared_response_vectors_are_what_the_gateway_answers` drives each through
   `Gateway::handle` (a real golden proof, scripted store and chain) and compares the reply; an outcome in the vectors without a driver, or the reverse, fails. The TypeScript Worker and the Rust Worker harness run the same
   vectors (gateway-workers F58; `worker/tests/conformance.test.mjs`, 15 of 16 black box).
-- `scripts/sync-vectors.mjs` takes a `NFT_GATE_CLIENT_VECTORS` path for the step before a client release is published; it is refused when `CI` is set, so the CI `--check` still compares with the published package.
+- `scripts/sync-vectors.mjs` takes a `ACCESS_GATE_GATEWAY_CLIENT_VECTORS` path for the step before a client release is published; it is refused when `CI` is set, so the CI `--check` still compares with the published package.
 
 ---
 
@@ -1636,7 +1636,7 @@ produces were asserted only by this repository's own tests, so a change in one i
 | I19 | No `unsafe`; no panic on attacker input | `main.rs:2`; release profile | proptests; `rejects_an_oversized_token_before_decoding`, `rejects_everything_outside_the_field_grammar` | HOLDS |
 | I20 | SIGTERM handled; drain bounded | `main.rs::shutdown_signal`, `serve` (`SHUTDOWN_GRACE_SECS`) `shutdown_gives_in_flight_requests_a_bounded_grace` | HOLDS — F19 |
 | I21 | Misconfiguration fails at startup | `config.rs::from_lookup` | `validation_tests::*` | HOLDS (F8) |
-| I22 | Wire parity with `gateway-workers` | `conformance/vectors.json` (nft-gate-client) | `conformance_shared_vectors` | HOLDS (vector-covered fields; pagination and the effects-status check now match, F17, F21) |
+| I22 | Wire parity with `gateway-workers` | `conformance/vectors.json` (access-gate-gateway-client) | `conformance_shared_vectors` | HOLDS (vector-covered fields; pagination and the effects-status check now match, F17, F21) |
 | I23 | The proof is bound to the intended audience | `proof.rs::personal_message`; `verify.rs` (rebuilt from `cfg`) | `refuses_a_proof_made_for_another_gateway_gate_or_network`, vectors `audienceMismatch` | HOLDS (F1) |
 | I24 | Single-use redemption state survives restarts and replicas | `config.rs` (Redis required, or `ALLOW_VOLATILE_REDEMPTIONS`) | `single_use_needs_a_durable_store_and_consistent_windows` | HOLDS (F4) |
 | I25 | Only listed methods and safe paths are forwarded; public paths are `GET`/`HEAD` | `main.rs::handle`, `proxy.rs::FORWARDED_METHODS`, `headers.rs::is_safe_path` | `public_paths_are_read_only_and_gated_methods_are_listed`, `unsafe_paths_are_refused`, router `unsafe_paths_and_oversize_or_stalled_bodies_are_refused_before_the_upstream` | HOLDS (F42) |
@@ -1647,7 +1647,7 @@ produces were asserted only by this repository's own tests, so a change in one i
 | I30 | The redemption lease outlives the longest request (checked at startup) | `config.rs` (lease > `UPSTREAM_TIMEOUT_SECS` + `BODY_READ_TIMEOUT_SECS`) | `single_use_needs_a_durable_store_and_consistent_windows` | HOLDS (F46) |
 | I32 | A consume digest is base58 that decodes to exactly 32 bytes, in every implementation | `core/src/proof.rs::is_tx_digest` (client `isTransactionDigest`) | `tx_digest_is_base58_that_decodes_to_32_bytes`, the proptests, vectors `txDigest` and the digest `proofDecodeRejects` | HOLDS (F51) |
 | I33 | Every implementation answers each outcome with the shared status and body | `gateway.rs` (`JsonReply`, `denied_reply`) | vectors `responses`; `the_shared_response_vectors_are_what_the_gateway_answers`; the TypeScript and Rust Worker suites | HOLDS (F51) |
-| I31 | The hand-rolled gRPC field numbers still match a real fullnode | `sui_rpc.rs` constants | hermetic literal-field-number fixtures (CI); `live_*` (`--ignored`, fresh consume from `NFT_GATE_LIVE_*`) | HOLDS (F45) |
+| I31 | The hand-rolled gRPC field numbers still match a real fullnode | `sui_rpc.rs` constants | hermetic literal-field-number fixtures (CI); `live_*` (`--ignored`, fresh consume from `ACCESS_GATE_GATEWAY_LIVE_*`) | HOLDS (F45) |
 
 ---
 
@@ -1691,7 +1691,7 @@ version updates are configured and were triaged on 2026-10-09 (Scope).
 
 - **Sui SDK:** none (hand-rolled), so the ADR-0001 SDK baseline does not apply.
 - **Transport:** gRPC-web only.
-- **Conformance vectors:** `conformance/vectors.json` (published by `@meddleware/nft-gate-client`,
+- **Conformance vectors:** `conformance/vectors.json` (published by `@meddleware/access-gate-gateway-client`,
   copied by `scripts/sync-vectors.mjs`), asserted by `verify::tests::conformance_shared_vectors` here
   and by `gateway-workers/test/conformance.test.ts`.
 
@@ -1760,7 +1760,7 @@ On-chain capabilities: none (the gateway holds no `AdminCap` and signs nothing).
 
 | Location | Network | Value | original-id / published-at | Matches latest on-chain (evidence) |
 | --- | --- | --- | --- | --- |
-| `gateway-rust/src/sui_rpc.rs` (live test defaults) | testnet | `0xd7ddaa94b74330979b2b618fc81206d160a264f1c9ca148a77fa2144301388c9` | original-id | Matches the 2026-10-09 publication (`access-gate-sui/Published.toml`, `gateway-workers/wrangler.toml`). As of 0.0.22 the superseded `0xa55789…` package and its fixed consume are no longer in the source; the live defaults name the current package and are overridable (`NFT_GATE_LIVE_PACKAGE`) (F45) |
+| `gateway-rust/src/sui_rpc.rs` (live test defaults) | testnet | `0xd7ddaa94b74330979b2b618fc81206d160a264f1c9ca148a77fa2144301388c9` | original-id | Matches the 2026-10-09 publication (`access-gate-sui/Published.toml`, `gateway-workers/wrangler.toml`). As of 0.0.22 the superseded `0xa55789…` package and its fixed consume are no longer in the source; the live defaults name the current package and are overridable (`ACCESS_GATE_GATEWAY_LIVE_PACKAGE`) (F45) |
 | `gateway-rust/src/sui_rpc.rs` (live test default gate) | testnet | gate `0x316f1bf9764db352e925bb598aff44ea77be4ab652f0bd2eb3fdcc0a378faddc` | object | The current relay gate (`gateway-workers/wrangler.toml`; read live by the passing `live_gate_and_ownership_requests_are_accepted`, 2026-10-10) |
 | Operator env `NFT_TYPE` / `GATE_ID` / `GATEWAY_ORIGIN` / `NETWORK` | any | not in repo | original-id | not verifiable — no deployment |
 
@@ -1781,7 +1781,7 @@ N/A — the gateway builds no PTBs. The coupling it does have is read-side:
 
 ### B.SC-3 Cross-implementation parity
 
-Since 0.0.26 the Rust side is one implementation (`nft-gate-core`, F49): parity between this gateway and the Rust Worker (`worker/`, 0.0.27) holds by construction, and
+Since 0.0.26 the Rust side is one implementation (`access-gate-gateway-core`, F49): parity between this gateway and the Rust Worker (`worker/`, 0.0.27) holds by construction, and
 the table below concerns the TypeScript Worker until it retires.
 
 The parity table's home is `gateway-workers-audit.md` §B.SC-3; it covers both implementations, so it
@@ -1815,7 +1815,7 @@ redirects, timeouts) match this crate's code.
 | `OPTIONS` (any path) | `OPTIONS` | none | answered locally, before auth | n/a | CORS grants | none |
 | `GET /v1/challenge` | `GET` | none; `ip_limiter` 30/min per client IP | answered locally | n/a | `{ nonce, expiresAt }` (`503` if the store fails) | none |
 | `PUBLIC_PATHS` (`/v1/tip-config`) | `GET`, `HEAD` (else 405 + `Allow`) | none; `ip_limiter` 30/min per client IP (shared with the challenge, S9) | client fields minus the strip list; plus the injected upstream headers | request: hop-by-hop, `Connection`-named, `host`, `authorization`, `x-access-proof`, `content-length`, `cookie`, `forwarded`, `via` (replaced by `Via: 1.1 nft-gate`, F43), `x-forwarded-for/host/proto`, `x-real-ip`, `cf-access-*`; response: hop-by-hop, `Connection`-named, `content-length`, `set-cookie(2)`, `alt-svc`, `access-control-*` | all other upstream fields; gateway CORS added | none |
-| any path carrying `Via: … nft-gate` | any | refused `508 loop detected` before any work (after `/healthz` and the preflight) | not forwarded | n/a | `{ error }` + gateway CORS | none |
+| any path carrying `Via: … access-gate-gateway` | any | refused `508 loop detected` before any work (after `/healthz` and the preflight) | not forwarded | n/a | `{ error }` + gateway CORS | none |
 | every other path (gated) | `GET`, `HEAD`, `POST`, `PUT` (else 405 before verification) | access proof v2 + live chain read + redemption lease; `preauth_limiter` 120/min per IP before verification, 30/min per address after | as above, query included | as above | as above; 3xx → 502; non-2xx passes through (F44) | never cached |
 | unsafe path (`%2f`, `%5c`, `%00`, `%2e%2e`, `\`, control characters, `//`, `..`) | any | — | refused `400 invalid path` before the upstream URL is built | n/a | n/a | none |
 
@@ -1836,10 +1836,10 @@ redirects, timeouts) match this crate's code.
 
 | Format | Producer | Consumer | Test / vector |
 | --- | --- | --- | --- |
-| Access proof header for a gated relay | `@meddleware/nft-gate-client` (via walrus-client `uploadRelayAuthToken`) | this gateway | `conformance/vectors.json` (B.SC-3); paywall e2e PASS 2026-10-09 through the Workers gateway (not this one) |
-| Redemption conflict (409 `code`) | gateway | walrus-client resume logic (`isRedeemedConflict`, `isLeasedConflict`) | gateway side: store tests and router tests (F47); vocabulary exported as `GATEWAY_CONFLICT_CODES` by nft-gate-client (TypeScript) |
+| Access proof header for a gated relay | `@meddleware/access-gate-gateway-client` (via walrus-storage-client `uploadRelayAuthToken`) | this gateway | `conformance/vectors.json` (B.SC-3); paywall e2e PASS 2026-10-09 through the Workers gateway (not this one) |
+| Redemption conflict (409 `code`) | gateway | walrus-storage-client resume logic (`isRedeemedConflict`, `isLeasedConflict`) | gateway side: store tests and router tests (F47); vocabulary exported as `GATEWAY_CONFLICT_CODES` by access-gate-gateway-client (TypeScript) |
 
-B.WAL-2 (economics) is the relay's and walrus-ui's; the gateway's contribution is single-use
+B.WAL-2 (economics) is the relay's and walrus-storage-ui's; the gateway's contribution is single-use
 enforcement (I6).
 
 ### B.AUTH-1 Key & credential inventory
@@ -1861,7 +1861,7 @@ enforcement (I6).
 
 | Protocol | Version followed | Deviations | Pinning test |
 | --- | --- | --- | --- |
-| nft-gate access proof v2 (`nft-gate:access:v2`, base64 JSON) | nft-gate-client 0.0.16; root `CLAUDE.md` + `vectors.json`; `SECURITY.md` inv. 5 | none; v1 refused (no fallback) | `conformance_shared_vectors`, `refuses_the_v1_message_and_a_cross_mode_signature` |
+| access-gate-gateway access proof v2 (`nft-gate:access:v2`, base64 JSON) | access-gate-gateway-client 0.0.16; root `CLAUDE.md` + `vectors.json`; `SECURITY.md` inv. 5 | none; v1 refused (no fallback) | `conformance_shared_vectors`, `refuses_the_v1_message_and_a_cross_mode_signature` |
 | Sui personal-message signing | docs.sui.io intent signing (retrieved 2026-09-29 per lens) | none found | vectors incl. negatives |
 | HTTP bearer (`Authorization: Bearer`) | RFC 6750 / RFC 9110 §11 (case-insensitive scheme, any whitespace) | none | `bearer_token_extraction_matches_the_workers_gateway` |
 
@@ -1911,7 +1911,7 @@ PROXY lens §C:
 
 | Path | Hermetic unit test? | Deferred to | Tracking |
 | --- | --- | --- | --- |
-| gRPC-web against a real fullnode (field numbers) | yes (literal-field-number fixtures against a scripted node) | `live_gate_and_ownership_requests_are_accepted`, `live_consume_tx_valid` (`--ignored`, testnet; fresh consume from `NFT_GATE_LIVE_*`) | F45 (both passed 2026-10-10) |
+| gRPC-web against a real fullnode (field numbers) | yes (literal-field-number fixtures against a scripted node) | `live_gate_and_ownership_requests_are_accepted`, `live_consume_tx_valid` (`--ignored`, testnet; fresh consume from `ACCESS_GATE_GATEWAY_LIVE_*`) | F45 (both passed 2026-10-10) |
 | Redis/Dragonfly backend (Lua CAS, `GETDEL`) | no | `redis_backend_round_trip` (`--ignored`, needs `REDIS_URL`) | run in CI against a Redis service container (0.0.22, S2) |
 | Upstream origin lock (the upstream refuses direct requests; negative check) | n/a | live deployment only (none, by decision) | F32, OQ9 (a) |
 | Pod memory under `MAX_CONCURRENT_REQUESTS × caps` (≈1.03 GiB) | no | staging load test | F6, F32 |
@@ -1991,10 +1991,10 @@ in front of any upstream if a revisit trigger fires. Items ticked have evidence 
   - crates.io uses OIDC; image registries use tokens without an inventory (F30, maintainer item).
   - The release job runs the same workflow as CI.
 - **Wire-format coupling & conformance vectors:**
-  - The format is defined in `@meddleware/nft-gate-client` (`proof.ts`), which also generates and
+  - The format is defined in `@meddleware/access-gate-gateway-client` (`proof.ts`), which also generates and
     publishes `conformance/vectors.json`.
   - It is implemented here in `proof.rs`/`verify.rs` and in `gateway-workers` (which imports
-    nft-gate-client).
+    access-gate-gateway-client).
   - Drift is detected by the vectors in both suites (`sync-vectors --check` in CI for the Workers side).
   - Gaps: no shared vectors for header extraction, the redemption-conflict body or status mapping
     (per-suite tests only; S1).
@@ -2134,7 +2134,7 @@ PROXY lens:
   lease → release on 5xx, duplicate → 409 `leased`, commit failure → 502, lost lease → 502, store
   error → 503, redirect → 502 with no credential sent, and an upstream `ACAO: *`; and SHOULD add
   `headerExtraction` and `redemptionConflict` sections to the shared vectors (published by
-  nft-gate-client).
+  access-gate-gateway-client).
 - **S2** (done in 0.0.22) SHOULD run `redis_backend_round_trip` in CI with a Redis service container, so the atomic
   paths are exercised on every push.
 - **S3** (done in 0.0.22) SHOULD add a chunked over-cap request test, a slow-body test, a stalled-upstream test and a
@@ -2164,7 +2164,7 @@ PROXY lens:
   - (c) (a)/(b) + the consume digest in single-use mode.
 
   Should the message also be human-readable for wallet display (e.g. "Sign in to
-  <origin> for gate <short-id>")? Decided once for both gateways and nft-gate-client.
+  <origin> for gate <short-id>")? Decided once for both gateways and access-gate-gateway-client.
   *(Decided 2026-10-08: all of (a)–(c), multi-line ASCII so the wallet shows it; 0.0.19, see F1.)*
 - **OQ2** Ownership mode semantics: either reject `SingleUse` passes with `uses_remaining == 0` (match
   `seal_policies::nft_gate`), or allow ownership mode only for gates whose `default_uses == 0`
@@ -2190,7 +2190,7 @@ PROXY lens:
 - **OQ7** Should `PUBLIC_PATHS` be method-restricted (GET/HEAD only)? Today any method on a public path
   is forwarded unauthenticated.
   *(Decided 2026-10-08: yes; see F42.)*
-- **OQ8** Will the cluster pull `nft-gate-gateway` from the self-hosted registry, which needs signing
+- **OQ8** Will the cluster pull `access-gate-gateway` from the self-hosted registry, which needs signing
   and SBOM there, or only from quay.io by digest?
   *(Decided 2026-10-19: the cluster pulls by digest. Manifests pin images by digest; the digest is
   chosen by consensus of quay.io, Docker Hub and every self-hosted instance (workspace
@@ -2213,7 +2213,7 @@ PROXY lens:
   Options and recommendation (not a decision):
   - (a) Stay undeployed. The live Workers gateway serves the only paywall and `gateway-rust` is scoped to
     small-body upstreams (F6, OQ4), so nothing needs it today. Costs: parity drift is checked only by tests.
-  - (b) Deploy to the single-node cluster as `post-bootstrap/nft-gate-gateway/` (manifest owner: the
+  - (b) Deploy to the single-node cluster as `post-bootstrap/access-gate-gateway/` (manifest owner: the
     infrastructure workspace, image from `config/images.yaml` by consensus digest, the F32 security
     context and limits), in front of a small-body upstream, with Redis for `SINGLE_USE`.
   - **Recommendation: (a) until a small-body upstream or a non-Cloudflare deployment is actually
@@ -2225,7 +2225,7 @@ PROXY lens:
 - **OQ10** How should the live ABI-drift test get a fixture that does not age out of public fullnode
   retention (a consume made at run time on localnet, a recent testnet consume refreshed by hand, or an
   archival endpoint)? *(Decided 2026-10-10: hermetic wire-format fixtures in CI plus optional live checks
-  that take a fresh consume from `NFT_GATE_LIVE_*`, and a fixture-free live gate/ownership check; see F45.)*
+  that take a fresh consume from `ACCESS_GATE_GATEWAY_LIVE_*`, and a fixture-free live gate/ownership check; see F45.)*
 
 ## Risks
 
@@ -2253,7 +2253,7 @@ PROXY lens:
 
 ## Re-verification log
 
-- 2026-10-03 — First-pass baseline at nft-gate `db01d3e` (crate 0.0.17).
+- 2026-10-03 — First-pass baseline at access-gate-gateway `db01d3e` (crate 0.0.17).
   - Measured: `cargo test --locked` 69 passed / 2 ignored; fmt + clippy clean; live gRPC test not
     runnable from the review sandbox (egress denied for `fullnode.testnet.sui.io`).
   - Recorded F1–F41 (F35–F41 Positive) and OQ1–OQ9.
@@ -2295,7 +2295,7 @@ PROXY lens:
   - Maintainer decisions recorded: access message v2 (OQ1); ownership counts only usable passes (OQ2);
     volatile redemptions development-only (OQ3); small-body scope, kept at parity, not deployed (OQ4);
     consume age bound (OQ5); commit-failure behaviour kept (OQ6); public paths `GET`/`HEAD` (OQ7);
-    vectors published by nft-gate-client; GatePolicy and pass kind immutable; `k256`/`p256` 0.14 major
+    vectors published by access-gate-gateway-client; GatePolicy and pass kind immutable; `k256`/`p256` 0.14 major
     declined; repo-local audit canonical. OQ8, OQ9 and the new OQ10 stay open (image source, the
     decision to deploy, the live-test fixture).
   - Cross-audit note: `gateway-workers-audit.md` B.SC-3 lists a success check and full pagination for
@@ -2321,8 +2321,8 @@ PROXY lens:
   - Not exercised here: the Trivy image scan and the cosign steps (registry credentials), `cargo deny` (not
     installed locally; green in CI on the previous tag).
 - 2026-10-18 — released (0.0.22), not deployed (by decision); consumers: none (the Workers gateway is the deployed one and moved to the
-  same version). Crate `nft-gate-gateway` 0.0.22 (crates.io default version), npm `@meddleware/nft-gate-gateway` 0.0.22 (published
-  2026-10-10T18:49Z, SLSA v1 provenance via `dist.attestations`), image `quay.io/meddleware-org/nft-gate-gateway:0.0.22` (index
+  same version). Crate `access-gate-gateway` 0.0.22 (crates.io default version), npm `@meddleware/access-gate-gateway` 0.0.22 (published
+  2026-10-10T18:49Z, SLSA v1 provenance via `dist.attestations`), image `quay.io/meddleware-org/access-gate-gateway:0.0.22` (index
   `sha256:e207add6…b23d`, 2026-10-10T18:54Z); tag `v0.0.22` = `3189969`. The tag's publish run (docker-publish 38077120738, with the Rust
   verify, the Trivy image scan, signing, SBOM and provenance steps) succeeded, which exercises the scan-before-sign and the Redis
   round trip in CI. Not verified by me: the cosign signature, the SBOM content and the provenance (no `cosign`
@@ -2368,15 +2368,15 @@ PROXY lens:
   - Counts unchanged: 25 RESOLVED, 3 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED (F30, F31, F32); 8 Positive.
 
 - 2026-10-19 (Part E, 0.0.26) — Core extraction: one implementation of the decision logic (F49, F50).
-  - **Done:** the spike's `core/` is promoted to `core/` (`nft-gate-core`) in a Cargo workspace at the repository root (`core`, `gateway-rust`; the Worker joins later); the proof,
+  - **Done:** the spike's `core/` is promoted to `core/` (`access-gate-gateway-core`) in a Cargo workspace at the repository root (`core`, `gateway-rust`; the Worker joins later); the proof,
     signature, decision and gRPC-web code moved out of this crate (from the spike patch), then the configuration (behind an `Env` trait), the header / path / CORS / forwarding / client-IP
     / origin policy, the nonce / rate / redemption state machines with their in-memory implementation, and the request flow (`Gateway::handle`, `redeem_and_forward`) as a state machine
     over `StateStore`, `ChainQuery`, `Upstream`, `Clock`, `Rng`. This crate is the I/O adapter (hyper server and client, Redis, system clock and entropy, `ServerConfig`). The Dockerfile builds from
-    the repository root; `rust-ci.yml` is workspace-aware and gains a `core` job (native tests of the core alone, `cargo build -p nft-gate-core --target wasm32-unknown-unknown`);
+    the repository root; `rust-ci.yml` is workspace-aware and gains a `core` job (native tests of the core alone, `cargo build -p access-gate-gateway-core --target wasm32-unknown-unknown`);
     `crates-publish.yml` publishes the core first; `deny.toml` covers the wasm32 target; `check-versions.sh` reads the workspace version and the exact core pin.
   - **Behaviour:** unchanged except the stricter checks listed in F49 (URL shape, normalised loop guard); the `..` path rule (already Rust's) is now the one rule (F50).
   - **Measured 2026-10-19:** `cargo fmt --check` clean; `cargo clippy --all-targets --locked --workspace -- -D warnings` clean; `cargo test --locked --workspace` 176 passed, 0 failed, 3 ignored (core 111,
-    gateway-rust 65; 117 + 3 before); `cargo test -p nft-gate-core` and `cargo build -p nft-gate-core --target wasm32-unknown-unknown` pass; `cargo check --locked` on 1.88.0 passes for the workspace;
+    gateway-rust 65; 117 + 3 before); `cargo test -p access-gate-gateway-core` and `cargo build -p access-gate-gateway-core --target wasm32-unknown-unknown` pass; `cargo check --locked` on 1.88.0 passes for the workspace;
     `cargo deny check` green; `scripts/check-versions.sh` passes (0.0.26); rootless `podman build -f gateway-rust/Dockerfile .` succeeds and the image serves `/healthz` and `/v1/challenge`. TypeScript side
     untouched apart from the version: `npx vitest run` in `gateway-workers` 248 passed, 3 skipped.
   - **Findings:** F49 added (MITIGATED until the TypeScript Worker is retired), F50 added (RESOLVED). Earlier findings' *Where* lines keep the pre-0.0.26 paths (map in F49). Counts: **26 RESOLVED,
@@ -2387,17 +2387,17 @@ PROXY lens:
 - 2026-10-19 (Part E, 0.0.27) — The Rust Worker adapter is built on the core (F49); one core change touches this crate.
   - **Done:** `StateStore::rate_check` is fallible (`anyhow::Result<bool>`): a rate store that cannot answer (the Worker's Durable Object) is a `503 gateway state unavailable`, never an unmetered pass; the in-memory
     limiter here never errs, so behaviour is unchanged (one new core test pins the 503 on every path class). The core gains the pure quota-guard logic (`core/src/quota.rs`) and two ownership-cache tests
-    (TTL expiry, bound). The workspace gains `worker` (`nft-gate-worker`, rust-version 1.91 for that crate only) and `ci` (`nft-gate-ci`); `scripts/check-versions.sh` covers them; the Docker context keeps their manifests and sources.
-  - **Measured 2026-10-19:** `cargo fmt --check` clean; `cargo clippy --all-targets --locked --workspace -- -D warnings` clean; `cargo test --locked --workspace` 218 passed, 0 failed, 3 ignored (core 125, gateway-rust 65, worker glue 12, ci 16); `cargo +1.88 check --locked -p nft-gate-core -p nft-gate-gateway` passes;
+    (TTL expiry, bound). The workspace gains `worker` (`access-gate-gateway-worker`, rust-version 1.91 for that crate only) and `ci` (`access-gate-gateway-ci`); `scripts/check-versions.sh` covers them; the Docker context keeps their manifests and sources.
+  - **Measured 2026-10-19:** `cargo fmt --check` clean; `cargo clippy --all-targets --locked --workspace -- -D warnings` clean; `cargo test --locked --workspace` 218 passed, 0 failed, 3 ignored (core 125, gateway-rust 65, worker glue 12, ci 16); `cargo +1.88 check --locked -p access-gate-gateway-core -p access-gate-gateway` passes;
     `cargo deny check` green; `scripts/check-versions.sh` passes (0.0.27). Counts of this audit unchanged.
   - **Not done / not verified here:** the shadow deploy and the cutover (maintainer); a GitHub run of the `worker` job and of `deploy-worker-rust.yml`.
 
 - 2026-10-22 (0.0.28, committed locally, unreleased) — The consume-digest rule is exact; the gateways' answers are pinned by shared vectors (F51).
   - **Done:** `core::proof::is_tx_digest` requires base58 that decodes to exactly 32 bytes (no new dependency); `core/tests/conformance.rs` runs the new `txDigest` vectors; `gateway.rs` runs the new `responses` vectors through `Gateway::handle`;
-    `conformance/vectors.json` is the client 0.0.18 file (produced from the local client with the new `NFT_GATE_CLIENT_VECTORS` override of `scripts/sync-vectors.mjs`; the published package does not exist yet, so the CI `--check` passes only once
-    `@meddleware/nft-gate-client` 0.0.18 is on npm and `gateway-workers` pins it).
+    `conformance/vectors.json` is the client 0.0.18 file (produced from the local client with the new `ACCESS_GATE_GATEWAY_CLIENT_VECTORS` override of `scripts/sync-vectors.mjs`; the published package does not exist yet, so the CI `--check` passes only once
+    `@meddleware/access-gate-gateway-client` 0.0.18 is on npm and `gateway-workers` pins it).
   - **Measured 2026-10-22:** `cargo fmt --check` clean; `cargo clippy --all-targets --locked --workspace -- -D warnings` clean; `cargo test --locked --workspace` 222 passed, 0 failed, 3 ignored (core 129, gateway-rust 65, worker glue 12, ci 16; 218 before);
-    `cargo build -p nft-gate-core --target wasm32-unknown-unknown --locked` passes; `scripts/check-versions.sh` passes (0.0.28).
+    `cargo build -p access-gate-gateway-core --target wasm32-unknown-unknown --locked` passes; `scripts/check-versions.sh` passes (0.0.28).
   - **Findings:** F51 added (RESOLVED). Counts: **27 RESOLVED, 4 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED**; 8 Positive.
   - **Not done / not verified here:** `cargo deny` and the 1.88 MSRV check (not re-run; no dependency or edition change); the GitHub CI run.
 
@@ -2411,7 +2411,7 @@ PROXY lens:
     F25 RESOLVED (`state::unix_ms`, one conversion for the whole adapter; a pre-1970 clock reads 0 and logs); F29's licence-notices item done (`notices` Dockerfile stage with `cargo-about`, `gateway-rust/about.toml`
     and `about.hbs`, `/app/THIRD_PARTY_LICENSES.txt`, a `notices` job in `rust-ci.yml`), F29 stays MITIGATED for the unexercised mirror copy. The version is 0.0.29 for every artifact (`check-versions.sh`).
   - **Measured 2026-10-22:** `cargo fmt --check` clean; `cargo clippy --all-targets --locked --workspace -- -D warnings` clean; `cargo test --locked --workspace` 230 passed, 0 failed, 3 ignored (core 135, gateway-rust 67; 222 before: +6 core, +2 gateway);
-    `cargo +1.88 check --locked -p nft-gate-core -p nft-gate-gateway` passes; `cargo build -p nft-gate-core --target wasm32-unknown-unknown --locked` passes; `cargo deny check` (advisories, bans, licences, sources) ok;
+    `cargo +1.88 check --locked -p access-gate-gateway-core -p access-gate-gateway` passes; `cargo build -p access-gate-gateway-core --target wasm32-unknown-unknown --locked` passes; `cargo deny check` (advisories, bans, licences, sources) ok;
     `scripts/check-versions.sh` passes (0.0.29); rootless `podman build --target notices -f gateway-rust/Dockerfile .` succeeds and the file holds 175 crates (Apache-2.0 108, MIT 34, Unicode-3.0 19, BSD-3-Clause 7, ISC 4, 0BSD 2, CDLA-Permissive-2.0 1); the full rootless `podman build -f gateway-rust/Dockerfile .` succeeds and the image holds `/app/THIRD_PARTY_LICENSES.txt` (239,281 bytes, identical to the stage output) beside `/app/Cargo.lock`.
   - **Counts:** **29 RESOLVED, 3 MITIGATED** (F27, F29, F49), **6 ADJUDICATED, 2 ACCEPTED-RISK** (F11, F34), **3 DEFERRED** (F30, F31, F32); 8 Positive.
   - **Not done / not verified here:** a GitHub run of the new `notices` job and of the Docker publish with the added stage (CI runs them on push; the local rootless build stands in); the Worker's workerd suites (the core change is additive: `RateTable::check` is unchanged).

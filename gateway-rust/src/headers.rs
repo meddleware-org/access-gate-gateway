@@ -1,9 +1,9 @@
 //! Header policy for a forwarding hop, applied to `http::HeaderMap`. The policy itself (which fields
-//! go, the `Via` loop marker, the safe-path rule) is `nft_gate_core::headers`, shared with the
+//! go, the `Via` loop marker, the safe-path rule) is `access_gate_gateway_core::headers`, shared with the
 //! Cloudflare Worker; this module only walks a native header map with it.
 
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue};
-use nft_gate_core::headers::{
+use access_gate_gateway_core::headers::{
     connection_named, drop_request_header, drop_response_header, VIA_TOKEN,
 };
 
@@ -46,7 +46,7 @@ pub fn client_response_headers(upstream: &HeaderMap) -> HeaderMap {
     retain(upstream, drop_response_header)
 }
 
-/// All `Via` field values joined with `,` (what `nft_gate_core::headers::via_is_looped` reads).
+/// All `Via` field values joined with `,` (what `access_gate_gateway_core::headers::via_is_looped` reads).
 pub fn joined(headers: &HeaderMap, name: &str) -> Option<String> {
     let values: Vec<&str> = headers
         .get_all(name)
@@ -59,7 +59,7 @@ pub fn joined(headers: &HeaderMap, name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nft_gate_core::headers::via_is_looped;
+    use access_gate_gateway_core::headers::via_is_looped;
 
     fn map(pairs: &[(&str, &str)]) -> HeaderMap {
         let mut h = HeaderMap::new();

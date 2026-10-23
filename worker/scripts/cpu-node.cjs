@@ -1,7 +1,7 @@
 // Native CPU time of the SAME wasm under Node/V8.
-//   cargo build --release --target wasm32-unknown-unknown -p nft-gate-worker --features test-hooks
-//   wasm-bindgen --target nodejs target/wasm32-unknown-unknown/release/nft_gate_worker.wasm --out-dir <dir>   (+ wasm-opt -O, as worker-build does)
-//   node scripts/cpu-node.cjs <dir>/nft_gate_worker.js [iterations]
+//   cargo build --release --target wasm32-unknown-unknown -p access-gate-gateway-worker --features test-hooks
+//   wasm-bindgen --target nodejs target/wasm32-unknown-unknown/release/access_gate_gateway_worker.wasm --out-dir <dir>   (+ wasm-opt -O, as worker-build does)
+//   node scripts/cpu-node.cjs <dir>/access_gate_gateway_worker.js [iterations]
 // Fresh process per invocation. Two clocks, both user+system:
 //   thread  = process.threadCpuUsage(): the main (request) thread only. This is the closest analogue of what a
 //             per-request CPU limit meters (work done on the thread that runs the request).

@@ -187,7 +187,7 @@ describe('forward header policy', () => {
 
 /**
  * Loop detection table (F43). Identical in the core (`headers.rs`, `via_loop_table`): the same inputs
- * must give the same answers. Only the received-by name `nft-gate` matches.
+ * must give the same answers. Only the received-by name `access-gate-gateway` matches.
  */
 export const VIA_TABLE = [
   [null, false],
@@ -198,7 +198,7 @@ export const VIA_TABLE = [
   ['1.1 nft-gate, 1.1 google', true],
   ['1.1 google', false],
   ['1.1 varnish (Varnish/6.0)', false],
-  ['1.1 google (nft-gate)', false],
+  ['1.1 google (access-gate-gateway)', false],
   ['1.1 nft-gateway', false],
   ['1.1 my-nft-gate', false],
   ['nft-gate', false],

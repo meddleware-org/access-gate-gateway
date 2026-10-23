@@ -2,7 +2,7 @@
 //! consumed exactly once (replay protection).
 //!
 //! Two backends behind one async [`NonceStore`] enum:
-//! - [`InMemoryNonceStore`] — the shared `nft-gate-core` state machine in process memory, with a
+//! - [`InMemoryNonceStore`] — the shared `access-gate-gateway-core` state machine in process memory, with a
 //!   **hard entry cap** (evict-oldest) and a **background prune** so growth is bounded independent
 //!   of issue cadence (gateway audit F3). Correct only at `replicas: 1` (F2).
 //! - [`RedisNonceStore`] — a shared TTL store (Redis protocol; works with **Dragonfly**) so
@@ -15,9 +15,9 @@
 //! clear or overwrite a newer holder's.
 
 use crate::state::{wall_ms, OsRngSource, SystemClock};
-use nft_gate_core::state::{random_hex24, MemoryStore};
+use access_gate_gateway_core::state::{random_hex24, MemoryStore};
 
-pub use nft_gate_core::redemption::{Commit, Lease};
+pub use access_gate_gateway_core::redemption::{Commit, Lease};
 
 /// A fresh random 24-byte hex value (48 hex chars): a challenge nonce or a redemption owner token.
 /// Matches the Workers gateway's `randomHex24()` entropy. The nonce is **ASCII by contract** (hex only):
@@ -27,7 +27,7 @@ fn random_nonce() -> String {
     random_hex24(&OsRngSource)
 }
 
-/// The in-memory backend is the shared state machine of `nft-gate-core` (one implementation of the
+/// The in-memory backend is the shared state machine of `access-gate-gateway-core` (one implementation of the
 /// nonce, redemption and cap rules, also run by the Worker's Durable Object tests) on the system
 /// clock: process-local, with a **hard entry cap** (evict-soonest-to-expire) and a **background
 /// prune** so growth is bounded independent of issue cadence (gateway audit F3). Correct only at

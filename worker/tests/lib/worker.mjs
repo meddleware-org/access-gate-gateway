@@ -59,7 +59,7 @@ export function baseVars(extra = {}) {
     GATEWAY_ORIGIN: 'https://gw.example.com',
     NETWORK: 'testnet',
     ALLOW_INSECURE_HTTP: '1',
-    ALLOWED_ORIGINS: `${ALLOWED_ORIGIN},https://sui-walrus.meddleware.co.uk`,
+    ALLOWED_ORIGINS: `${ALLOWED_ORIGIN},https://sui-walrus-storage.meddleware.co.uk`,
     ...extra,
   }
 }

@@ -9,11 +9,11 @@
 use crate::config::WorkerConfig;
 use crate::out::{Body, Out};
 use js_sys::{Array, Function, Object, Reflect};
-use nft_gate_core::forward::{
+use access_gate_gateway_core::forward::{
     is_redirect, preflight, Refusal, BODY_TOO_LARGE, UPSTREAM_ERROR, UPSTREAM_TIMED_OUT,
 };
-use nft_gate_core::gateway::{ForwardKind, Upstream};
-use nft_gate_core::headers::{
+use access_gate_gateway_core::gateway::{ForwardKind, Upstream};
+use access_gate_gateway_core::headers::{
     connection_named, drop_request_header, drop_response_header, VIA_TOKEN,
 };
 use std::cell::Cell;

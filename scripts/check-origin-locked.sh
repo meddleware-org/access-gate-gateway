@@ -5,7 +5,7 @@
 # check proves the positive case; this proves the negative: direct requests WITHOUT the token, and with a
 # made-up token, must be refused by Access. Read-only, GET only, sends no secret (the origin URL is the
 # public repository variable UPSTREAM_CHECK_URL). curl makes the requests; the verdict logic is
-# `nft-gate-ci classify-origin` (ci/src/lib.rs), so no TypeScript is involved.
+# `access-gate-gateway-ci classify-origin` (ci/src/lib.rs), so no TypeScript is involved.
 #
 #   UPSTREAM_CHECK_URL=https://<origin>/v1/tip-config scripts/check-origin-locked.sh
 #
@@ -13,7 +13,7 @@
 # origin, was refused by something other than Access, or could not be completed.
 #
 # Test seams (used only by worker/tests/origin-lock.test.mjs): ORIGIN_LOCK_TEST_HTTP=1 allows an http://
-# URL; ORIGIN_LOCK_RETRY_SLEEP=0 removes the back-off; NFT_GATE_CI names the CLI binary instead of `cargo run`.
+# URL; ORIGIN_LOCK_RETRY_SLEEP=0 removes the back-off; ACCESS_GATE_GATEWAY_CI names the CLI binary instead of `cargo run`.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -28,7 +28,7 @@ case "$raw" in
   *) echo "::error::UPSTREAM_CHECK_URL must be an https URL."; exit 1 ;;
 esac
 
-ci() { if [ -n "${NFT_GATE_CI:-}" ]; then "$NFT_GATE_CI" "$@"; else cargo run --quiet --locked -p nft-gate-ci -- "$@"; fi; }
+ci() { if [ -n "${ACCESS_GATE_GATEWAY_CI:-}" ]; then "$ACCESS_GATE_GATEWAY_CI" "$@"; else cargo run --quiet --locked -p access-gate-gateway-ci -- "$@"; fi; }
 
 scheme_host="${raw%%://*}://$(printf '%s' "${raw#*://}" | cut -d/ -f1)"
 root="$scheme_host/"

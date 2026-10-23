@@ -8,7 +8,7 @@ name: Deploy Worker (Rust)
 #
 # Two modes:
 #
-#   shadow   (default) deploys to a DIFFERENT Worker name (default `nft-gate-gateway-shadow`) on its
+#   shadow   (default) deploys to a DIFFERENT Worker name (default `access-gate-gateway-shadow`) on its
 #            workers.dev address, with its own empty Durable Object namespace (a new script name has new
 #            DO storage: exactly right for a shadow, the live nonce / redemption data is never touched),
 #            and its own GATEWAY_ORIGIN (clients sign the audience they talk to). Real traffic is not
@@ -16,7 +16,7 @@ name: Deploy Worker (Rust)
 #            CPU time in the Workers analytics. Needs the GitHub secret UPSTREAM_URL (a new script has no
 #            secrets yet); UPSTREAM_AUTH_HEADERS and SUI_RPC_AUTH_HEADER are applied when set.
 #
-#   cutover  deploys over the LIVE `nft-gate-gateway` (same name, same Durable Object class
+#   cutover  deploys over the LIVE `access-gate-gateway` (same name, same Durable Object class
 #            `NonceRateState`, same migration tag `v1`, so the live nonce, rate and redemption data are
 #            kept). Requires confirm=cutover. Same secret flow as deploy-workers.yml: when the GitHub secret
 #            UPSTREAM_AUTH_HEADERS is set the code and the secret go live together (versions upload ->
@@ -34,13 +34,13 @@ on:
       worker_name:
         description: "shadow only: the Worker name (never the live name)"
         type: string
-        default: nft-gate-gateway-shadow
+        default: access-gate-gateway-shadow
       gateway_origin:
-        description: "shadow only: the https origin clients will sign into proofs, e.g. https://nft-gate-gateway-shadow.<account>.workers.dev"
+        description: "shadow only: the https origin clients will sign into proofs, e.g. https://access-gate-gateway-shadow.<account>.workers.dev"
         type: string
         default: ""
       confirm:
-        description: "cutover only: type 'cutover' to deploy over the live Worker nft-gate-gateway"
+        description: "cutover only: type 'cutover' to deploy over the live Worker access-gate-gateway"
         type: string
         default: ""
 
@@ -66,7 +66,7 @@ jobs:
           CONFIRM: ${{ inputs.confirm }}
         run: |
           set -euo pipefail
-          live=nft-gate-gateway
+          live=access-gate-gateway
           if [ "$MODE" = cutover ]; then
             [ "$CONFIRM" = cutover ] || { echo "::error::cutover deploys over the live Worker; set confirm=cutover"; exit 1; }
             echo "name=$live" >> "$GITHUB_OUTPUT"
@@ -135,13 +135,13 @@ jobs:
             exit 0
           fi
           conf="${RUNNER_TEMP}/upstream-auth.curl"
-          cargo run --quiet --locked -p nft-gate-ci -- check-upstream-auth --curl-config "$conf"
+          cargo run --quiet --locked -p access-gate-gateway-ci -- check-upstream-auth --curl-config "$conf"
           if [ -z "${UPSTREAM_CHECK_URL}" ]; then
             echo "UPSTREAM_CHECK_URL not set: skipping the origin check"
           else
             hdr="${RUNNER_TEMP}/origin.headers"; body="${RUNNER_TEMP}/origin.body"
             status="$(curl --silent --show-error --max-time 15 --config "$conf" --dump-header "$hdr" --output "$body" --write-out '%{http_code}' "$UPSTREAM_CHECK_URL" || echo 000)"
-            cargo run --quiet --locked -p nft-gate-ci -- report-origin-check --url "$UPSTREAM_CHECK_URL" --status "$status" --headers "$hdr" --body "$body"
+            cargo run --quiet --locked -p access-gate-gateway-ci -- report-origin-check --url "$UPSTREAM_CHECK_URL" --status "$status" --headers "$hdr" --body "$body"
           fi
           rm -f "$conf"
 

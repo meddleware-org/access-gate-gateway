@@ -1,8 +1,8 @@
 //! The optional quota guard (`scheduled` handler; off unless `QUOTA_GUARD_ENABLED=true` plus a cron
-//! trigger). The logic is `nft_gate_core::quota`; this file only does the HTTP call and the log line.
+//! trigger). The logic is `access_gate_gateway_core::quota`; this file only does the HTTP call and the log line.
 //! It warns near an allowance and never rejects: every error is logged and swallowed.
 
-use nft_gate_core::quota::{
+use access_gate_gateway_core::quota::{
     assess_usage, graphql_request_body, parse_workers_plan, usage_from_graphql, warning_line,
     window_start_ms, GRAPHQL_URL,
 };
@@ -57,7 +57,7 @@ async fn fetch_usage(
     token: &str,
     account: &str,
     since_ms: u64,
-) -> Result<nft_gate_core::quota::Usage, String> {
+) -> Result<access_gate_gateway_core::quota::Usage, String> {
     let js = |e: JsValue| e.as_string().unwrap_or_else(|| format!("{e:?}"));
     let headers = web_sys::Headers::new().map_err(js)?;
     headers

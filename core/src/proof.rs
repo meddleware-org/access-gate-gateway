@@ -1,5 +1,5 @@
 //! Access-proof wire format (protocol `nft-gate:access:v2`). MUST stay in sync with
-//! `@meddleware/nft-gate-client`'s `proof.ts`; the shared conformance vectors
+//! `@meddleware/access-gate-gateway-client`'s `proof.ts`; the shared conformance vectors
 //! (`conformance/vectors.json`, published by that package) pin both.
 //!
 //! # Signed message
@@ -97,7 +97,7 @@ fn base58_decoded_len(s: &str) -> Option<usize> {
 /// A Sui transaction digest: base58 (Bitcoin alphabet, no `0 O I l`) that decodes to exactly 32 bytes.
 /// 32 bytes encode to 32-44 characters (each leading zero byte is a `1`), but the length alone is not
 /// enough: 43 characters can be 31 bytes and 44 can be 33. Mirror of `isTransactionDigest` in
-/// `@meddleware/nft-gate-client`; the shared `txDigest` vectors pin both.
+/// `@meddleware/access-gate-gateway-client`; the shared `txDigest` vectors pin both.
 pub fn is_tx_digest(s: &str) -> bool {
     (32..=44).contains(&s.len()) && base58_decoded_len(s) == Some(TX_DIGEST_BYTES)
 }

@@ -1,6 +1,6 @@
 [package]
-name = "nft-gate-worker"
-description = "The nft-gate gateway as a Cloudflare Worker in Rust (workers-rs): an I/O adapter on nft-gate-core (Durable Object state, streamed fetch upstream)."
+name = "access-gate-gateway-worker"
+description = "The access-gate gateway as a Cloudflare Worker in Rust (workers-rs): an I/O adapter on access-gate-gateway-core (Durable Object state, streamed fetch upstream)."
 version.workspace = true
 edition.workspace = true
 # This crate only: workers-rs needs a newer toolchain than the rest of the workspace (core and
@@ -22,7 +22,7 @@ crate-type = ["cdylib", "rlib"]
 test-hooks = []
 
 [dependencies]
-nft-gate-core = { version = "=0.0.29", path = "../core" }
+access-gate-gateway-core = { version = "=0.0.30", path = "../core" }
 # workers-rs, wasm-bindgen and worker-build move together: the wasm-bindgen CLI that worker-build
 # downloads must be exactly the crate version, so every one of them is pinned (Dependabot ignores them).
 worker = { version = "=0.8.7", features = ["http"] }

@@ -1,4 +1,4 @@
-# CLAUDE.md — nft-gate
+# CLAUDE.md — access-gate-gateway
 
 ## What this repo is
 
@@ -8,7 +8,7 @@ of an on-chain Meddleware access NFT.
 
 ## Architecture: one core, two adapters
 
-The decision logic exists **once**: `core/` (crate `nft-gate-core`, Rust, no hyper / tokio / clock / RNG / logging, builds
+The decision logic exists **once**: `core/` (crate `access-gate-gateway-core`, Rust, no hyper / tokio / clock / RNG / logging, builds
 natively and for `wasm32-unknown-unknown`). It holds the proof, the signature schemes, the decision, the Sui reads, the nonce /
 rate / redemption state machines, the header / path / CORS / config policy and the request flow (`Gateway::handle`,
 `redeem_and_forward`) as a state machine over the ports `StateStore`, `ChainQuery`, `Upstream`, `Clock`, `Rng`, `Env`.
@@ -56,14 +56,14 @@ does not. workers-rs / wasm-bindgen / worker-build are pinned exactly and move t
 
 ## Versioning
 
-One version for every artifact (D16): the npm package `@meddleware/nft-gate-gateway`
+One version for every artifact (D16): the npm package `@meddleware/access-gate-gateway`
 (`gateway-workers/package.json`), the Cargo workspace (`[workspace.package]` version in the root `Cargo.toml`, inherited by
-the crates `nft-gate-core`, `nft-gate-gateway`, `nft-gate-worker` and `nft-gate-ci`; each crate that uses the core pins `nft-gate-core` at exactly that version),
+the crates `access-gate-gateway-core`, `access-gate-gateway`, `access-gate-gateway-worker` and `access-gate-gateway-ci`; each crate that uses the core pins `access-gate-gateway-core` at exactly that version),
 the test harness package `worker/package.json` and the image. Bump `gateway-workers/package.json` (+ lockfile), `worker/package.json` (+ lockfile), the workspace version and those
 pins together, then tag `v<version>`.
 `scripts/check-versions.sh` runs in Node CI, Rust CI and every publish workflow. It fails when the npm and Cargo versions
 differ, when a crate does not inherit the workspace version, when a pin differs, or when a tag does not match. The tag's
-`crates-publish.yml` publishes `nft-gate-core` first, then `nft-gate-gateway`.
+`crates-publish.yml` publishes `access-gate-gateway-core` first, then `access-gate-gateway`.
 
 ## Wire protocol coupling
 
@@ -78,11 +78,11 @@ If you change any of the following, update the core AND (until it is retired) th
 - The Sui signature wire format (flag || sig || pubkey)
 - Address normalization rules
 
-The vectors are generated and published by `@meddleware/nft-gate-client` (`scripts/gen-vectors.mjs`,
-`@meddleware/nft-gate-client/vectors.json`). After a wire-format change: release the client, bump it
+The vectors are generated and published by `@meddleware/access-gate-gateway-client` (`scripts/gen-vectors.mjs`,
+`@meddleware/access-gate-gateway-client/vectors.json`). After a wire-format change: release the client, bump it
 in `gateway-workers` (and `worker/package.json`, which pins it exactly), then `node scripts/sync-vectors.mjs` (CI runs it with `--check` against
 the PUBLISHED package). Before the client is published, produce the copy from a local checkout with
-`NFT_GATE_CLIENT_VECTORS=../nft-gate-client/vectors.json node scripts/sync-vectors.mjs`; the override is refused when `CI` is set.
+`ACCESS_GATE_GATEWAY_CLIENT_VECTORS=../access-gate-gateway-client/vectors.json node scripts/sync-vectors.mjs`; the override is refused when `CI` is set.
 
 ## Conformance vectors (`conformance/vectors.json`)
 
@@ -103,7 +103,7 @@ Covers:
   (+ `router.test.ts` through the real router) and `worker/tests/conformance.test.mjs` (black box; only a lease that
   lapses mid-request is unreachable). A new outcome therefore needs all three.
 
-The `gateway-workers` tests (vitest) and the core's tests (`cargo test -p nft-gate-core`, `core/tests/conformance.rs`) load and
+The `gateway-workers` tests (vitest) and the core's tests (`cargo test -p access-gate-gateway-core`, `core/tests/conformance.rs`) load and
 verify the vectors. A test failure here means the implementations have diverged on the wire format.
 
 ## Commission and access-gate economics
@@ -153,7 +153,7 @@ The gateway does NOT trust:
   chain over hand-rolled gRPC-web (now `core/src/grpc.rs`) with digest-first single-use verification and the
   consumeDigest **redemption** store (the `StateStore` lease/commit/release, orchestrated by `core/src/gateway.rs`),
   at parity with `gateway-workers/`. Validated by `cargo test` + a live testnet check
-  (hermetic fixtures in `sui_rpc.rs`; the optional `--ignored live_` tests take a fresh consume from `NFT_GATE_LIVE_*`). It is buildable/deployable but not
+  (hermetic fixtures in `sui_rpc.rs`; the optional `--ignored live_` tests take a fresh consume from `ACCESS_GATE_GATEWAY_LIVE_*`). It is buildable/deployable but not
   currently deployed — the live paywall still runs on the Workers gateway.
 - **multisig / zkLogin support (audit F1):** Requires the official Sui verifier. Until then, both
   fail closed with a log warning.
@@ -185,7 +185,7 @@ The gateway does NOT trust:
 - **Deploy guides** for both impls (Workers via Wrangler; Rust via Docker/k8s + Redis), the shared
   env-var/secrets surface, `PUBLIC_PATHS`, and the gRPC `SUI_RPC_URL` requirement.
 - **Wire-protocol spec + conformance vectors** as the canonical integration contract (shared with
-  `@meddleware/nft-gate-client`).
+  `@meddleware/access-gate-gateway-client`).
 
 ### White-label
 

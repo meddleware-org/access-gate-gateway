@@ -1,7 +1,7 @@
-# nft-gate-gateway
+# access-gate-gateway
 
-[![Crates.io](https://img.shields.io/crates/v/nft-gate-gateway)](https://crates.io/crates/nft-gate-gateway)
-[![Docker Hub](https://img.shields.io/docker/v/meddleware/nft-gate-gateway?label=Docker%20Hub)](https://hub.docker.com/r/meddleware/nft-gate-gateway)
+[![Crates.io](https://img.shields.io/crates/v/access-gate-gateway)](https://crates.io/crates/access-gate-gateway)
+[![Docker Hub](https://img.shields.io/docker/v/meddleware/access-gate-gateway?label=Docker%20Hub)](https://hub.docker.com/r/meddleware/access-gate-gateway)
 [![License: 0BSD](https://img.shields.io/badge/license-0BSD-blue)](LICENSE)
 
 A high-performance, generic **NFT-gated reverse proxy** (Rust / Axum / Tokio). Put it in front of
@@ -14,7 +14,7 @@ proof format, Sui RPC calls, and env-var names. Switch between implementations t
 
 ## Architecture: one core, two adapters
 
-Everything the gateway decides and does lives in [`nft-gate-core`](../core/) (`../core`), which has no
+Everything the gateway decides and does lives in [`access-gate-gateway-core`](../core/) (`../core`), which has no
 hyper, tokio, clock, RNG or logging and also builds for `wasm32-unknown-unknown`: the proof and signature
 checks, the allow / deny decision, the Sui reads, the nonce / rate / redemption state machines, the header,
 path and configuration policy, and the request flow (`Gateway::handle`, `redeem_and_forward`). This crate
@@ -46,7 +46,7 @@ Rust Worker together.
 ### Option A — Docker (recommended for production)
 
 ```bash
-docker pull meddleware/nft-gate-gateway:latest
+docker pull meddleware/access-gate-gateway:latest
 
 docker run \
   -e UPSTREAM_URL=http://your-relay:8080 \
@@ -54,7 +54,7 @@ docker run \
   -e NFT_TYPE=0x<PACKAGE_ID>::access_gate::AccessNFT \
   -e GATE_ID=0x<GATE_ID> \
   -p 8080:8080 \
-  meddleware/nft-gate-gateway
+  meddleware/access-gate-gateway
 ```
 
 For horizontal scale-out, add `REDIS_URL` pointing to a Redis or Dragonfly instance so
@@ -68,33 +68,33 @@ docker run \
   -e GATE_ID=0x<GATE_ID> \
   -e REDIS_URL=redis://redis:6379 \
   -p 8080:8080 \
-  meddleware/nft-gate-gateway
+  meddleware/access-gate-gateway
 ```
 
 ### Option B — From crates.io
 
 ```bash
-cargo install nft-gate-gateway    # also fetches nft-gate-core, published at the same version
+cargo install access-gate-gateway    # also fetches access-gate-gateway-core, published at the same version
 
 UPSTREAM_URL=http://your-relay:8080 \
 SUI_RPC_URL=https://fullnode.mainnet.sui.io:443 \
 NFT_TYPE=0x<PACKAGE_ID>::access_gate::AccessNFT \
 GATE_ID=0x<GATE_ID> \
-nft-gate-gateway
+access-gate-gateway
 ```
 
 ### Option C — Build from source
 
 ```bash
-git clone https://github.com/meddleware-org/nft-gate.git
-cd nft-gate        # the Cargo workspace root (core/ and gateway-rust/)
-cargo build --release -p nft-gate-gateway
+git clone https://github.com/meddleware-org/access-gate-gateway.git
+cd access-gate-gateway        # the Cargo workspace root (core/ and gateway-rust/)
+cargo build --release -p access-gate-gateway
 
 UPSTREAM_URL=http://your-relay:8080 \
 SUI_RPC_URL=https://fullnode.mainnet.sui.io:443 \
 NFT_TYPE=0x<PACKAGE_ID>::access_gate::AccessNFT \
 GATE_ID=0x<GATE_ID> \
-./target/release/nft-gate-gateway
+./target/release/access-gate-gateway
 ```
 
 ### Verify
@@ -224,20 +224,20 @@ Run these from the repository root (the Cargo workspace):
 cargo fmt --check                        # format check
 cargo clippy --all-targets --locked --workspace -- -D warnings  # lint
 cargo test --locked --workspace          # core (unit, property, scripted-port, scenario, shared vectors) + this adapter (router, hermetic gRPC-web)
-cargo test --locked -p nft-gate-core     # the core alone; CI also builds it for wasm32-unknown-unknown
+cargo test --locked -p access-gate-gateway-core     # the core alone; CI also builds it for wasm32-unknown-unknown
 cargo deny check                         # RustSec advisories, licences, sources (deny.toml; CI runs it)
 cargo llvm-cov --locked --workspace --summary-only   # coverage figure (CI prints it)
-cargo build --release --locked -p nft-gate-gateway   # production binary
+cargo build --release --locked -p access-gate-gateway   # production binary
 
 # Network-dependent checks (ignored by default):
-cargo test -p nft-gate-gateway -- --ignored live_gate        # gate + ownership requests against the testnet relay gate
+cargo test -p access-gate-gateway -- --ignored live_gate        # gate + ownership requests against the testnet relay gate
 # A recent consume (listEvents on <pkg>::access_gate::AccessConsumedEvent, newest first); public
 # fullnodes prune old transactions within about a week, so no digest is fixed in the source:
-NFT_GATE_LIVE_DIGEST=<digest> NFT_GATE_LIVE_SENDER=0x<sender> NFT_GATE_LIVE_GATE=0x<gate> \
-  NFT_GATE_LIVE_PACKAGE=0x<access_gate package> \
-  cargo test -p nft-gate-gateway -- --ignored live_consume   # real-node check of the GetTransaction wire format
+ACCESS_GATE_GATEWAY_LIVE_DIGEST=<digest> ACCESS_GATE_GATEWAY_LIVE_SENDER=0x<sender> ACCESS_GATE_GATEWAY_LIVE_GATE=0x<gate> \
+  ACCESS_GATE_GATEWAY_LIVE_PACKAGE=0x<access_gate package> \
+  cargo test -p access-gate-gateway -- --ignored live_consume   # real-node check of the GetTransaction wire format
 REDIS_URL=redis://:<password>@127.0.0.1:6379 \
-  cargo test -p nft-gate-gateway -- --ignored redis_backend  # Redis/Dragonfly backend incl. the Lua lease release
+  cargo test -p access-gate-gateway -- --ignored redis_backend  # Redis/Dragonfly backend incl. the Lua lease release
 ```
 
 The Redis test uses random keys with 60 s TTLs, so it is safe against a shared instance. To run
@@ -251,10 +251,10 @@ root `.dockerignore` keeps the context to `Cargo.toml`, `Cargo.lock`, `core/` an
 
 ```bash
 # Build locally (from the repository root)
-docker build -f gateway-rust/Dockerfile -t nft-gate-gateway .
+docker build -f gateway-rust/Dockerfile -t access-gate-gateway .
 
 # Multi-arch (for CI or arm64 hosts)
-docker buildx build -f gateway-rust/Dockerfile --platform linux/amd64,linux/arm64 -t nft-gate-gateway .
+docker buildx build -f gateway-rust/Dockerfile --platform linux/amd64,linux/arm64 -t access-gate-gateway .
 ```
 
 The image uses a distroless runtime (`gcr.io/distroless/cc-debian13:nonroot`). Pin base images
@@ -269,11 +269,11 @@ cosign by the publish workflow, with an SPDX SBOM attestation and a build-proven
 Verify against the workflow identity before running one:
 
 ```bash
-cosign verify quay.io/meddleware-org/nft-gate-gateway@sha256:<digest> \
-  --certificate-identity-regexp '^https://github.com/meddleware-org/nft-gate/\.github/workflows/docker-publish\.yml@refs/tags/v' \
+cosign verify quay.io/meddleware-org/access-gate-gateway@sha256:<digest> \
+  --certificate-identity-regexp '^https://github.com/meddleware-org/access-gate-gateway/\.github/workflows/docker-publish\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-cosign verify-attestation --type spdxjson quay.io/meddleware-org/nft-gate-gateway@sha256:<digest> \
-  --certificate-identity-regexp '^https://github.com/meddleware-org/nft-gate/\.github/workflows/docker-publish\.yml@refs/tags/v' \
+cosign verify-attestation --type spdxjson quay.io/meddleware-org/access-gate-gateway@sha256:<digest> \
+  --certificate-identity-regexp '^https://github.com/meddleware-org/access-gate-gateway/\.github/workflows/docker-publish\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 

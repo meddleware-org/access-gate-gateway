@@ -1,5 +1,5 @@
 //! Reverse-proxy an authorised request to the configured upstream: the native
-//! [`nft_gate_core::gateway::Upstream`]. Body is capped at `max_body_bytes` (a griefing guard): a
+//! [`access_gate_gateway_core::gateway::Upstream`]. Body is capped at `max_body_bytes` (a griefing guard): a
 //! declared `Content-Length` over the cap is rejected before any byte is read; otherwise the body is
 //! read up to the cap, within `BODY_READ_TIMEOUT_SECS`.
 //!
@@ -10,7 +10,7 @@
 //! Walrus upload relay takes up to ~100 MiB) belongs behind the streaming Worker gateway; see
 //! README.
 //!
-//! Policy (`nft_gate_core::forward` and `nft_gate_core::headers`, the same on every platform): only
+//! Policy (`access_gate_gateway_core::forward` and `access_gate_gateway_core::headers`, the same on every platform): only
 //! `GET`, `HEAD`, `POST` and `PUT` are forwarded (405 otherwise); the path must be free of encoded
 //! separators and dot segments (400); hop-by-hop fields (and those named in `Connection`),
 //! credentials, cookies and spoofable forwarding fields are stripped from the request, and
@@ -27,10 +27,10 @@ use axum::extract::Request;
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use nft_gate_core::forward::{
+use access_gate_gateway_core::forward::{
     self, Refusal, BODY_TIMED_OUT, BODY_TOO_LARGE, UPSTREAM_ERROR, UPSTREAM_TIMED_OUT,
 };
-use nft_gate_core::gateway::{ForwardKind, Upstream};
+use access_gate_gateway_core::gateway::{ForwardKind, Upstream};
 use serde_json::json;
 
 /// A gateway-generated `{"error": reason}` response for a refusal.

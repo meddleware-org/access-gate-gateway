@@ -5,7 +5,7 @@ on:
       - "v*"
 
 env:
-  IMAGE: nft-gate-gateway
+  IMAGE: access-gate-gateway
 
 permissions:
   contents: read

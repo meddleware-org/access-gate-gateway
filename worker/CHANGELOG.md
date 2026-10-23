@@ -3,6 +3,12 @@
 All notable changes to the Rust Cloudflare Worker (`nft-gate-worker`, not published to crates.io; built with `worker-build`) are documented here. It is versioned with the
 repository (one version for every artifact).
 
+## [0.0.30] - 2026-10-24
+
+### Changed
+
+- Renamed from `nft-gate` to `access-gate-gateway` (workspace naming convention, `docs/architecture/ADR-0003-naming.md`). No code change beyond names, paths, hostnames and dependency names; the history below keeps the old names.
+
 ## [0.0.29] - 2026-10-22
 
 Not deployed. The version moves with the workspace. The core gains a bounded in-memory rate table (`RateTable::check_capped`, `prune`) that the native adapter uses; the Worker keeps its Durable Object windows and its code is unchanged.

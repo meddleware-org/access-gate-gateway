@@ -26,7 +26,7 @@ export const VIA_TOKEN = '1.1 nft-gate'
 
 /**
  * True if `headers` already carry this gateway's own `Via` entry. Only the received-by name
- * `nft-gate` matches: any other value (e.g. a CDN's `1.1 google`) is foreign and passes. Each
+ * `access-gate-gateway` matches: any other value (e.g. a CDN's `1.1 google`) is foreign and passes. Each
  * comma-separated entry is `protocol received-by [comment]`; a comment is not examined.
  */
 export function isLooped(headers: Headers): boolean {

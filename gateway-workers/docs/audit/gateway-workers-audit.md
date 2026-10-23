@@ -1,7 +1,7 @@
-# nft-gate — `gateway-workers` Security Audit
+# access-gate-gateway — `gateway-workers` Security Audit
 
 **Classification:** Internal security review
-**Project:** nft-gate/gateway-workers  (Cloudflare Worker reverse proxy that admits only holders of an
+**Project:** access-gate-gateway/gateway-workers  (Cloudflare Worker reverse proxy that admits only holders of an
   on-chain `access_gate` pass, verified by a Sui personal-message signature and a live gRPC chain read;
   the **live** NFT-gated front of the Meddleware Walrus upload relay; wire-identical sibling of
   `gateway-rust`)
@@ -12,11 +12,11 @@
   AUDIT_TEMPLATE_PROXY.md (2026-10-08)
 **Deployment status:**
 
-- **This Worker has been replaced by the Rust Worker (workers-rs, `worker/`) built on the shared `nft-gate-core` crate** — status: **live since 2026-10-20** (cutover done; release
+- **This Worker has been replaced by the Rust Worker (workers-rs, `worker/`) built on the shared `access-gate-gateway-core` crate** — status: **live since 2026-10-20** (cutover done; release
   v0.0.27 = `aa90888`, v0.0.28 = `a6b86ae`; decision 2026-10-19: the standing rule is no JS/TS backend code; a feasibility spike returned GO). The Rust Worker replaces
   this one 1:1 (same Worker name, Durable Object class `NonceRateState`, migration tag `v1` and SQLite schema), is covered by black-box workerd suites that port every behavioural
   case of this Worker's tests and by a differential run that asserts identical status, body, headers and upstream requests against this Worker (`worker/README.md`, test map).
-  Timeline, from the workspace `OPERATOR_TASKS.md` and the GitHub Actions history: the shadow `nft-gate-gateway-shadow` was deployed on 2026-10-20 (run 39394989255 from `v0.0.27`;
+  Timeline, from the workspace `OPERATOR_TASKS.md` and the GitHub Actions history: the shadow `access-gate-gateway-shadow` was deployed on 2026-10-20 (run 39394989255 from `v0.0.27`;
   the paywall run `integrations/paywall` passed 11/11 against it); the first cutover run (09:26 UTC) hung in the differential step (a harness port race, fixed in `e28d5fe`) and
   was cancelled before its deploy job; the **cutover** is *Deploy Worker (Rust)* run 39418735654 (`workflow_dispatch`, `main` at `e28d5fe`, 2026-10-20T11:58Z, all jobs
   including *Wrangler deploy (worker/, Rust)* succeeded, 12:05Z). The live script contains the wasm module and the paywall run against the live hostname passed 11/11 (reported by the
@@ -26,7 +26,7 @@
   no CPU-limit errors on either. **This TypeScript Worker is now superseded and kept only as the rollback** (re-run *Deploy Workers* at the last TypeScript tag; the Durable Object
   schema is shared); it is retired after a clean week on the Rust Worker (`OPERATOR_TASKS.md`), after which this audit is closed and F51–F57 move to a Rust Worker audit. The Workers KV
   nonce backend (F2) is not carried over. The Rust Worker's own findings are F51–F57 below; `gateway-rust` audit F49 and F50 cover the shared core.
-- **Live on testnet** at route `sui-walrus-relay-testnet.meddleware.co.uk/*` (zone
+- **Live on testnet** at route `sui-walrus-storage-relay-testnet.meddleware.co.uk/*` (zone
   `meddleware.co.uk`, route ID `63427e4d…7551`). The Worker was redeployed from `main` on 2026-10-09:
   `Deploy Workers` run of 2026-10-09T17:49Z on `367e673` succeeded (the run of 14:13Z on `574fe70`, the
   config change below, also succeeded). The deployed version itself cannot be read from the repo;
@@ -34,7 +34,7 @@
 - **Redeployed from `main` on 2026-10-10** with the 0.0.22 fix wave: `Deploy Workers` run 38077732841
   (`workflow_dispatch`, 2026-10-10T18:55Z, success) on `3189969` = tag `v0.0.22`. Verified live afterwards: a
   canonical proof token decodes; an unpadded token and a whitespace-split token are refused as `malformed
-  access proof` (the strict decoder of nft-gate-client 0.0.17, F47). The `Origin lock` workflow (F32) ran green
+  access proof` (the strict decoder of access-gate-gateway-client 0.0.17, F47). The `Origin lock` workflow (F32) ran green
   from its first dispatch (run 38077866216, 2026-10-10T18:57Z) and on every daily schedule since (2026-10-11 to
   2026-10-18). The deployed version itself still cannot be read from the repo; `deploy-workers.yml` tags each
   version `<tag>-code`.
@@ -52,10 +52,10 @@
   refused as `malformed access proof` (reported by the release orchestrator; not re-probed here). The Worker now
   runs `@meddleware/access-gate-client` `^0.0.9` (lockfile 0.0.9; was `^0.0.6`) and the refreshed dependency groups
   (below).
-- npm `@meddleware/nft-gate-gateway` **0.0.23** (tag `v0.0.23` = `31c0f15`, released 2026-10-19; SLSA v1 provenance
+- npm `@meddleware/access-gate-gateway` **0.0.23** (tag `v0.0.23` = `31c0f15`, released 2026-10-19; SLSA v1 provenance
   attestation present and `latest`, checked with `npm view` 2026-10-19; the same version is the crate
-  `nft-gate-gateway` 0.0.23 on crates.io, not yanked, and the `gateway-rust` image
-  `quay.io/meddleware-org/nft-gate-gateway:0.0.23` = index `sha256:0d0be82ada8f757ebc0b036030962487914e2c0e39b8173455c595b97a3f535a`
+  `access-gate-gateway` 0.0.23 on crates.io, not yanked, and the `gateway-rust` image
+  `quay.io/meddleware-org/access-gate-gateway:0.0.23` = index `sha256:0d0be82ada8f757ebc0b036030962487914e2c0e39b8173455c595b97a3f535a`
   from the quay API; the `docker-publish` run 39184480792 passed "Scan the published image (Trivy)" before
   "Sign images (keyless)"; npm run 39184480907 and crates.io run 39184480796 succeeded). Previously **0.0.22** (tag `v0.0.22` = `3189969`; published
   2026-10-10T18:49Z, SLSA v1 provenance attestation present, checked 2026-10-18). 0.0.21 (tag `v0.0.21` =
@@ -104,7 +104,7 @@
   `CF_ANALYTICS_TOKEN`, `CF_ACCOUNT_ID`.
 - Plain vars include `GATEWAY_ORIGIN`, `NETWORK`, `NFT_TYPE`, `GATE_ID` (public values).
 
-**Routes / zones:** `sui-walrus-relay-testnet.meddleware.co.uk/*` on `meddleware.co.uk`; `workers_dev` and
+**Routes / zones:** `sui-walrus-storage-relay-testnet.meddleware.co.uk/*` on `meddleware.co.uk`; `workers_dev` and
   `preview_urls` pinned off in `wrangler.toml` (F29).
 **Deploy mechanism:** `.github/workflows/deploy-workers.yml`. It is `workflow_dispatch`, runs only from
   `main`, re-runs `node-ci.yml` first and runs in environment `production` (deployment branch policy:
@@ -133,7 +133,7 @@
 
 **Walrus SDK:** none — the gateway fronts the operator's upload relay (`UPSTREAM_URL`, secret)
 **Package config source:** n/a   **Upload relays:** operator relay behind Cloudflare Access
-  (`walrus-relay-origin.meddleware.co.uk`, `docs/networking/CLOUDFLARE.md` §2.4)
+  (`walrus-storage-relay-origin.meddleware.co.uk`, `docs/networking/CLOUDFLARE.md` §2.4)
 **Aggregator / publisher hosts:** n/a   **Tip ceiling:** n/a (client SDK)   **Epoch default / maximum:**
   n/a   **Deletable default:** n/a
 
@@ -141,7 +141,7 @@
   auth header); verifier of signed access proofs; holder of a Cloudflare Analytics API token (quota
   guard, disabled)
 **Identity provider:** none (Cloudflare Access protects the upstream origin)
-**Token formats:** inbound nft-gate access proof v2 (base64 JSON + Sui signature over an
+**Token formats:** inbound access-gate-gateway access proof v2 (base64 JSON + Sui signature over an
   audience-bound message); outbound static headers
 **Signing / client credentials:** `UPSTREAM_AUTH_HEADERS`, `SUI_RPC_AUTH_HEADER`, `CF_ANALYTICS_TOKEN`
   (Worker secrets); `CLOUDFLARE_API_TOKEN`, `UPSTREAM_AUTH_HEADERS` (GitHub secrets) — Access token
@@ -202,7 +202,7 @@ can be hired; F16 RESOLVED). Three items are MITIGATED with a stated residual: t
 edge CPU percentiles (F11, F55; read once on 2026-10-20: no `exceededCpu`), the live API token's scope (F31, operator) and the `unknown` IP bucket (F29). Fixed after the first re-verification (2026-10-10, commit `ec91935`; released as 0.0.22 and deployed to the Worker the same day): the
 **scheduled negative origin-lock check** (F32: `origin-lock.yml`), the cosmetic stale comments (F21),
 the residual test gaps (F30) and the base64/UTF-8/JSON layers of proof decoding (F47,
-nft-gate-client 0.0.17).
+access-gate-gateway-client 0.0.17).
 
 **Verified strengths.**
 
@@ -213,7 +213,7 @@ nft-gate-client 0.0.17).
 - CORS is an exact allowlist (default none) with `Vary: Origin` on every response.
 - Signature verification is canonical (`@noble/curves` with `zip215: true` and `lowS: true`) and pinned
   by the shared vectors, negatives included.
-- Wire and ownership logic is reused from `@meddleware/nft-gate-client` and
+- Wire and ownership logic is reused from `@meddleware/access-gate-gateway-client` and
   `@meddleware/access-gate-client` (ADR-0001 layering).
 - Both test pools run in CI. The deploy is manual, CI-gated and branch-restricted. npm publishing
   uses OIDC with provenance.
@@ -224,9 +224,9 @@ retire this Worker after a clean week, and obtain an external review. The negati
 
 
 **Replacement by the Rust Worker (built 2026-10-19; shadow deployed and cut over 2026-10-20).** The maintainer's standing rule is no JS/TS backend code, so this Worker was rebuilt in Rust
-(workers-rs) on `nft-gate-core`, the decision logic that `gateway-rust` shares (`gateway-rust` audit F49: one implementation of proof, signatures, decision, Sui
+(workers-rs) on `access-gate-gateway-core`, the decision logic that `gateway-rust` shares (`gateway-rust` audit F49: one implementation of proof, signatures, decision, Sui
 reads, state machines, header / path / config policy and the request flow). The adapter exists as `worker/` (v0.0.27, v0.0.28): Durable Object state (same class, tag and schema), a streamed `fetch` upstream,
-CORS, the quota guard, a `nft-gate-ci` helper that replaces `check-upstream-auth.mjs` and `origin-lock.ts`, and the workflows `deploy-worker-rust.yml` (shadow, then cutover) and a `worker` CI job
+CORS, the quota guard, a `access-gate-gateway-ci` helper that replaces `check-upstream-auth.mjs` and `origin-lock.ts`, and the workflows `deploy-worker-rust.yml` (shadow, then cutover) and a `worker` CI job
 (clippy with the panic lints, wasm build, a 1.5 MiB gzip size gate, the workerd suites, the differential run against this Worker). Of this Worker's 251 tests, 237 are ported, 2 replaced by instruments,
 3 skipped before and after, and 9 removed with a stated reason (`worker/README.md`). Measured locally: wasm 0.93 MiB raw, 358 KiB gzip dry-run total (this Worker: 137 KiB), first
 verification 4 ms (17 ms here), the 90 MiB streamed body with flat wasm memory. **Done 2026-10-20:** the shadow deploy, the cutover over the live name (run 39418735654) and the live paywall run (11/11).
@@ -298,14 +298,14 @@ platform (execution, `CF-Connecting-IP`, Durable Object consistency, Access).
 | Dependency authors | install/build/runtime code | lockfile; `npm audit --audit-level=high` in CI and publish; Dependabot weekly groups; `allowScripts` (esbuild, workerd) |
 | npm registry | tarballs | lockfile integrity; OIDC provenance on publish |
 | CI runner | build, deploy, publish credentials | base §B.2 |
-| Untrusted inputs: proof token, headers, RPC responses, upstream responses | shapes/sizes | `decodeAccessProof` (4096 B cap, ASCII, strict grammar, canonical base64, strict UTF-8, bounded JSON; nft-gate-client 0.0.17); typed gRPC client; strict gate/event decoding; streamed body counter |
+| Untrusted inputs: proof token, headers, RPC responses, upstream responses | shapes/sizes | `decodeAccessProof` (4096 B cap, ASCII, strict grammar, canonical base64, strict UTF-8, bounded JSON; access-gate-gateway-client 0.0.17); typed gRPC client; strict gate/event decoding; streamed body counter |
 | Embedding host | n/a — a Worker, not a library | — |
 
 ### Identity & credential matrix (AUTH lens)
 
 | Authority / credential | Holder | Confers | Compromise impact | Rotation / revocation |
 | --- | --- | --- | --- | --- |
-| CF Access service token (`UPSTREAM_AUTH_HEADERS`) | Worker secret + GitHub secret | origin access | full gateway bypass | token `nft-gate-worker-relay-origin-v2`, expires 2027-09-09, procedure in `CLOUDFLARE.md` §2.4 (F31) |
+| CF Access service token (`UPSTREAM_AUTH_HEADERS`) | Worker secret + GitHub secret | origin access | full gateway bypass | token `access-gate-gateway-worker-relay-origin-v2`, expires 2027-09-09, procedure in `CLOUDFLARE.md` §2.4 (F31) |
 | `CLOUDFLARE_API_TOKEN` | GitHub `production` environment secret | deploy Workers + secrets | arbitrary code on the live route | target scope, expiry ≤ 1 year and rotation recorded (OQ4, `OPERATOR_TASKS.md`); live scope unverified (F31) |
 | `SUI_RPC_AUTH_HEADER` (optional) | Worker secret | RPC quota | quota abuse | unrecorded (unused today) |
 | `CF_ANALYTICS_TOKEN` (optional, unused) | Worker secret | account analytics read | analytics read | unrecorded (unused today) |
@@ -335,13 +335,13 @@ cite the first-pass locations; the evidence paragraphs give the current ones.
   `SECURITY.md`, `scripts/check-versions.sh`, `.github/dependabot.yml`,
   `.github/workflows/{node-ci,npm-publish,deploy-workers,origin-lock}.yml`
 - Dependencies read at the installed version: `@meddleware/access-gate-client` 0.0.6
-  (`ownsAccessNft`, usable passes only) and `@meddleware/nft-gate-client` 0.0.17 (protocol v2, strict proof decoding, vectors,
+  (`ownsAccessNft`, usable passes only) and `@meddleware/access-gate-gateway-client` 0.0.17 (protocol v2, strict proof decoding, vectors,
   gateway response contract)
 - Cross-repo evidence (read-only):
   - `access-gate-sui/Published.toml` and `CLAUDE.md`
-  - `walrus-client/src/flow.ts` (409 handling)
+  - `walrus-storage-client/src/flow.ts` (409 handling)
   - `docs/networking/CLOUDFLARE.md` §2.4 (Access application and token)
-  - the dashboard and token-deployer-ui audits (app-side gate id)
+  - the dashboard and token-issuance-ui audits (app-side gate id)
 
 **Out of scope:**
 
@@ -362,7 +362,7 @@ one Dependabot bump behind the lockfile's 4.147.0 / 10.12.0; `npm ci` was not re
 | `npm audit --audit-level=high` | 0 vulnerabilities |
 | `npm pack --dry-run` | 20 files: `LICENSE`, `README.md`, `package.json`, `src/**` (15 files incl. `headers.ts`), `tsconfig.json`, `wrangler.toml`; no tests, env files or keys |
 | Read-only `curl` of the live route | `/healthz` 200; `POST /v1/tip-config` 405 with `allow: GET, HEAD`; gated path without proof 401; `Origin: https://evil.example` receives no `Access-Control-Allow-Origin`; `/v1/tip-config` with an allowed Origin receives exactly that origin, `Cache-Control: public, max-age=60`, `Vary` includes `Origin` |
-| Direct request to the relay origin (`walrus-relay-origin.meddleware.co.uk`, `/` and `/v1/tip-config`, no token) | 401 both (origin lock holds, F32) |
+| Direct request to the relay origin (`walrus-storage-relay-origin.meddleware.co.uk`, `/` and `/v1/tip-config`, no token) | 401 both (origin lock holds, F32) |
 | `gh api` (read-only) | `production` environment: deployment branch policy `main` only, no required reviewers, `can_admins_bypass` true; repository variable names include `UPSTREAM_CHECK_URL` |
 | Live gate read (`SuiGrpcClient.core.getObject`) | `0x316f1bf9…faddc` is an `0xd7ddaa94…::access_gate::Gate`, `default_uses` 10, `paused` false, `policy.pause_blocks_access` false |
 
@@ -376,7 +376,7 @@ one Dependabot bump behind the lockfile's 4.147.0 / 10.12.0; `npm ci` was not re
 decided)
 **Where:**
 
-- `src/wire.ts` (re-exports `personalMessageForNonce` from `@meddleware/nft-gate-client`)
+- `src/wire.ts` (re-exports `personalMessageForNonce` from `@meddleware/access-gate-gateway-client`)
 - `src/verify.ts:212-280`
 - `conformance/vectors.json` `personalMessage`
 
@@ -392,7 +392,7 @@ gets `409 redeemed`, so their client consumes again, spending a second paid use.
 
 The exposure is one request per phished signature, within the 300 s nonce TTL.
 
-**Remediation / evidence:** Protocol v2, one coordinated wire change (nft-gate-client 0.0.16 and both
+**Remediation / evidence:** Protocol v2, one coordinated wire change (access-gate-gateway-client 0.0.16 and both
 gateways, no v1 compatibility, per the pre-v0.2 policy):
 
 - The signed message is `nft-gate:access:v2`, multi-line ASCII, binding the gateway origin, the gate
@@ -402,7 +402,7 @@ gateways, no v1 compatibility, per the pre-v0.2 policy):
   digest — never from the token. New required vars `GATEWAY_ORIGIN` and `NETWORK` (set in
   `wrangler.toml`; `GATEWAY_ORIGIN` must equal the route hostname). A proof made for another gateway,
   gate, network or mode simply fails signature verification here. v1 is refused.
-- Vectors are generated and published by nft-gate-client (`personalMessage`, `personalMessageRejects`
+- Vectors are generated and published by access-gate-gateway-client (`personalMessage`, `personalMessageRejects`
   13 cases, `audienceMismatch` 8 cases, 4 golden signatures, `negativeSignatures` 8), copied by
   `scripts/sync-vectors.mjs` and checked in CI with `--check`.
 - Tests: `test/verify.test.ts` "audience binding (protocol v2)" (accepts a proof for exactly this
@@ -1070,7 +1070,7 @@ cadence stays with S6.
 
 ### F28 — Publish workflow's verify job omits lint
 
-**Severity:** Info   **Disposition:** RESOLVED (nft-gate main, after 0.0.17)
+**Severity:** Info   **Disposition:** RESOLVED (access-gate-gateway main, after 0.0.17)
 **Where:** `npm-publish.yml:15-40` (versions, `npm ci`, audit, type-check `--if-present`, `test:all`;
 no `npm run lint`) vs `node-ci.yml` (which lints).
 
@@ -1091,7 +1091,7 @@ falls back to `'unknown'`).
 
 **Issue / Impact:**
 
-- Depending on wrangler defaults, the Worker may also answer on `nft-gate-gateway.<account>.workers.dev`
+- Depending on wrangler defaults, the Worker may also answer on `access-gate-gateway.<account>.workers.dev`
   (and on preview URLs for uploaded versions), outside the zone's WAF and rate-limiting rules.
 - `CF-Connecting-IP` is present there too. The `'unknown'` bucket arises only off-platform, but it
   would merge all such clients into one bucket.
@@ -1169,8 +1169,8 @@ pre-mainnet gate "secrets-management verified")
 **Remediation / evidence:**
 
 - `docs/networking/CLOUDFLARE.md` §2.4 now records the Access application ("Walrus relay origin
-  (nft-gate Worker only)", `walrus-relay-origin.meddleware.co.uk`, Service Auth, the Worker's token
-  only), the token (`nft-gate-worker-relay-origin-v2`, client id `e7530ffb…`, **expires 2027-09-09**,
+  (access-gate Worker only)", `walrus-storage-relay-origin.meddleware.co.uk`, Service Auth, the Worker's token
+  only), the token (`access-gate-gateway-worker-relay-origin-v2`, client id `e7530ffb…`, **expires 2027-09-09**,
   secret rotated 2026-10-01, held in the GitHub secret `UPSTREAM_AUTH_HEADERS`) and the rotation
   procedure (new token, add to policy, update the GitHub secret, run `Deploy Workers`, verify the Worker
   path, remove and revoke the old token). B.AUTH-1 below mirrors it.
@@ -1199,7 +1199,7 @@ this gateway is moot, and nothing would notice.
 **Remediation / evidence:**
 
 - Evidence of the property today: a direct request without the token to
-  `walrus-relay-origin.meddleware.co.uk` (`/` and `/v1/tip-config`) was refused with **401** on
+  `walrus-storage-relay-origin.meddleware.co.uk` (`/` and `/v1/tip-config`) was refused with **401** on
   2026-10-09; the positive check runs on every deploy (`UPSTREAM_CHECK_URL` is set as a repository
   variable; the deploys of 2026-10-09 succeeded). This is a one-off manual check, not a repeatable one.
 - Done 2026-10-10: `.github/workflows/origin-lock.yml` runs daily (05:17 UTC), on demand and on pull
@@ -1311,7 +1311,7 @@ exist in an ownership-mode deployment that opts in.
 - `@noble/curves` ed25519 with `{ zip215: true }`, and ECDSA with `{ lowS: true }` on both curves.
 - Intent + Blake2b-256; address = `blake2b(flag ‖ pk)`, normalised.
 - Flags 0x03/0x05/0x06 fail closed.
-- Wire helpers are imported from `@meddleware/nft-gate-client`, so client and gateway cannot drift.
+- Wire helpers are imported from `@meddleware/access-gate-gateway-client`, so client and gateway cannot drift.
 - `test/conformance.test.ts` asserts every vector, including all negatives and the ZIP-215
   small-order case.
 
@@ -1393,7 +1393,7 @@ operator-chosen upstreams, add a `Via`/marker check that returns `508`. The Go s
 **Resolved 2026-10-19 (0.0.24, both gateways at once).** The check is cheap and has one correct form, so it
 is no longer conditional on a white-label deployment. `upstreamRequestHeaders` still drops the client's
 `via` and now sets `Via: 1.1 nft-gate` (`VIA_TOKEN`); `handle` answers `508 {"error":"loop detected"}` to a
-request whose `Via` already names `nft-gate` as a received-by hop, after `/healthz` and the CORS preflight
+request whose `Via` already names `access-gate-gateway` as a received-by hop, after `/healthz` and the CORS preflight
 and before any nonce, rate-limit or redemption work, so a looped request spends nothing. Only our own token
 matches (case-insensitive; the second token of each comma-separated entry), so a foreign value such as the
 `1.1 google` that a CDN may add passes, and neither a comment nor a longer name (`nft-gateway`)
@@ -1403,7 +1403,7 @@ matches. The signed access message, the proof format and the public-path and COR
 request and a foreign client Via does not survive" in `test/proxy.test.ts`; the strip test now expects the
 marker in place of the client's value; workerd router tests "refuses a request that already carries the
 gateway Via marker with 508, with CORS, on every path class" and "lets a foreign Via value (a CDN hop)
-through untouched". The conformance vectors are generated by `nft-gate-client` and carry wire-format fields
+through untouched". The conformance vectors are generated by `access-gate-gateway-client` and carry wire-format fields
 only, so the parity is an identical table in each suite. Not exercised: the Worker on Cloudflare's edge (the
 fetch of a request with a `Via` header is plain workerd behaviour in the tests); verify after the deploy that
 `/v1/challenge` and `/v1/tip-config` still answer 200.
@@ -1419,7 +1419,7 @@ For 4xx/5xx answers from the relay the gateway returns the relay's status and bo
 F12/F13).
 
 **Impact:** The relay's own error JSON (for example a tip-payment or size rejection) reaches the
-client. The relay is first-party, its errors carry no secret, and the clients (`walrus-client`)
+client. The relay is first-party, its errors carry no secret, and the clients (`walrus-storage-client`)
 need them to react. Network failures, timeouts, redirects and store errors are mapped to fixed
 `502`/`504`/`503` bodies.
 
@@ -1443,7 +1443,7 @@ operator must remove the Worker route or revoke the Access service token (B.CF-1
 bought passes are otherwise admitted until their uses are spent.
 
 **Remediation / evidence:** Accepted: the policy cannot be changed after creation. Recorded so the
-operator runbook (`post-bootstrap/walrus/README.md`) does not rely on gate pause for this relay. A gate
+operator runbook (`post-bootstrap/walrus-storage/README.md`) does not rely on gate pause for this relay. A gate
 created for mainnet should set `pause_blocks_access` deliberately. **Decided 2026-10-22:** the mainnet relay gate is created with `pause_blocks_access = true`, so the on-chain pause is a working kill switch for the paywall
 (the policy is immutable after creation, so this is a requirement of the creation step, not a later setting); this testnet gate keeps its accepted risk.
 
@@ -1462,8 +1462,8 @@ created for mainnet should set `pause_blocks_access` deliberately. **Decided 202
 
 ### F47 — Proof-token base64, UTF-8 and JSON layers were lenient in the client decoder (parity with `gateway-rust`)
 
-**Severity:** Low   **Disposition:** RESOLVED (nft-gate-client 0.0.17 adopted 2026-10-10, commit `ec91935`, released in 0.0.22 and live in the Worker from 2026-10-10). Not the same finding as `gateway-rust` F47. Origin: nft-gate-client audit F24.
-**Where:** `decodeAccessProof` in `@meddleware/nft-gate-client` (imported by `src/wire.ts`), through
+**Severity:** Low   **Disposition:** RESOLVED (access-gate-gateway-client 0.0.17 adopted 2026-10-10, commit `ec91935`, released in 0.0.22 and live in the Worker from 2026-10-10). Not the same finding as `gateway-rust` F47. Origin: access-gate-gateway-client audit F24.
+**Where:** `decodeAccessProof` in `@meddleware/access-gate-gateway-client` (imported by `src/wire.ts`), through
 `atob` / `TextDecoder` / `JSON.parse`.
 
 **Issue:** Up to 0.0.16 the shared decoder checked size, ASCII and the field grammar but let `atob`
@@ -1473,7 +1473,7 @@ gateway (`BASE64_STANDARD.decode`, `serde_json`) already refused these, so the t
 differently on a crafted token. No signature check is bypassed (the fields are validated afterwards),
 so this is a parity and robustness gap, not an admission bug.
 
-**Remediation / evidence:** `@meddleware/nft-gate-client` ^0.0.17 decodes strictly (canonical padded
+**Remediation / evidence:** `@meddleware/access-gate-gateway-client` ^0.0.17 decodes strictly (canonical padded
 standard-alphabet base64, fatal UTF-8 without BOM, bounded JSON) and adds 11 vectors to
 `proofDecodeRejects`. Here: dependency bumped (lockfile entry only; the `overrides` for `sharp` and
 `undici` are kept), `conformance/vectors.json` refreshed with `node ../scripts/sync-vectors.mjs`
@@ -1558,7 +1558,7 @@ this crate only (core and gateway-rust stay at 1.88; the `msrv` job keeps checki
 
 **Impact:** Paid uses could be redeemed twice within the window.
 
-**Remediation / evidence:** The Rust Worker keeps the Worker name `nft-gate-gateway`, the class `NonceRateState`, the migration tag `v1`, the instance names (`nonce:<shard>`, `nonce:redeem`), the key prefixes and the exact SQLite schema, including the
+**Remediation / evidence:** The Rust Worker keeps the Worker name `access-gate-gateway`, the class `NonceRateState`, the migration tag `v1`, the instance names (`nonce:<shard>`, `nonce:redeem`), the key prefixes and the exact SQLite schema, including the
 `ALTER TABLE ADD COLUMN token` upgrade (tested against a table that predates it, rows kept). `core/tests/scenario.json` runs against the real SQL (39 steps) and 100-way atomicity is asserted. The cutover mode of
 `deploy-worker-rust.yml` is hard-wired to the live name and needs `confirm=cutover`; the shadow mode refuses the live name and, by design, uses a new empty namespace. Residual (2026-10-22): the cutover ran on 2026-10-20 (run 39418735654) over the live name, class and tag and the live paywall run passed 11/11 afterwards; I did not read the pre-cutover
 redemption rows back to prove they survived (the deploy applied no migration, and the shared-table design plus the `state.test.mjs` upgrade test are the evidence). Rollback to the
@@ -1605,7 +1605,7 @@ redemption, config, limits, chain, differential) runs on the feature-less build,
 
 ### F58 — The digest check was shape-only, and this Worker's answers were not pinned to the shared contract
 
-**Severity:** Info   **Disposition:** RESOLVED (0.0.28, released as v0.0.28 = `a6b86ae` with `@meddleware/nft-gate-client` 0.0.18; code commit 5ff4ddf)
+**Severity:** Info   **Disposition:** RESOLVED (0.0.28, released as v0.0.28 = `a6b86ae` with `@meddleware/access-gate-gateway-client` 0.0.18; code commit 5ff4ddf)
 **Where:** `src/wire.ts` (re-exports `isTransactionDigest`), `src/verify.ts:268`, `src/index.ts`, `src/redemption.ts`, the new `src/responses.ts`.
 **Issue:** `isTransactionDigest` (imported from the client) accepted any 32-44 character base58 string, so a digest that decodes to 31 or 33 bytes reached the fullnode (and ended as a 403 after the bounded retries; F14). The
 status and `{ error, code? }` body of this Worker's own answers were inline in `index.ts` and `redemption.ts` and asserted only by this repository's tests, with no shared expectation to catch drift against the Rust implementations.
@@ -1613,7 +1613,7 @@ status and `{ error, code? }` body of this Worker's own answers were inline in `
 
 **Remediation / evidence:** 0.0.28.
 
-- The dependency is `@meddleware/nft-gate-client` `^0.0.18`, whose `isTransactionDigest` requires exactly 32 decoded bytes (nft-gate-client F18). `decodeAccessProof` and `personalMessage` apply it, so a bad digest is `malformed access proof` (403)
+- The dependency is `@meddleware/access-gate-gateway-client` `^0.0.18`, whose `isTransactionDigest` requires exactly 32 decoded bytes (access-gate-gateway-client F18). `decodeAccessProof` and `personalMessage` apply it, so a bad digest is `malformed access proof` (403)
   before any RPC call. No Worker code changed for this; the vectors prove it (`conformance.test.ts`: 6 valid and 15 invalid `txDigest` cases, plus the digest `proofDecodeRejects` through the existing router loop).
 - The Worker's own answers are one definition each in `src/responses.ts` (`deny`, `missingProof`, `deniedResponse`, `rateLimited`, `stateUnavailable`, `loopDetected`, `methodNotAllowed`), used by `index.ts` and `redemption.ts`. Texts and statuses are
   unchanged (all existing tests pass).
@@ -1653,7 +1653,7 @@ status and `{ error, code? }` body of this Worker's own answers were inline in `
 | I22 | Misconfiguration fails closed | `config.ts::loadConfig` → 500 | config tests | HOLDS (F8, F17) |
 | I23 | Scheduled job safe | `quota.ts` `scheduled` (catches own errors; 15 s timeout; cron commented out; never moves single-use redemptions) | review | HOLDS (code-only) |
 | I24 | The proof is bound to the intended audience | `verify.ts` (message rebuilt from `cfg`) | verify "audience binding (protocol v2)"; vectors `audienceMismatch` | HOLDS (F1) |
-| I25 | Wire parity with `gateway-rust` | `conformance/vectors.json` (published by nft-gate-client, `--check` in CI) | `conformance.test.ts` | HOLDS for covered fields; remaining uncovered rows in B.SC-3 |
+| I25 | Wire parity with `gateway-rust` | `conformance/vectors.json` (published by access-gate-gateway-client, `--check` in CI) | `conformance.test.ts` | HOLDS for covered fields; remaining uncovered rows in B.SC-3 |
 | I26 | Only listed methods and safe paths are forwarded; public paths are `GET`/`HEAD` | `index.ts`, `proxy.ts::FORWARDED_METHODS`, `headers.ts::isSafePath` | router "public paths are read-only…", "gated paths refuse methods…"; proxy "refuses a method outside the list and an unsafe path…" | HOLDS (F10, F42) |
 | I27 | A request that has already passed through the gateway is refused | `config.ts` (literal self-origin), `headers.ts::isLooped` + `index.ts::handle` (`Via: 1.1 nft-gate` → 508) | config "refuses an upstream that is the gateway itself"; proxy `VIA_TABLE`; router "refuses a request that already carries the gateway Via marker…" | HOLDS (F43, 0.0.24) |
 | I28 | A consume digest is base58 that decodes to exactly 32 bytes; every gateway answer matches the shared `responses` vectors | `wire.ts` → `isTransactionDigest`; `src/responses.ts`, `redemption.ts` | `conformance.test.ts` (`txDigest`, `responses`); `router.test.ts` ("router answers the shared response vectors") | HOLDS (F58, 0.0.28) |
@@ -1673,7 +1673,7 @@ merged the Worker group on 2026-10-09 (`dd9b146`).
 | --- | --- | --- | --- | --- |
 | `@mysten/sui` | `^2.33.1` (2.36.0) | every gated request (gRPC) | clean | ADR-0001 baseline `^2.33.1`; single copy |
 | `@noble/curves` / `@noble/hashes` | `~2.4.0` (2.4.0) | signature verify path | clean | `zip215`, `lowS` options |
-| `@meddleware/nft-gate-client` | `^0.0.17` (0.0.17) | wire format, vectors | clean | first-party; exact resolution |
+| `@meddleware/access-gate-gateway-client` | `^0.0.17` (0.0.17) | wire format, vectors | clean | first-party; exact resolution |
 | `@meddleware/access-gate-client` | `^0.0.9` (0.0.9) | ownership mode | clean | usable passes only (F7) |
 | wrangler / workerd | `^4.143.0` (4.151.0 / 1.20260815.1) | deploy, test pool | clean | |
 | `@cloudflare/vitest-pool-workers` | `~0.23.0` (0.23.0) | CI tests | clean | |
@@ -1681,7 +1681,7 @@ merged the Worker group on 2026-10-09 (`dd9b146`).
 | `typescript` / `vitest` / `eslint` | `^6.0.0` (6.0.3) / `~4.1.11` (4.1.11) / `^10.11.0` (10.12.0) | dev | clean | TS 7 and vitest 5 declined by decision |
 | Sui fullnode `https://fullnode.testnet.sui.io:443` | public (Mysten) | gated — fails **closed** (502) | n/a | 15 s per-call deadline |
 | Upstream relay | `UPSTREAM_URL` (secret) | gated + public — 502/504 | n/a | Access-locked |
-| Cloudflare Access | application "Walrus relay origin (nft-gate Worker only)"; token `nft-gate-worker-relay-origin-v2`, expires 2027-09-09 | upstream reachability — fails **closed** | n/a | `docs/networking/CLOUDFLARE.md` §2.4 |
+| Cloudflare Access | application "Walrus relay origin (access-gate Worker only)"; token `access-gate-gateway-worker-relay-origin-v2`, expires 2027-09-09 | upstream reachability — fails **closed** | n/a | `docs/networking/CLOUDFLARE.md` §2.4 |
 | Cloudflare GraphQL Analytics | quota guard only (disabled) | none in the request path | n/a | 15 s timeout |
 
 **TS lens: shared-dependency matrix row (this repo).**
@@ -1703,13 +1703,13 @@ installed copy.
 
 | Authority / capability / secret | Where minted / held | Custody | Gates | Rotation plan |
 | --- | --- | --- | --- | --- |
-| npm publish `@meddleware/nft-gate-gateway` | `npm-publish.yml` (tag `v*`, `NPM_PUBLISH=true`) | GitHub OIDC → npm trusted publisher, `--provenance` | package releases | n/a (no token) |
+| npm publish `@meddleware/access-gate-gateway` | `npm-publish.yml` (tag `v*`, `NPM_PUBLISH=true`) | GitHub OIDC → npm trusted publisher, `--provenance` | package releases | n/a (no token) |
 | `CLOUDFLARE_API_TOKEN` | GitHub secret (`production` env) | GitHub | Worker code + secrets on the live route | target scope, expiry ≤ 1 year and rotation in `OPERATOR_TASKS.md` (OQ4); live scope unverified (F31) |
 | `UPSTREAM_AUTH_HEADERS` | GitHub secret (source of truth) → Worker secret | GitHub + Cloudflare | origin lock | token expires 2027-09-09; procedure in `CLOUDFLARE.md` §2.4 (F31) |
 | `UPSTREAM_URL` | Worker secret | Cloudflare | which origin is gated | n/a (not a credential) |
 | `SUI_RPC_AUTH_HEADER` (opt.) | Worker secret | Cloudflare | RPC quota | unrecorded; unused today |
 | `CF_ANALYTICS_TOKEN`, `CF_ACCOUNT_ID` (opt.) | Worker secrets | Cloudflare | quota guard | unused while disabled |
-| Route `sui-walrus-relay-testnet.meddleware.co.uk/*` | Cloudflare zone `meddleware.co.uk` | zone owner | which traffic hits the Worker | n/a |
+| Route `sui-walrus-storage-relay-testnet.meddleware.co.uk/*` | Cloudflare zone `meddleware.co.uk` | zone owner | which traffic hits the Worker | n/a |
 
 #### CI & release integrity
 
@@ -1730,7 +1730,7 @@ installed copy.
 
 | Item | State |
 | --- | --- |
-| Who can deploy | anyone who can run `workflow_dispatch` on `main` in `meddleware-org/nft-gate`, subject to the `production` environment (deployment branch policy `main` only, **verified 2026-10-09**; no required reviewers, admins may bypass); anyone holding `CLOUDFLARE_API_TOKEN` or Cloudflare dashboard access |
+| Who can deploy | anyone who can run `workflow_dispatch` on `main` in `meddleware-org/access-gate-gateway`, subject to the `production` environment (deployment branch policy `main` only, **verified 2026-10-09**; no required reviewers, admins may bypass); anyone holding `CLOUDFLARE_API_TOKEN` or Cloudflare dashboard access |
 | Who can `wrangler secret put` | the same token (the workflow uses `versions secret put`/`delete`) |
 | Token scopes | target recorded (Workers Scripts:Edit + Workers Routes:Edit on the one zone, expiry ≤ 1 year; OQ4); the live token is unverified (F31, operator) |
 | Deploy only after CI | Yes — `needs: ci` (`node-ci.yml`: audit, vectors check, type-check, lint, both test pools); `if: github.ref == 'refs/heads/main'` |
@@ -1745,7 +1745,7 @@ installed copy.
 | `gateway-workers/wrangler.toml:52` `NFT_TYPE` | testnet | `0xd7ddaa94b74330979b2b618fc81206d160a264f1c9ca148a77fa2144301388c9::access_gate::SoulboundAccessNFT` | original-id (= published-at, v1) | Y — `access-gate-sui/Published.toml` `[published.testnet]` version 1, 2026-10-09 |
 | `gateway-workers/wrangler.toml:56` `GATE_ID` | testnet | `0x316f1bf9764db352e925bb598aff44ea77be4ab652f0bd2eb3fdcc0a378faddc` | object | Y — read live 2026-10-09: an `0xd7ddaa94…::access_gate::Gate` (`default_uses` 10, not paused) |
 | `gateway-workers/vitest.config.ts:51` | test binding | same `NFT_TYPE` | original-id | Y |
-| Apps' `VITE_ACCESS_GATE_ID_TESTNET` (dashboard, token-deployer-ui; walrus-ui) | testnet | `0x316f1bf9…faddc` | object | Y for dashboard and token-deployer-ui (their audits, 2026-10-09); `post-bootstrap/walrus/README.md:47` records the gate; the walrus-ui build arg is not in its repo tree — must equal `GATE_ID` (`wrangler.toml` coupling note) |
+| Apps' `VITE_ACCESS_GATE_ID_TESTNET` (dashboard, token-issuance-ui; walrus-storage-ui) | testnet | `0x316f1bf9…faddc` | object | Y for dashboard and token-issuance-ui (their audits, 2026-10-09); `post-bootstrap/walrus-storage/README.md:47` records the gate; the walrus-storage-ui build arg is not in its repo tree — must equal `GATE_ID` (`wrangler.toml` coupling note) |
 
 ### B.SC-2 Coupling table
 
@@ -1763,8 +1763,8 @@ Rust column from `gateway-rust` 0.0.22 (its own audit is canonical for it). Thre
 
 | Behaviour | `gateway-workers` | `gateway-rust` | Shared vector / test |
 | --- | --- | --- | --- |
-| Personal message bytes (v2) | via nft-gate-client | `proof.rs` | `personalMessage` + rejects + `audienceMismatch` ✓ |
-| Proof decode (4096 B cap, ASCII, strict grammar, camelCase `consumeDigest`) | nft-gate-client `decodeAccessProof` | `proof.rs` | `proofDecode` + 27 rejects (base64/UTF-8/JSON layers included, F47) ✓ |
+| Personal message bytes (v2) | via access-gate-gateway-client | `proof.rs` | `personalMessage` + rejects + `audienceMismatch` ✓ |
+| Proof decode (4096 B cap, ASCII, strict grammar, camelCase `consumeDigest`) | access-gate-gateway-client `decodeAccessProof` | `proof.rs` | `proofDecode` + 27 rejects (base64/UTF-8/JSON layers included, F47) ✓ |
 | ed25519 (ZIP-215) | noble `zip215: true` | `ed25519-consensus` | `zip215` + non-canonical-s negative ✓ |
 | secp256k1 / r1 low-S | noble `lowS: true` | `normalize_s()` reject | high-S negatives ✓ |
 | Flags 0x03 / 0x05 / 0x06 | fail closed | fail closed | negatives ✓ |
@@ -1774,7 +1774,7 @@ Rust column from `gateway-rust` 0.0.22 (its own audit is canonical for it). Thre
 | Verification order | decode → sig → normalise → nonce → pause → consume/own | same | per-suite unit tests; no vector |
 | Status mapping | missing 401; ChainError 502; others 403; store 503 | same | the `responses` vectors (0.0.28, F58): sixteen outcomes with exact status and body, driven in core, this Worker and the Rust Worker harness ✓ |
 | Consume digest | base58 that decodes to exactly 32 bytes (`isTransactionDigest`, 0.0.28) | `is_tx_digest` (same rule) | `txDigest` vectors + digest `proofDecodeRejects` ✓ (F58) |
-| Redemption conflict | 409 with `code: redeemed \| leased` | 409 with `code` | router tests in both (Rust `router_tests.rs`, 0.0.22, gateway-rust F47); vocabulary `GATEWAY_CONFLICT_CODES` in nft-gate-client |
+| Redemption conflict | 409 with `code: redeemed \| leased` | 409 with `code` | router tests in both (Rust `router_tests.rs`, 0.0.22, gateway-rust F47); vocabulary `GATEWAY_CONFLICT_CODES` in access-gate-gateway-client |
 | Store error | 503 (`StoreError`) | 503 | router tests in both (gateway-rust F47, 0.0.22) |
 | Consume success check | `$kind === 'Transaction'` + `status.success` | effects status must be success (0.0.22, gateway-rust F21) | unit tests in both; router test in Rust |
 | Event type | exact normalised `<pkg>::access_gate::AccessConsumedEvent` | same | look-alike tests in both ✓ |
@@ -1804,9 +1804,9 @@ Rust column from `gateway-rust` 0.0.22 (its own audit is canonical for it). Thre
 
 | Format | Producer | Consumer | Test / vector |
 | --- | --- | --- | --- |
-| Access proof header for the gated relay | walrus-client `uploadRelayAuthToken` (nft-gate-client v2) | this gateway | `conformance/vectors.json` (published by nft-gate-client, `--check` in CI); paywall e2e PASS 2026-10-09 |
-| Redemption conflict `code` | this gateway (`redemption.ts`) | walrus-client resume (`code === 'redeemed'`, plus a regex fallback) | pinned by `redemption.test.ts` (`redeemed`, `leased`); vocabulary also exported as `GATEWAY_CONFLICT_CODES` by nft-gate-client, which this Worker does not import (S7) |
-| Body cap / 413 | this gateway | walrus-client / relay | `proxy.test.ts` |
+| Access proof header for the gated relay | walrus-storage-client `uploadRelayAuthToken` (access-gate-gateway-client v2) | this gateway | `conformance/vectors.json` (published by access-gate-gateway-client, `--check` in CI); paywall e2e PASS 2026-10-09 |
+| Redemption conflict `code` | this gateway (`redemption.ts`) | walrus-storage-client resume (`code === 'redeemed'`, plus a regex fallback) | pinned by `redemption.test.ts` (`redeemed`, `leased`); vocabulary also exported as `GATEWAY_CONFLICT_CODES` by access-gate-gateway-client, which this Worker does not import (S7) |
+| Body cap / 413 | this gateway | walrus-storage-client / relay | `proxy.test.ts` |
 
 ### B.PX-1 Route & header policy
 
@@ -1816,7 +1816,7 @@ Rust column from `gateway-rust` 0.0.22 (its own audit is canonical for it). Thre
 | `OPTIONS` (any path) | `OPTIONS` | none | answered locally, before config or auth | n/a | CORS grants | none |
 | `GET /v1/challenge` | `GET` | none; `chal:<ip>` 30/min | answered locally | n/a | `{ nonce, expiresAt }` | none |
 | `PUBLIC_PATHS` (`/v1/tip-config`) | `GET`, `HEAD` (else 405 + `allow`) | none; `ip:<ip>` 120/min | client fields minus the strip list, query dropped for GET; plus the injected Access headers | request: hop-by-hop, `Connection`-named, `host`, `authorization`, `x-access-proof`, `content-length`, `cookie`, `forwarded`, `via` (replaced by `Via: 1.1 nft-gate`, F43), `x-forwarded-*`, `x-real-ip`, `cf-access-*`; response: hop-by-hop, `Connection`-named, `content-length`, `set-cookie(2)`, `alt-svc`, `access-control-*` | all other upstream fields; gateway CORS added | edge cache, GET only, 60 s, key without query |
-| any path carrying `Via: … nft-gate` | any | refused `508 loop detected` before any work (after `/healthz` and the preflight) | not forwarded | n/a | `{ error }` + gateway CORS | none |
+| any path carrying `Via: … access-gate-gateway` | any | refused `508 loop detected` before any work (after `/healthz` and the preflight) | not forwarded | n/a | `{ error }` + gateway CORS | none |
 | every other path (gated) | `GET`, `HEAD`, `POST`, `PUT` (else 405 before verification) | access proof v2 + live chain read + redemption lease; `pre:<ip>` 120/min before verification, 30/min per address after | as above | as above | as above; 3xx → 502; non-2xx passes through (F44) | never cached |
 | unsafe path (`%2f`, `%5c`, `%00`, `%2e%2e`, `\`, control characters, `//`) | any | — | refused `400 invalid path` before the upstream URL is built | n/a | n/a | none |
 
@@ -1836,7 +1836,7 @@ Rust column from `gateway-rust` 0.0.22 (its own audit is canonical for it). Thre
 
 | Credential (name) | Type | Where held | Who can read | Rotation · last rotated | Compromise procedure |
 | --- | --- | --- | --- | --- | --- |
-| `UPSTREAM_AUTH_HEADERS` | CF Access service token (id + secret), `nft-gate-worker-relay-origin-v2` | GitHub secret → Worker secret | repo admins; Cloudflare account members | rotated 2026-10-01; **expires 2027-09-09**; no reminder yet | revoke the token in Zero Trust → create a new one → add it to the app policy → update the GitHub secret → run Deploy Workers → verify → revoke the old (`CLOUDFLARE.md` §2.4) |
+| `UPSTREAM_AUTH_HEADERS` | CF Access service token (id + secret), `access-gate-gateway-worker-relay-origin-v2` | GitHub secret → Worker secret | repo admins; Cloudflare account members | rotated 2026-10-01; **expires 2027-09-09**; no reminder yet | revoke the token in Zero Trust → create a new one → add it to the app policy → update the GitHub secret → run Deploy Workers → verify → revoke the old (`CLOUDFLARE.md` §2.4) |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token | GitHub `production` env secret | repo admins | expiry ≤ 1 year with a reminder a month ahead; procedure in `OPERATOR_TASKS.md` (OQ4); live expiry unverified (F31) | roll the token in the Cloudflare dashboard → update the secret |
 | `SUI_RPC_AUTH_HEADER` | bearer/API key | Worker secret | Cloudflare account members | unused today | rotate at the provider |
 | `CF_ANALYTICS_TOKEN` | Cloudflare API token (analytics read) | Worker secret | same | unused today | roll |
@@ -1845,14 +1845,14 @@ Rust column from `gateway-rust` 0.0.22 (its own audit is canonical for it). Thre
 
 | Client / relation | Type | Redirect URIs | Scopes / relations | Owner | Last reviewed |
 | --- | --- | --- | --- | --- | --- |
-| Relay Access application + service-token policy | CF Access service auth | n/a | allow: the gateway's service token only (`walrus-relay-origin.meddleware.co.uk`) | Meddleware (zone owner) | recorded in `CLOUDFLARE.md` §2.4; origin refused a direct request 2026-10-09 |
+| Relay Access application + service-token policy | CF Access service auth | n/a | allow: the gateway's service token only (`walrus-storage-relay-origin.meddleware.co.uk`) | Meddleware (zone owner) | recorded in `CLOUDFLARE.md` §2.4; origin refused a direct request 2026-10-09 |
 | Gate authorisation | on-chain rule | n/a | `SoulboundAccessNFT` of gate `0x316f1bf9…`; single-use consume | gate admin | 2026-10-09 (this audit) |
 
 ### B.AUTH-3 Protocol conformance
 
 | Protocol | Version | Deviations | Pinning test |
 | --- | --- | --- | --- |
-| nft-gate access proof v2 (`nft-gate:access:v2`) | nft-gate-client 0.0.17; root `CLAUDE.md`; `SECURITY.md` inv. 5 | none; v1 refused (no fallback) | `conformance.test.ts`, `verify.test.ts` "audience binding (protocol v2)" |
+| access-gate-gateway access proof v2 (`nft-gate:access:v2`) | access-gate-gateway-client 0.0.17; root `CLAUDE.md`; `SECURITY.md` inv. 5 | none; v1 refused (no fallback) | `conformance.test.ts`, `verify.test.ts` "audience binding (protocol v2)" |
 | HTTP bearer | RFC 6750 / RFC 9110 §11 | none (case-insensitive, any whitespace) | none |
 | Cloudflare Access service tokens | `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers | never sent on redirects (redirects not followed, F4); client `cf-access-*` fields stripped | `proxy.test.ts`; `check-upstream-auth.mjs` (shape + positive check) |
 
@@ -1944,10 +1944,10 @@ PROXY lens §C:
   sharp, undici; no lifecycle scripts in this package) — Scope, B.1
 - [x] shared-dependency matrix aligned with ADR-0001 — F33
 - [x] every test project runs in CI (unit + workerd; live is env-gated by design) — F41
-- [x] consumed IDs verified as the latest version — B.SC-1 (gate read live 2026-10-09; the walrus-ui
-  build arg is recorded only in `post-bootstrap/walrus/README.md`)
+- [x] consumed IDs verified as the latest version — B.SC-1 (gate read live 2026-10-09; the walrus-storage-ui
+  build arg is recorded only in `post-bootstrap/walrus-storage/README.md`)
 - [x] parity vectors cover all decision-affecting behaviour — vectors with negatives per audience field
-  from nft-gate-client; since 0.0.28 also the status and body per outcome (`responses`) and the exact-length digest rule (`txDigest`) (F58); the remaining unshared rows in B.SC-3 are covered by per-suite unit tests (S1)
+  from access-gate-gateway-client; since 0.0.28 also the status and body per outcome (`responses`) and the exact-length digest rule (`txDigest`) (F58); the remaining unshared rows in B.SC-3 are covered by per-suite unit tests (S1)
 - [x] `SECURITY.md` present — root; invariants 4–7 describe the current behaviour
 - [x] B.AUTH-1 inventory complete; Access token expiry tracked — F31 (inventory and expiry date in
   `CLOUDFLARE.md`; API-token scopes remain the maintainer's, pre-mainnet below)
@@ -1979,7 +1979,7 @@ PROXY lens §C:
   base64 through binary strings (`charCodeAt`/`fromCharCode`), which is correct for arbitrary bytes.
   Invalid base64 throws and is caught (`verify.ts` → bad signature; token decode → `BadProof`),
   and the proof's fields are ASCII-checked
-  (nft-gate-client `isAscii`).
+  (access-gate-gateway-client `isAscii`).
 - [x] no `any`/`as`/`!` at trust boundaries without justification — gRPC JSON is cast to
   `Record<string, Json>` and then field-checked; `@ts-expect-error` on `duplex` (comment stale, F21)
 - [x] the negative origin check runs on a schedule — F32 / OQ10 (`origin-lock.yml`, daily; the
@@ -2004,7 +2004,7 @@ PROXY lens §C:
     are recorded (OQ4), the live token is unverified (F31).
   - The dev-tool CVE pins in `overrides` are recorded in B.1.
 - **Wire-format coupling & conformance vectors:**
-  - The format is defined in `@meddleware/nft-gate-client`, which this Worker **imports** (zero drift
+  - The format is defined in `@meddleware/access-gate-gateway-client`, which this Worker **imports** (zero drift
     on the client side) and which also publishes the vectors (`sync-vectors --check` in CI).
   - The Rust gateway re-implements it; drift is caught by `conformance/vectors.json`.
   - Gaps: header extraction, status mapping and the conflict body are covered by per-suite tests, not
@@ -2016,7 +2016,7 @@ PROXY lens §C:
   (F11 post-cutover CPU re-read, F31 live token scope).
 - **Chain-access layering & on-chain ID/ABI coupling:**
   - It conforms to ADR-0001: ownership parsing comes from `@meddleware/access-gate-client` and the
-    wire format from `@meddleware/nft-gate-client`.
+    wire format from `@meddleware/access-gate-gateway-client`.
   - Gateway-specific reads (`getTransaction` consume check, gate pause read) live in `chain.ts`.
     These are candidates to move into access-gate-client (`consumeTxValid`, `gateBlocksAccess`) so
     the Rust gateway's vectors and the TS client share one reference (Suggestion S4).
@@ -2099,7 +2099,7 @@ SUI_CLIENT lens:
 | SC-M6 | holds | F39 |
 | SC-M7 | holds (success, exact type, sender, gate, age; nonce replaced by the redemption store and the signed digest) | F23, F1 |
 | SC-M8, SC-M9 | N/A | |
-| SC-M10 | holds (uses access-gate-client and nft-gate-client) | S4 |
+| SC-M10 | holds (uses access-gate-client and access-gate-gateway-client) | S4 |
 
 WALRUS lens:
 
@@ -2137,7 +2137,7 @@ PROXY lens:
 ## Implementation suggestions (SHOULD / MAY)
 
 - **S1** SHOULD add a `redirectPolicy`, `timeouts`, `headerExtraction` and `redemptionConflict`
-  section to the shared vectors (published by nft-gate-client), so B.SC-3's remaining unshared rows
+  section to the shared vectors (published by access-gate-gateway-client), so B.SC-3's remaining unshared rows
   become test failures. The audience cases are already shared.
 - **S2** SHOULD emit structured logs (or Analytics Engine data points) per denial reason, 409 code,
   commit failure and upstream status, without proofs. This helps detect abuse.
@@ -2148,8 +2148,8 @@ PROXY lens:
 - **S5** MAY add Cloudflare WAF rate-limiting rules on the route as a coarse layer under F9 (plan
   quota permitting).
 - **S6** SHOULD bump `compatibility_date` regularly (F27), tied to the wrangler upgrade cadence.
-- **S7** SHOULD import `GATEWAY_CONFLICT_CODES` / `GATEWAY_STATUS` from nft-gate-client in the Worker
-  and assert the emitted codes against them, so the 409 vocabulary cannot drift from what walrus-client
+- **S7** SHOULD import `GATEWAY_CONFLICT_CODES` / `GATEWAY_STATUS` from access-gate-gateway-client in the Worker
+  and assert the emitted codes against them, so the 409 vocabulary cannot drift from what walrus-storage-client
   parses (B.WAL-1).
 - **S8** *(done 2026-10-10)* the negative origin check runs on a schedule (F32, `origin-lock.yml`) and
   the missing tests of F30 exist (public-path rate limit, gated non-caching, router-level 503, IPv6 /64).
@@ -2261,7 +2261,7 @@ PROXY lens:
 
 ## Re-verification log
 
-- 2026-10-03 — First-pass baseline at nft-gate `db01d3e` (npm 0.0.17).
+- 2026-10-03 — First-pass baseline at access-gate-gateway `db01d3e` (npm 0.0.17).
   - Measured: vitest 112 tests (109 passed, 3 skipped; gRPC integration env-gated); tsc and eslint
     clean; `npm audit` 0 vulnerabilities; `npm pack --dry-run` 19 files.
   - The live gRPC test could not run from the review sandbox (egress denied).
@@ -2296,7 +2296,7 @@ PROXY lens:
     environment (branch policy `main`, no reviewers) and the Deploy Workers runs (all of 2026-10-09
     succeeded).
   - Maintainer decisions recorded: access message v2; ownership counts only usable passes; GatePolicy
-    and pass kind immutable; vectors published by nft-gate-client; repo-local audit canonical. OQ3, OQ4
+    and pass kind immutable; vectors published by access-gate-gateway-client; repo-local audit canonical. OQ3, OQ4
     and the scheduling half of OQ10 stay open (Cloudflare plan, deploy reviewers and token scopes,
     scheduled negative origin check, external review, mainnet publication). *(The scheduled check was
     added 2026-10-10; see the last log entry.)*
@@ -2305,7 +2305,7 @@ PROXY lens:
 - 2026-10-10 — Fix wave on `main` `9e33df6` (unreleased, no version bump here; commit `ec91935`).
   - Fixed: F32 (RESOLVED: `origin-lock.yml` + `check-origin-locked.mjs`, daily, secret-free), F21
     (RESOLVED: comments and dead `nonceMatches`), F30 (RESOLVED: five missing tests,
-    `gateway-state.test.ts`) and new F47 (RESOLVED: nft-gate-client 0.0.17 strict proof decoding, 27
+    `gateway-state.test.ts`) and new F47 (RESOLVED: access-gate-gateway-client 0.0.17 strict proof decoding, 27
     shared reject vectors green in Node and workerd).
   - Left open by decision: F11 (Cloudflare plan, OQ3 — maintainer), F16 and F31 (reviewers, API-token
     scopes, token-expiry reminder — maintainer), F29 (the `unknown` bucket stays by design), F43 (no
@@ -2321,8 +2321,8 @@ PROXY lens:
   - Live, read-only: `check-origin-locked.mjs` against the relay origin: three probes, all 401 from
     Access. Not run: the GitHub workflow itself (nothing is pushed); the Worker is not deployed.
   - OQ10 scheduling decided (daily, separate workflow). OQ3 and OQ4 stay open.
-- 2026-10-18 — released (0.0.22), deployed, consumers bumped (the Worker's own `@meddleware/nft-gate-client` is `^0.0.17`;
-  `@meddleware/access-gate-client` stays `^0.0.6`, lockfile 0.0.6). `npm view @meddleware/nft-gate-gateway` shows 0.0.22 as `latest`,
+- 2026-10-18 — released (0.0.22), deployed, consumers bumped (the Worker's own `@meddleware/access-gate-gateway-client` is `^0.0.17`;
+  `@meddleware/access-gate-client` stays `^0.0.6`, lockfile 0.0.6). `npm view @meddleware/access-gate-gateway` shows 0.0.22 as `latest`,
   published 2026-10-10T18:49Z, with SLSA v1 provenance (`dist.attestations`); tag `v0.0.22` = `3189969`; the crate (crates.io
   default version 0.0.22) and the `gateway-rust` image were published by the same tag. The Worker was deployed from `3189969`
   on 2026-10-10 (`Deploy Workers` run 38077732841, success) and checked live: a canonical token decodes; unpadded and whitespace
@@ -2330,7 +2330,7 @@ PROXY lens:
   38077866216) and daily since. The "Not run" items of the 2026-10-10 entry (the workflow run, the deployment) are done. Section
   D: the F32 box was already ticked and now cites the runs; the two unticked boxes (mainnet `access_gate`, external review)
   are unchanged.
-- 2026-10-19 — release status re-verified: **0.0.23 released** (tag `v0.0.23` = `31c0f15`; npm `@meddleware/nft-gate-gateway` 0.0.23 with SLSA v1
+- 2026-10-19 — release status re-verified: **0.0.23 released** (tag `v0.0.23` = `31c0f15`; npm `@meddleware/access-gate-gateway` 0.0.23 with SLSA v1
   provenance, crate 0.0.23 not yanked, image `0.0.23` index `sha256:0d0be82a…535a` from the quay API; Trivy-before-sign passed in the Docker run) and the
   **Worker redeployed from `main`** (`Deploy Workers` run 39185110276, success; `/v1/challenge` and `/v1/tip-config` answer 200).
   - **Contents:** `@meddleware/access-gate-client` `^0.0.9` (was `^0.0.6`); dependency groups: `@mysten/sui` 2.36.0, wrangler 4.151.0,
@@ -2370,7 +2370,7 @@ PROXY lens:
   - Not run: the Worker on the edge (deploy is the maintainer's), the quota guard against the live GraphQL API, `wrangler deploy --dry-run`.
 
 - 2026-10-19 (Part E, 0.0.26) — Replacement by the Rust Worker: note only (in progress).
-  - No change to this Worker's code. The version moves to 0.0.26 with the Cargo workspace (D16). The decision logic was extracted into `nft-gate-core` and `gateway-rust`
+  - No change to this Worker's code. The version moves to 0.0.26 with the Cargo workspace (D16). The decision logic was extracted into `access-gate-gateway-core` and `gateway-rust`
     runs on it (`gateway-rust` audit F49, F50); the Rust Worker adapter, a shadow deploy and the CPU p99 cutover gate are next (the maintainer deploys). This Worker stays live as the rollback.
   - The shared single implementation refuses a literal `..` path segment; `isSafePath` here lacks it (not exploitable on Workers, whose URL parser normalises dot segments first). Left as is: it retires with this Worker.
     Where the Rust and TypeScript configuration rules differed the stricter rule is the shared one (`core/README.md`), so `config.ts` is now the looser of the two until it retires
@@ -2386,7 +2386,7 @@ PROXY lens:
   - Not run: the shadow deploy, Workers analytics (CPU percentiles), the cutover, `deploy-worker-rust.yml` itself (the maintainer runs it), a Docker build of `gateway-rust` (the context was reproduced and `cargo check` run in it).
 
 - 2026-10-22 (0.0.28, committed locally, unreleased, not deployed) — F58: the exact-length digest rule and the shared `responses` vectors.
-  - **Done:** `package.json` depends on `@meddleware/nft-gate-client` `^0.0.18` (the lockfile entry is regenerated with `npm install` once 0.0.18 is published, until then `npm ci` fails by design);
+  - **Done:** `package.json` depends on `@meddleware/access-gate-gateway-client` `^0.0.18` (the lockfile entry is regenerated with `npm install` once 0.0.18 is published, until then `npm ci` fails by design);
     `src/responses.ts` extracted from `index.ts` and `redemption.ts` (behaviour unchanged); conformance tests for `txDigest` and `responses`; router test for the four request-reachable outcomes; `conformance/vectors.json` is the 0.0.18 file.
   - **Measured 2026-10-22 (Node 26.12.0, against a local pack of the 0.0.18 client installed in `node_modules`, not the registry):** `tsc --noEmit` and `eslint .` clean; `vitest run` 305 tests (302 passed, 3 skipped; 251 before); `npm audit --audit-level=high` 0;
     `scripts/check-versions.sh` passes (0.0.28); `sync-vectors.mjs --check` passes against the local pack.

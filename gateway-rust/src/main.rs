@@ -1,9 +1,9 @@
-//! Generic NFT-gated reverse proxy binary: the hyper/axum/tokio/Redis adapter around `nft-gate-core`.
+//! Generic NFT-gated reverse proxy binary: the hyper/axum/tokio/Redis adapter around `access-gate-gateway-core`.
 #![forbid(unsafe_code)]
 //!
-//! Everything the gateway decides and does lives in `nft-gate-core` (shared with the Cloudflare
+//! Everything the gateway decides and does lives in `access-gate-gateway-core` (shared with the Cloudflare
 //! Worker): the proof, the signature schemes, the decision, the Sui reads, the state machines, the
-//! header / path / config policy and the request orchestration (`nft_gate_core::gateway`). This crate
+//! header / path / config policy and the request orchestration (`access_gate_gateway_core::gateway`). This crate
 //! supplies only I/O: the TCP server and its limits, the hyper HTTP client, Redis, the system clock and
 //! entropy, and the mapping between axum types and the core's [`RequestHead`] / [`Reply`].
 //!
@@ -51,10 +51,10 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
-use nft_gate_core::gateway::{Gateway, JsonReply, Reply, RequestHead};
-use nft_gate_core::headers::{cors_allowed_origin, CORS_GRANTS};
-use nft_gate_core::net::client_ip;
-use nft_gate_core::state::{MemoryRates, RateBudgets};
+use access_gate_gateway_core::gateway::{Gateway, JsonReply, Reply, RequestHead};
+use access_gate_gateway_core::headers::{cors_allowed_origin, CORS_GRANTS};
+use access_gate_gateway_core::net::client_ip;
+use access_gate_gateway_core::state::{MemoryRates, RateBudgets};
 use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -179,7 +179,7 @@ async fn handle(State(app): State<Arc<AppState>>, req: Request) -> Response {
 
 /// CORS as the Workers gateway does it: a preflight is answered here, before rate limits and auth;
 /// every response (errors included) carries the grants and `Vary: Origin`; the request `Origin` is
-/// reflected only on an exact `ALLOWED_ORIGINS` match (`nft_gate_core::headers`) — otherwise no
+/// reflected only on an exact `ALLOWED_ORIGINS` match (`access_gate_gateway_core::headers`) — otherwise no
 /// `Access-Control-Allow-Origin`.
 async fn cors(State(state): State<Arc<AppState>>, req: Request, next: Next) -> Response {
     let allowed = req
@@ -249,7 +249,7 @@ async fn main() -> anyhow::Result<()> {
     let cfg = ServerConfig::from_env()?;
     let g = &cfg.gateway;
     // The upstream URL is deliberately not logged: it is the private origin (audit F26).
-    tracing::info!(?cfg.bind_addr, nft_type = %g.nft_type, single_use = g.single_use, "starting nft-gate-gateway");
+    tracing::info!(?cfg.bind_addr, nft_type = %g.nft_type, single_use = g.single_use, "starting access-gate-gateway");
 
     let http = HttpClient::new()?;
     let chain = sui_rpc::new_sui_rpc(

@@ -1,4 +1,4 @@
-//! The nft-gate gateway as a Cloudflare Worker: an I/O adapter on `nft-gate-core`.
+//! The access-gate gateway as a Cloudflare Worker: an I/O adapter on `access-gate-gateway-core`.
 //!
 //! Everything the gateway decides is the core's (`Gateway::handle`, the proof and signature checks, the
 //! Sui reads, the header / path / config policy, the quota maths). This crate supplies only what a
@@ -42,11 +42,11 @@ mod upstream;
 pub use do_state::NonceRateState;
 
 use config::WorkerConfig;
-use nft_gate_core::chain::SuiRpc;
-use nft_gate_core::config::Env as CoreEnv;
-use nft_gate_core::gateway::{Gateway, JsonReply, Reply, RequestHead};
-use nft_gate_core::headers::{cors_allowed_origin, via_is_looped};
-use nft_gate_core::net::rate_key;
+use access_gate_gateway_core::chain::SuiRpc;
+use access_gate_gateway_core::config::Env as CoreEnv;
+use access_gate_gateway_core::gateway::{Gateway, JsonReply, Reply, RequestHead};
+use access_gate_gateway_core::headers::{cors_allowed_origin, via_is_looped};
+use access_gate_gateway_core::net::rate_key;
 use out::{finish, Out};
 use state::{Budgets, DoState};
 use std::cell::RefCell;

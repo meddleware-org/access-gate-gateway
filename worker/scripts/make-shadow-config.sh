@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 name="${1:?worker name}"
 origin="${2:?gateway origin (https://host)}"
-live=nft-gate-gateway
+live=access-gate-gateway
 [[ "$name" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || { echo "invalid worker name: $name" >&2; exit 1; }
 [ "$name" != "$live" ] || { echo "the shadow must not use the live Worker's name ($live)" >&2; exit 1; }
 [[ "$origin" =~ ^https://[a-z0-9.-]+(:[0-9]+)?$ ]] || { echo "gateway origin must be a canonical https origin: $origin" >&2; exit 1; }

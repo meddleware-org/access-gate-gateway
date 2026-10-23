@@ -24,8 +24,8 @@ pub const HOP_BY_HOP: [&str; 9] = [
 pub const VIA_TOKEN: &str = "1.1 nft-gate";
 
 /// True if a `Via` header value (all `Via` fields joined with `,`) already carries this gateway's own
-/// received-by name `nft-gate` (case-insensitive). Each comma-separated entry is
-/// `protocol received-by [comment]`; a comment is not examined, so `1.1 google (nft-gate)` is foreign.
+/// received-by name `access-gate-gateway` (case-insensitive). Each comma-separated entry is
+/// `protocol received-by [comment]`; a comment is not examined, so `1.1 google (access-gate-gateway)` is foreign.
 /// Foreign names (a CDN's `1.1 google`) pass.
 pub fn via_is_looped(via: &str) -> bool {
     via.split(',').any(|entry| {
@@ -154,7 +154,7 @@ mod tests {
         ("1.1 nft-gate, 1.1 google", true),
         ("1.1 google", false),
         ("1.1 varnish (Varnish/6.0)", false),
-        ("1.1 google (nft-gate)", false),
+        ("1.1 google (access-gate-gateway)", false),
         ("1.1 nft-gateway", false),
         ("1.1 my-nft-gate", false),
         ("nft-gate", false),

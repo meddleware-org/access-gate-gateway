@@ -1,7 +1,7 @@
 /**
- * CORS utilities for the nft-gate Cloudflare Worker.
+ * CORS utilities for the access-gate-gateway Cloudflare Worker.
  *
- * The Worker is accessed from browser origins (e.g. sui-walrus.meddleware.co.uk) that differ from
+ * The Worker is accessed from browser origins (e.g. sui-walrus-storage.meddleware.co.uk) that differ from
  * the Worker's own hostname. Without Access-Control-Allow-Origin headers the browser blocks the response even when
  * the Worker returns 200, and OPTIONS preflights (required before non-simple requests
  * such as PUT uploads with an Authorization header) receive no preflight grant.

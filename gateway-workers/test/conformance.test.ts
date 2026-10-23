@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import vectors from '../../conformance/vectors.json'
-import published from '@meddleware/nft-gate-client/vectors.json'
+import published from '@meddleware/access-gate-gateway-client/vectors.json'
 import { secp256k1 } from '@noble/curves/secp256k1.js'
 import { p256 } from '@noble/curves/nist.js'
 import { verifyPersonalMessageSignature, normalizeAddress, signingDigest, verifyAccessRequest, type ChainQuery } from '../src/verify.js'
@@ -12,7 +12,7 @@ import type { Config } from '../src/config.js'
 import type { CommitResult, LeaseResult, NonceBackend, RedemptionStore } from '../src/state/types.js'
 
 // The SAME fixtures the Rust gateway verifies (gateway-rust `conformance_shared_vectors`), generated
-// and published by @meddleware/nft-gate-client. Drift on either side fails a test.
+// and published by @meddleware/access-gate-gateway-client. Drift on either side fails a test.
 type Ctx = Parameters<typeof personalMessage>[0]
 const msg = (c: unknown) => personalMessage(c as Ctx)
 

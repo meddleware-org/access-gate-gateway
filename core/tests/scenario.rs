@@ -1,7 +1,7 @@
 //! Runs `tests/scenario.json` against the pure state machines. The same file is run against the real
 //! SQLite Durable Object under workerd by `scripts/differential.mjs`, so the DO's SQL and the core's
 //! rules cannot drift apart unnoticed.
-use nft_gate_core::redemption::{Commit, Lease, NonceTable, RateTable, RedemptionTable};
+use access_gate_gateway_core::redemption::{Commit, Lease, NonceTable, RateTable, RedemptionTable};
 use std::collections::HashMap;
 
 const SCENARIO: &str = include_str!("scenario.json");

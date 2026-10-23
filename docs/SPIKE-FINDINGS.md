@@ -1,4 +1,4 @@
-# Findings — nft-gate Worker in Rust (workers-rs), 2026-10-19
+# Findings — access-gate Worker in Rust (workers-rs), 2026-10-19
 
 > **Historical (kept for the measurements).** The spike was promoted to the production crate [`../worker`](../worker/) in 0.0.27 and the spike directory was removed; the decisions asked for
 > below were taken (generated wasm-bindgen glue accepted, KV backend dropped, black-box Node/TS test harnesses allowed as test code, CPU-p99 cutover gate kept). Current numbers are in [`../worker/README.md`](../worker/README.md).
@@ -31,7 +31,7 @@ blake2 0.11 (same as gateway-rust).
 
 ## Shared core
 
-`core/` (`nft-gate-core`) is pure (no hyper, tokio, clock, RNG or logging), compiles for the host and wasm32
+`core/` (`access-gate-gateway-core`) is pure (no hyper, tokio, clock, RNG or logging), compiles for the host and wasm32
 (87 normal dependency crates, one target-gated `getrandom/js` line) and holds proof, signature, decision, gRPC-web
 codec + `Transport` trait, chain reads, redemption/nonce/rate tables, header policy and origin check. 42 tests pass.
 `gateway-rust-on-core.patch` (−1,639 / +104 lines) applied to a scratch copy of gateway-rust: 99 passed, 3 ignored

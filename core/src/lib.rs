@@ -1,4 +1,4 @@
-//! `nft-gate-core`: the one implementation of what an nft-gate gateway decides and does.
+//! `access-gate-gateway-core`: the one implementation of what an access-gate gateway decides and does.
 //!
 //! Everything platform-neutral lives here, once: the access-proof wire format ([`proof`]), Sui
 //! signature verification ([`sig`]), the allow/deny decision ([`decision`]), the gRPC-web codec and Sui

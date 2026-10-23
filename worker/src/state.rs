@@ -7,8 +7,8 @@
 //! `ip:<ip>`, `pre:<ip>` and the bare address; redemptions all go to the fixed shard `redeem`.
 
 use crate::region::{instance_name, shard_of_nonce, REDEEM_SHARD};
-use nft_gate_core::redemption::{Commit, Lease};
-use nft_gate_core::state::{RateScope, StateStore};
+use access_gate_gateway_core::redemption::{Commit, Lease};
+use access_gate_gateway_core::state::{RateScope, StateStore};
 use serde::Deserialize;
 use worker::{ObjectNamespace, Stub, Url};
 

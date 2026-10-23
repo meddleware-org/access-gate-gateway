@@ -10,8 +10,8 @@
 // the point of it, and none of this is compiled into the deployed Worker.
 #![allow(clippy::panic, clippy::indexing_slicing)]
 
-use nft_gate_core::proof::{personal_message, MessageContext};
-use nft_gate_core::sig::verify_personal_message_signature;
+use access_gate_gateway_core::proof::{personal_message, MessageContext};
+use access_gate_gateway_core::sig::verify_personal_message_signature;
 use wasm_bindgen::JsCast;
 use worker::*;
 

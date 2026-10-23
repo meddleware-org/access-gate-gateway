@@ -1,15 +1,15 @@
-# worker — the nft-gate gateway as a Cloudflare Worker, in Rust
+# worker — the access-gate gateway as a Cloudflare Worker, in Rust
 
 **Status (0.0.29, 2026-10-22): built and tested; the shadow deploy has not been made.** This crate replaces the
 TypeScript Worker ([`../gateway-workers`](../gateway-workers/), still the live deployment and the rollback) 1:1,
 under the maintainer's standing rule of no JS/TS backend code. All decisions are the shared
-[`nft-gate-core`](../core/); this crate supplies only I/O: Durable Object state, a streamed `fetch` upstream, the
+[`access-gate-gateway-core`](../core/); this crate supplies only I/O: Durable Object state, a streamed `fetch` upstream, the
 gRPC-web `Transport` over `fetch`, CORS and the `scheduled` quota guard. Nothing is deployed by this repository's CI
 except through the manual workflow `deploy-worker-rust.yml` (shadow first, then cutover; the maintainer runs it).
 
 ```text
 worker/
-  Cargo.toml          nft-gate-worker (cdylib + rlib), rust-version 1.91 (this crate only; core and gateway-rust stay at 1.88)
+  Cargo.toml          access-gate-gateway-worker (cdylib + rlib), rust-version 1.91 (this crate only; core and gateway-rust stay at 1.88)
   wrangler.toml       cloned from gateway-workers/wrangler.toml: same name, vars, DO class NonceRateState, migration tag v1, route
   src/
     lib.rs            fetch / scheduled entry points; /healthz, CORS preflight and the 508 guard around the core
@@ -22,7 +22,7 @@ worker/
     hooks.rs          feature `test-hooks` only: /__test/* routes for the suites (never in the deployed build)
   tests/              black-box suites (Node test runner) against the BUILT wasm under wrangler dev / workerd
   scripts/            build.sh, fetch-build-tools.sh, size-gate.sh, lint-canary.sh, make-shadow-config.sh, coldstart.mjs (+ cpu-node*)
-../ci/                nft-gate-ci: UPSTREAM_AUTH_HEADERS check and origin-lock verdicts for the workflows (replaces two TypeScript scripts)
+../ci/                access-gate-gateway-ci: UPSTREAM_AUTH_HEADERS check and origin-lock verdicts for the workflows (replaces two TypeScript scripts)
 ```
 
 ## Build and test
@@ -36,7 +36,7 @@ bash scripts/build.sh all                                 # build/ (deployed var
 bash scripts/size-gate.sh                                 # wrangler deploy --dry-run; fails above 1.5 MiB gzip
 npm test                                                  # every workerd suite (the differential run is separate)
 npm run test:diff                                         # only the differential run (needs `npm ci` in ../gateway-workers)
-cargo test --locked -p nft-gate-worker -p nft-gate-ci     # native unit tests of the glue and the CI helper
+cargo test --locked -p access-gate-gateway-worker -p access-gate-gateway-ci     # native unit tests of the glue and the CI helper
 bash scripts/lint-canary.sh                               # proves the panic lints are live
 ```
 
@@ -93,29 +93,29 @@ upstream receives.
 
 The maintainer runs these; nothing here deploys by itself.
 
-1. **Shadow deploy.** Actions → "Deploy Worker (Rust)" → `mode=shadow`, `worker_name` (default `nft-gate-gateway-shadow`), `gateway_origin` =
-   the shadow's own https origin, e.g. `https://nft-gate-gateway-shadow.<account>.workers.dev` (enable the account's workers.dev subdomain first;
+1. **Shadow deploy.** Actions → "Deploy Worker (Rust)" → `mode=shadow`, `worker_name` (default `access-gate-gateway-shadow`), `gateway_origin` =
+   the shadow's own https origin, e.g. `https://access-gate-gateway-shadow.<account>.workers.dev` (enable the account's workers.dev subdomain first;
    the origin is signed into proofs, so it must be exactly what clients use). The job re-runs the full Rust CI, builds with `worker-build`, derives a
    config with `scripts/make-shadow-config.sh` (new script name = a new, empty Durable Object namespace; workers.dev instead of the route;
    `GATEWAY_ORIGIN` overridden), deploys it, and sets the secrets: GitHub secret `UPSTREAM_URL` (required for a shadow), and `UPSTREAM_AUTH_HEADERS`
    / `SUI_RPC_AUTH_HEADER` when set. The shadow forwards to the real relay origin with the real service token, so a shadow upload is a real upload.
    *Limits of workers.dev:* the Cache API stores nothing on a workers.dev address, so the public-path edge cache is not exercised by the shadow
    (the differential and `router.test.mjs` cover it); WAF/rate rules of the zone do not apply.
-2. **Exercise it.** `cd integrations/paywall && node run.mjs --relay https://nft-gate-gateway-shadow.<account>.workers.dev` (the harness signs
+2. **Exercise it.** `cd integrations/paywall && node run.mjs --relay https://access-gate-gateway-shadow.<account>.workers.dev` (the harness signs
    for that origin, buys a pass, consumes it, uploads through the shadow, checks replay/decoder negatives). One run proves behaviour on the real
    chain; real traffic needs a client pointed at the shadow (the apps' relay host variable) or a mirror, at the maintainer's discretion.
 3. **CPU gate.** Workers analytics → the shadow Worker → CPU time: **p99 ≤ 5 ms and p99.9 ≤ 10 ms over a week of real traffic on Free** (the Free
    limit is 10 ms per request; 5 ms leaves headroom). Local numbers cannot answer this: workerd exposes no CPU clock, and whether the platform
    charges wasm instantiation to the first request can only be read from a deployment. If the gate fails: do not cut over; options are
    `opt-level` variants (`scripts/size-variants.sh`), a smaller bundle, or Workers Paid (`[limits] cpu_ms`, see `gateway-workers/README.md`).
-4. **Cutover.** Actions → "Deploy Worker (Rust)" → `mode=cutover`, `confirm=cutover`. It deploys over `nft-gate-gateway` with the same name, class
+4. **Cutover.** Actions → "Deploy Worker (Rust)" → `mode=cutover`, `confirm=cutover`. It deploys over `access-gate-gateway` with the same name, class
    and migration tag, so nonces, rate windows and the 30-day redemption records are kept; the secret flow is the one of `deploy-workers.yml`
    (versions upload → secret put → versions deploy when `UPSTREAM_AUTH_HEADERS` is a GitHub secret). Run `integrations/paywall` against the live
    origin immediately after.
 5. **Rollback.** Re-run `deploy-workers.yml` (TypeScript) at the last TypeScript tag (0.0.26 is the last release that deploys it; 0.0.27 still contains `gateway-workers`). The DO schema is shared, so state
    survives in both directions. Keep the tag until step 6.
 6. **Retire `gateway-workers`.** After a clean week on the Rust Worker: delete `gateway-workers/`, `deploy-workers.yml`, `node-ci.yml`'s Workers
-   job and the npm publish of `@meddleware/nft-gate-gateway` (decide whether the npm package should live on as a wrangler-template wrapper),
+   job and the npm publish of `@meddleware/access-gate-gateway` (decide whether the npm package should live on as a wrangler-template wrapper),
    move `worker/package.json`'s tooling to wherever the maintainer prefers, and drop `spike`/`gateway-workers` mentions from the docs.
    The differential suite goes with it (it needs the TypeScript Worker); the other suites stay.
 

@@ -12,8 +12,8 @@ use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
-use nft_gate_core::proof::{personal_message, MessageContext};
-use nft_gate_core::sig::{derive_address, normalize_address, signing_digest, FLAG_ED25519};
+use access_gate_gateway_core::proof::{personal_message, MessageContext};
+use access_gate_gateway_core::sig::{derive_address, normalize_address, signing_digest, FLAG_ED25519};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 

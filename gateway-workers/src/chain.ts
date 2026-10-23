@@ -3,7 +3,7 @@
  *
  * Public Sui fullnodes have deprecated JSON-RPC (`suix_queryEvents`, `sui_getTransactionBlock`,
  * `suix_getOwnedObjects` now return `-32601 Method not found`), so the gateway queries the chain
- * over gRPC — the same transport `@meddleware/walrus-client` and `@meddleware/access-gate-client`
+ * over gRPC — the same transport `@meddleware/walrus-storage-client` and `@meddleware/access-gate-client`
  * already use. The pure match/parse helpers are exported for unit tests; the gRPC round-trips are
  * covered by the localnet/integration loop.
  *

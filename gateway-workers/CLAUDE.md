@@ -2,13 +2,13 @@
 
 ## Status: superseded, pending cutover (0.0.27)
 
-Replaced 1:1 by the Rust Worker `../worker` (workers-rs on `nft-gate-core`), which is built and tested but not yet deployed; this package is the live deployment and the
+Replaced 1:1 by the Rust Worker `../worker` (workers-rs on `access-gate-gateway-core`), which is built and tested but not yet deployed; this package is the live deployment and the
 rollback until the maintainer's shadow deploy, CPU-time gate and cutover (`../worker/README.md` "Runbook"), then it is retired. Do not add features here. A behavioural change goes
 in the core and the Rust Worker; `../worker/tests/differential.diff.mjs` fails when this Worker and the Rust Worker diverge, so a change made here alone is caught.
 
 ## What this package is
 
-The Cloudflare Workers implementation of the nft-gate gateway. Wire-identical to `gateway-rust/`
+The Cloudflare Workers implementation of the access-gate gateway. Wire-identical to `gateway-rust/`
 on the client-facing contract — same routes, status codes, proof format, and env-var config.
 Deployed via Wrangler; state backed by Durable Objects (default) or Workers KV (fallback).
 
@@ -142,7 +142,7 @@ limits) but never loses a paid use; the alternative of keeping the lease and ret
 the background could lose it. Same in `gateway-rust`.
 
 Loop marker (F43): `upstreamRequestHeaders` sets `Via: 1.1 nft-gate` after dropping the client's;
-`handle` answers `508 loop detected` to a request whose `Via` already names `nft-gate` (after
+`handle` answers `508 loop detected` to a request whose `Via` already names `access-gate-gateway` (after
 `/healthz` and the CORS preflight, before any state work). Foreign values pass. Parity table:
 `VIA_TABLE` in `test/proxy.test.ts` = `via_loop_table` in `core/src/headers.rs`.
 
@@ -152,8 +152,8 @@ Loop marker (F43): `upstreamRequestHeaders` sets `Via: 1.1 nft-gate` after dropp
 npm run test:unit           # local vitest unit tests (including conformance vectors)
 npm run test:integration    # vitest with cloudflare-integration pool (requires wrangler)
 npm run test:all            # both
-node ../scripts/sync-vectors.mjs   # vectors are generated and published by @meddleware/nft-gate-client
-# (before a release is published: NFT_GATE_CLIENT_VECTORS=../../nft-gate-client/vectors.json, refused when CI is set)
+node ../scripts/sync-vectors.mjs   # vectors are generated and published by @meddleware/access-gate-gateway-client
+# (before a release is published: ACCESS_GATE_GATEWAY_CLIENT_VECTORS=../../access-gate-gateway-client/vectors.json, refused when CI is set)
 ```
 
 Both test projects consume `../../conformance/vectors.json` — changes there automatically
@@ -165,7 +165,7 @@ propagate to both Workers and Rust test suites.
   and breaking changes arrive without semver guarantees. Pin before deploying.
 - `@noble/curves` / `@noble/hashes`: same family used by `@mysten/sui` — intentional for
   consistency (same audited primitives, same hash outputs).
-- `@meddleware/nft-gate-client`: `wire.ts` re-exports `personalMessage`,
+- `@meddleware/access-gate-gateway-client`: `wire.ts` re-exports `personalMessage`,
   `decodeAccessProof`, `AccessProof` directly — no duplication.
 - `@meddleware/access-gate-client`: `chain.ts` uses `ownsAccessNft` for the ownership check.
 

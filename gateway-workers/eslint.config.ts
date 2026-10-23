@@ -7,13 +7,13 @@ import tseslint from 'typescript-eslint'
 export default defineConfig(
   globalIgnores(['**/dist/**', '**/coverage/**', '**/*.d.ts']),
   {
-    name: 'nft-gate-workers/typescript',
+    name: 'access-gate-gateway-workers/typescript',
     files: ['**/*.{ts,mts,tsx}'],
     extends: [tseslint.configs.recommended],
   },
 
   {
-    name: 'nft-gate-workers/overrides',
+    name: 'access-gate-gateway-workers/overrides',
     files: ['**/*.{ts,mts,tsx}'],
     rules: {
       // Underscore-prefixed args/vars are an intentional "unused" marker; rest-sibling
