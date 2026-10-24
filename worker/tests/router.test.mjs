@@ -131,7 +131,7 @@ describe('router hardening', () => {
   })
 
   it('refuses a request that already carries the gateway Via marker with 508, with CORS, on every path class', async () => {
-    const looped = { via: '1.1 nft-gate', origin: ALLOWED_ORIGIN, 'CF-Connecting-IP': nextIp() }
+    const looped = { via: '1.1 access-gate-gateway', origin: ALLOWED_ORIGIN, 'CF-Connecting-IP': nextIp() }
     for (const [method, p] of [['GET', '/v1/challenge'], ['GET', '/v1/tip-config'], ['POST', '/v1/blob-upload']]) {
       const res = await f.call(method, p, looped)
       assert.equal(res.status, 508, p)

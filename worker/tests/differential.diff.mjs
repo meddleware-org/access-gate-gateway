@@ -104,13 +104,13 @@ describe('differential: TypeScript Worker vs Rust Worker (single-use, wrangler.t
       t.push(await record('gated x-access-proof malformed', await get(s, '/v1/blob-upload', { 'x-access-proof': 'abc', 'CF-Connecting-IP': ip() }, { method: 'POST' })))
       t.push(await record('gated DELETE', await get(s, '/v1/blob-upload', { authorization: 'Bearer abc', 'CF-Connecting-IP': ip() }, { method: 'DELETE' })))
       t.push(await record('gated PATCH', await get(s, '/v1/blob-upload', { 'CF-Connecting-IP': ip() }, { method: 'PATCH' })))
-      for (const via of ['1.1 nft-gate', '1.1 google', 'HTTP/1.1 NFT-GATE (x)', '1.1 google (access-gate-gateway)']) {
+      for (const via of ['1.1 access-gate-gateway', '1.1 google', 'HTTP/1.1 ACCESS-GATE-GATEWAY (x)', '1.1 google (access-gate-gateway)']) {
         for (const [m, pth] of [['GET', '/v1/challenge'], ['GET', '/v1/tip-config'], ['POST', '/v1/blob-upload']]) {
           t.push(await record(`via ${via} ${m} ${pth}`, await get(s, pth, { via, ...o, 'CF-Connecting-IP': ip() }, { method: m })))
         }
       }
-      t.push(await record('healthz looped', await get(s, '/healthz', { via: '1.1 nft-gate' })))
-      t.push(await record('preflight looped', await get(s, '/v1/challenge', { via: '1.1 nft-gate' }, { method: 'OPTIONS' })))
+      t.push(await record('healthz looped', await get(s, '/healthz', { via: '1.1 access-gate-gateway' })))
+      t.push(await record('preflight looped', await get(s, '/v1/challenge', { via: '1.1 access-gate-gateway' }, { method: 'OPTIONS' })))
       return t
     })
   })

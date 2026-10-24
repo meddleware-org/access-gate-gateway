@@ -2432,3 +2432,4 @@ PROXY lens:
 - [x] Re-verification log entry added (2026-10-22, 0.0.28; fix wave 0.0.29).
 - [x] F51 (2026-10-22) present in the header status, Section A (I32, I33), the B.SC-3 table, Section D (pre-testnet parity) and the log.
 - [x] New findings F49 and F50 present in the executive summary, the header status, the Section B.SC-3 table and Section D (pre-localnet test count).
+- 2026-10-24 — identifier alignment (`docs/architecture/ADR-0004-identifier-alignment.md`): the shared core verifies `access-gate-gateway:access:v3` and refuses v2 (`decision.rs`), loop marker `Via: 1.1 access-gate-gateway`; `cargo test --workspace` green; the secp256r1 test now normalises S (the verifier's low-S rule, unchanged). Undeployed.

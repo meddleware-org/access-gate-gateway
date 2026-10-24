@@ -112,7 +112,7 @@ pub enum ForwardKind {
 /// The implementation owns everything about moving bytes: [`crate::forward::preflight`] (method, path,
 /// declared size), the body read and its cap, the request/response header policy
 /// ([`crate::headers`]), the configured upstream credentials, redirects ([`crate::forward::is_redirect`]
-/// is a 502), timeouts (504) and the `Via: 1.1 nft-gate` marker. A failure is returned as a response
+/// is a 502), timeouts (504) and the `Via: 1.1 access-gate-gateway` marker. A failure is returned as a response
 /// with the refusal's status ([`crate::forward`]), never as a panic.
 #[allow(async_fn_in_trait)]
 pub trait Upstream {
@@ -532,7 +532,7 @@ mod tests {
             ("POST", "/v1/x"),
         ] {
             let mut h = head(method, path);
-            h.via = Some("1.1 google, 1.1 nft-gate".into());
+            h.via = Some("1.1 google, 1.1 access-gate-gateway".into());
             assert_error(
                 run(&cfg, &state, &Chain::ok(), &up, &h),
                 508,
@@ -1069,7 +1069,7 @@ mod tests {
             )),
             "loop-detected" => {
                 let mut h = head("POST", "/v1/x");
-                h.via = Some("1.1 nft-gate".into());
+                h.via = Some("1.1 access-gate-gateway".into());
                 json_of(run(&cfg(false), &Fake::new(), &ok, &up, &h))
             }
             "consume-redeemed" | "consume-leased" => {

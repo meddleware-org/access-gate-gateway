@@ -125,7 +125,7 @@ describe('router hardening', () => {
   })
 
   it('refuses a request that already carries the gateway Via marker with 508, with CORS, on every path class', async () => {
-    const looped = { via: '1.1 nft-gate', origin: ALLOWED_ORIGIN, 'CF-Connecting-IP': '203.0.113.20' }
+    const looped = { via: '1.1 access-gate-gateway', origin: ALLOWED_ORIGIN, 'CF-Connecting-IP': '203.0.113.20' }
     for (const [method, path] of [
       ['GET', '/v1/challenge'],
       ['GET', '/v1/tip-config'],
@@ -234,7 +234,7 @@ describe('router answers the shared response vectors', () => {
     'missing-proof': () => call('POST', '/v1/blob-upload'),
     'bad-proof': () => call('POST', '/v1/blob-upload', { authorization: 'Bearer !!!not-base64!!!' }),
     'method-not-allowed': () => call('DELETE', '/v1/blob-upload'),
-    'loop-detected': () => call('POST', '/v1/blob-upload', { via: '1.1 nft-gate' }),
+    'loop-detected': () => call('POST', '/v1/blob-upload', { via: '1.1 access-gate-gateway' }),
   }
   for (const [outcome, stimulus] of Object.entries(stimuli)) {
     it(outcome, async () => {

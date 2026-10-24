@@ -194,7 +194,7 @@ describe('forward header policy', () => {
       expect(sent!.has(name), name).toBe(false)
     }
     // The client's `via` is dropped and replaced by the gateway's own hop marker (F43).
-    expect(sent!.get('via')).toBe('1.1 nft-gate')
+    expect(sent!.get('via')).toBe('1.1 access-gate-gateway')
     expect(sent!.get('x-keep-me')).toBe('yes')
     expect(sent!.get('cf-access-client-id')).toBe('svc-id') // the gateway's own credential, set last
   })
@@ -237,17 +237,17 @@ describe('forward header policy', () => {
 export const VIA_TABLE: Array<[string | null, boolean]> = [
   [null, false],
   ['', false],
-  ['1.1 nft-gate', true],
-  ['1.1 NFT-GATE', true],
-  ['HTTP/1.1 nft-gate (gateway)', true],
-  ['1.1 google, 1.1 nft-gate', true],
-  ['1.1 nft-gate, 1.1 google', true],
+  ['1.1 access-gate-gateway', true],
+  ['1.1 ACCESS-GATE-GATEWAY', true],
+  ['HTTP/1.1 access-gate-gateway (gateway)', true],
+  ['1.1 google, 1.1 access-gate-gateway', true],
+  ['1.1 access-gate-gateway, 1.1 google', true],
   ['1.1 google', false],
   ['1.1 varnish (Varnish/6.0)', false],
   ['1.1 google (access-gate-gateway)', false],
-  ['1.1 nft-gateway', false],
-  ['1.1 my-nft-gate', false],
-  ['nft-gate', false],
+  ['1.1 access-gate-gateways', false],
+  ['1.1 my-access-gate-gateway', false],
+  ['access-gate-gateway', false],
   ['1.1 registry-auth-proxy', false],
 ]
 
@@ -268,7 +268,7 @@ describe('loop detection (Via)', () => {
     })
     const res = await forward(cfg, new Request('https://gw.example.com/v1/x', { headers: { via: '1.1 google' } }))
     expect(res.status).toBe(200)
-    expect(sent!.get('via')).toBe('1.1 nft-gate')
+    expect(sent!.get('via')).toBe('1.1 access-gate-gateway')
     expect(isLooped(sent!)).toBe(true) // the next hop of a loop would refuse this request
   })
 })

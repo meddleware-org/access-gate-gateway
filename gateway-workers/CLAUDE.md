@@ -94,7 +94,7 @@ may switch to the KV backend for that isolate's lifetime.
 ## Single-use flow (SINGLE_USE=true)
 
 1. Client calls `GET /v1/challenge` → receives `{ nonce, expiresAt }`.
-2. Client signs the audience-bound `nft-gate:access:v2` message (this gateway's origin, gate, network, nonce and the consume digest) as a Sui personal message.
+2. Client signs the audience-bound `access-gate-gateway:access:v3` message (this gateway's origin, gate, network, nonce and the consume digest) as a Sui personal message.
 3. Client submits an on-chain `access_gate::consume` transaction, capturing the transaction
    digest (`consumeDigest`). It persists the digest locally so a retry/reload reuses the SAME
    consume (re-signing a fresh challenge is free) instead of spending another use.
@@ -141,7 +141,7 @@ released (token-bound). The user may upload twice (bounded by the lease TTL and 
 limits) but never loses a paid use; the alternative of keeping the lease and retrying the commit in
 the background could lose it. Same in `gateway-rust`.
 
-Loop marker (F43): `upstreamRequestHeaders` sets `Via: 1.1 nft-gate` after dropping the client's;
+Loop marker (F43): `upstreamRequestHeaders` sets `Via: 1.1 access-gate-gateway` after dropping the client's;
 `handle` answers `508 loop detected` to a request whose `Via` already names `access-gate-gateway` (after
 `/healthz` and the CORS preflight, before any state work). Foreign values pass. Parity table:
 `VIA_TABLE` in `test/proxy.test.ts` = `via_loop_table` in `core/src/headers.rs`.

@@ -16,7 +16,7 @@ export interface Env {
   SUI_RPC_URL: string
   /**
    * The canonical public origin of THIS gateway (`https://host`, no path, lower-case). It is signed
-   * into every access proof (protocol `nft-gate:access:v2`), so a proof made for another gateway is
+   * into every access proof (protocol `access-gate-gateway:access:v3`), so a proof made for another gateway is
    * useless here.
    */
   GATEWAY_ORIGIN: string

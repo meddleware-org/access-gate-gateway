@@ -13,5 +13,5 @@ name = "access-gate-gateway-ci"
 path = "src/main.rs"
 
 [dependencies]
-access-gate-gateway-core = { version = "=0.0.31", path = "../core" }
+access-gate-gateway-core = { version = "=0.0.32", path = "../core" }
 anyhow = "1"

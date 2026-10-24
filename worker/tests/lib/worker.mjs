@@ -74,9 +74,9 @@ export function baseVars(extra = {}) {
  */
 export async function startWorker({ build = 'prod', vars, main, config, scheduled = false, name = 'w', dropDo = false, healthPath = '/healthz' }) {
   const toml = parse(fs.readFileSync(config ?? path.join(WORKER_DIR, 'wrangler.toml'), 'utf8'))
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `nft-gate-${name}-`))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `access-gate-gateway-${name}-`))
   const cfg = {
-    name: `nft-gate-test-${name}`,
+    name: `access-gate-gateway-test-${name}`,
     main: main ?? path.join(BUILDS[build], 'index.js'),
     compatibility_date: toml.compatibility_date,
     compatibility_flags: toml.compatibility_flags ?? [],

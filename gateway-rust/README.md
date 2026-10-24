@@ -110,7 +110,7 @@ Any gated route without a valid proof token returns `401 Unauthorized`.
 
 | Var | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `GATEWAY_ORIGIN` | ✓ | — | This gateway's canonical public origin (`https://host`, no path, lower-case); signed into every proof (`nft-gate:access:v2`) |
+| `GATEWAY_ORIGIN` | ✓ | — | This gateway's canonical public origin (`https://host`, no path, lower-case); signed into every proof (`access-gate-gateway:access:v3`) |
 | `NETWORK` | ✓ | — | `localnet` \| `devnet` \| `testnet` \| `mainnet`; signed into every proof |
 | `UPSTREAM_URL` | ✓ | — | Base URL of the protected upstream; never logged, and must not carry credentials (use `UPSTREAM_AUTH_HEADERS`) |
 | `SUI_RPC_URL` | ✓ | — | Sui fullnode (queried over gRPC-web) for ownership and event queries; must not carry credentials (use `SUI_RPC_AUTH_HEADER`) |
@@ -145,7 +145,7 @@ Any gated route without a valid proof token returns `401 Unauthorized`.
 | `SHUTDOWN_GRACE_SECS` | | `30` | How long in-flight requests may finish after SIGTERM |
 | `REDEMPTION_RETENTION_SECS` | | `2592000` | Single-use: how long a spent consume-digest is remembered |
 
-Every upstream request carries `Via: 1.1 nft-gate` (any `Via` the client sent is dropped). A request
+Every upstream request carries `Via: 1.1 access-gate-gateway` (any `Via` the client sent is dropped). A request
 that arrives already carrying it has looped back to the gateway and gets `508 {"error":"loop
 detected"}` before any work; other `Via` values, such as a CDN's `1.1 google`, pass.
 

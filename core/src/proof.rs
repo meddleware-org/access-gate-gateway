@@ -1,4 +1,4 @@
-//! Access-proof wire format (protocol `nft-gate:access:v2`). MUST stay in sync with
+//! Access-proof wire format (protocol `access-gate-gateway:access:v3`). MUST stay in sync with
 //! `@meddleware/access-gate-gateway-client`'s `proof.ts`; the shared conformance vectors
 //! (`conformance/vectors.json`, published by that package) pin both.
 //!
@@ -9,7 +9,7 @@
 //! never from the token, so a signature made for another gateway, gate, network or consume is useless:
 //!
 //! ```text
-//! nft-gate:access:v2
+//! access-gate-gateway:access:v3
 //! origin:<canonical origin>
 //! gate:<0x + 64 lower-case hex>
 //! network:<localnet|devnet|testnet|mainnet>
@@ -27,7 +27,7 @@
 use base64::prelude::*;
 
 /// First line of every signed access message.
-pub const ACCESS_MESSAGE_VERSION: &str = "nft-gate:access:v2";
+pub const ACCESS_MESSAGE_VERSION: &str = "access-gate-gateway:access:v3";
 
 /// The Sui networks a gateway can serve; part of the signed message.
 pub const NETWORKS: [&str; 4] = ["localnet", "devnet", "testnet", "mainnet"];
@@ -254,7 +254,7 @@ mod tests {
         assert_eq!(
             m,
             format!(
-                "nft-gate:access:v2\norigin:https://gateway.example\ngate:0x{}\nnetwork:testnet\nnonce:GOLDEN-NONCE-123",
+                "access-gate-gateway:access:v3\norigin:https://gateway.example\ngate:0x{}\nnetwork:testnet\nnonce:GOLDEN-NONCE-123",
                 "a1".repeat(32)
             )
         );

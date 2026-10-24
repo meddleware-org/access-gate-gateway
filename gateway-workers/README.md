@@ -1,6 +1,6 @@
 # @meddleware/access-gate-gateway
 
-[![npm](https://img.shields.io/npm/v/%40meddleware%2Fnft-gate-gateway)](https://www.npmjs.com/package/@meddleware/access-gate-gateway)
+[![npm](https://img.shields.io/npm/v/%40meddleware%2Faccess-gate-gateway)](https://www.npmjs.com/package/@meddleware/access-gate-gateway)
 [![License: 0BSD](https://img.shields.io/badge/license-0BSD-blue)](LICENSE)
 
 > **Superseded, pending cutover (0.0.27).** The standing rule is no JS/TS backend code, so this Worker is being replaced 1:1 by the Rust Worker
@@ -110,7 +110,7 @@ This Worker runs at Cloudflare's **edge**, so `UPSTREAM_URL` must be **publicly 
 **Recommended pattern**: expose your upstream via a dedicated `cloudflared` public hostname
 locked to this Worker via Cloudflare Access, then point `UPSTREAM_URL` at it.
 
-Every upstream request carries `Via: 1.1 nft-gate` (any `Via` the client sent is dropped). A request
+Every upstream request carries `Via: 1.1 access-gate-gateway` (any `Via` the client sent is dropped). A request
 that arrives already carrying it has looped back to the gateway (the upstream hostname resolves to
 this route) and gets `508 {"error":"loop detected"}` before any work; other `Via` values, such as a
 CDN's `1.1 google`, pass.
@@ -198,7 +198,7 @@ The Rust gateway enforces the same cap with the same status codes (see
 | Var | Required | Default | Notes |
 | --- | --- | --- | --- |
 | `UPSTREAM_URL` | ✓ | — | Base URL of the protected upstream (set via `wrangler secret put`) |
-| `GATEWAY_ORIGIN` | ✓ | — | This gateway's canonical public origin (`https://host`, no path, lower-case); signed into every proof (`nft-gate:access:v2`), so a proof made for another gateway is useless here (`wrangler.toml` `[vars]`) |
+| `GATEWAY_ORIGIN` | ✓ | — | This gateway's canonical public origin (`https://host`, no path, lower-case); signed into every proof (`access-gate-gateway:access:v3`), so a proof made for another gateway is useless here (`wrangler.toml` `[vars]`) |
 | `NETWORK` | ✓ | — | `localnet` \| `devnet` \| `testnet` \| `mainnet`; signed into every proof, and labels the RPC client |
 | `SUI_RPC_URL` | ✓ | `https://fullnode.testnet.sui.io:443` | Sui fullnode (queried over gRPC-web); change to mainnet for production |
 | `NFT_TYPE` | ✓ | — | `<pkg>::access_gate::AccessNFT` or `SoulboundAccessNFT`, with `<pkg>` the access_gate original id (a `[vars]` entry in `wrangler.toml`); any other type — e.g. a fungible `Coin<T>` — is rejected at startup |

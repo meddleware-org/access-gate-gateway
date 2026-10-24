@@ -116,10 +116,10 @@ mod tests {
     #[test]
     fn via_fields_are_joined_and_the_marker_is_the_one_the_gateway_refuses() {
         let mut h = map(&[("via", "1.1 google")]);
-        h.append("via", HeaderValue::from_static("1.1 nft-gate"));
+        h.append("via", HeaderValue::from_static("1.1 access-gate-gateway"));
         assert_eq!(
             joined(&h, "via").as_deref(),
-            Some("1.1 google,1.1 nft-gate")
+            Some("1.1 google,1.1 access-gate-gateway")
         );
         assert!(via_is_looped(&joined(&h, "via").unwrap()));
         assert_eq!(joined(&HeaderMap::new(), "via"), None);

@@ -522,7 +522,10 @@ async fn the_upstream_sees_the_via_marker_and_a_looped_request_is_a_508_before_a
         .unwrap();
     let (status, _, _) = rig.send(req).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(upstream.seen()[0].header("via"), Some("1.1 nft-gate"));
+    assert_eq!(
+        upstream.seen()[0].header("via"),
+        Some("1.1 access-gate-gateway")
+    );
 
     // The marker the gateway adds is refused on the way back in: 508, JSON, CORS still applied,
     // for the challenge, a public path and a gated path alike, and nothing reaches the upstream.
@@ -535,7 +538,7 @@ async fn the_upstream_sees_the_via_marker_and_a_looped_request_is_a_508_before_a
         let req = axum::http::Request::builder()
             .method(method)
             .uri(path)
-            .header(header::VIA, "1.1 google, 1.1 nft-gate")
+            .header(header::VIA, "1.1 google, 1.1 access-gate-gateway")
             .header(header::ORIGIN, "https://app.example")
             .body(Body::empty())
             .unwrap();
@@ -555,12 +558,12 @@ async fn the_upstream_sees_the_via_marker_and_a_looped_request_is_a_508_before_a
 
     // Probes and preflights are answered before the check.
     let health = axum::http::Request::get("/healthz")
-        .header(header::VIA, "1.1 nft-gate")
+        .header(header::VIA, "1.1 access-gate-gateway")
         .body(Body::empty())
         .unwrap();
     assert_eq!(rig.send(health).await.0, StatusCode::OK);
     let preflight = axum::http::Request::options("/v1/challenge")
-        .header(header::VIA, "1.1 nft-gate")
+        .header(header::VIA, "1.1 access-gate-gateway")
         .body(Body::empty())
         .unwrap();
     assert_eq!(rig.send(preflight).await.0, StatusCode::NO_CONTENT);

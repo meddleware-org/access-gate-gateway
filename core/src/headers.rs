@@ -21,7 +21,7 @@ pub const HOP_BY_HOP: [&str; 9] = [
 
 /// The `Via` entry (RFC 9110 §7.6.3) this gateway adds to every upstream request. A request that
 /// arrives already carrying it has looped back to the gateway (audit F43), whichever hostname it took.
-pub const VIA_TOKEN: &str = "1.1 nft-gate";
+pub const VIA_TOKEN: &str = "1.1 access-gate-gateway";
 
 /// True if a `Via` header value (all `Via` fields joined with `,`) already carries this gateway's own
 /// received-by name `access-gate-gateway` (case-insensitive). Each comma-separated entry is
@@ -32,7 +32,7 @@ pub fn via_is_looped(via: &str) -> bool {
         entry
             .split_whitespace()
             .nth(1)
-            .is_some_and(|by| by.eq_ignore_ascii_case("nft-gate"))
+            .is_some_and(|by| by.eq_ignore_ascii_case("access-gate-gateway"))
     })
 }
 
@@ -147,17 +147,17 @@ mod tests {
     const VIA_TABLE: [(&str, bool); 14] = [
         ("", false),
         ("", false),
-        ("1.1 nft-gate", true),
-        ("1.1 NFT-GATE", true),
-        ("HTTP/1.1 nft-gate (gateway)", true),
-        ("1.1 google, 1.1 nft-gate", true),
-        ("1.1 nft-gate, 1.1 google", true),
+        ("1.1 access-gate-gateway", true),
+        ("1.1 ACCESS-GATE-GATEWAY", true),
+        ("HTTP/1.1 access-gate-gateway (gateway)", true),
+        ("1.1 google, 1.1 access-gate-gateway", true),
+        ("1.1 access-gate-gateway, 1.1 google", true),
         ("1.1 google", false),
         ("1.1 varnish (Varnish/6.0)", false),
         ("1.1 google (access-gate-gateway)", false),
-        ("1.1 nft-gateway", false),
-        ("1.1 my-nft-gate", false),
-        ("nft-gate", false),
+        ("1.1 access-gate-gateways", false),
+        ("1.1 my-access-gate-gateway", false),
+        ("access-gate-gateway", false),
         ("1.1 registry-auth-proxy", false),
     ];
 
@@ -167,7 +167,7 @@ mod tests {
             assert_eq!(via_is_looped(via), looped, "{via:?}");
         }
         // Several Via fields are read as one list (the platform joins them with a comma).
-        assert!(via_is_looped("1.1 google,1.1 nft-gate"));
+        assert!(via_is_looped("1.1 google,1.1 access-gate-gateway"));
     }
 
     #[test]

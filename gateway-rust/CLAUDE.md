@@ -54,7 +54,7 @@ A commit failure after a 2xx upstream is `502 redemption commit failed` with the
 (decided 2026-10-19, OQ6): the user may upload twice (bounded by the lease TTL and per-upload limits)
 but never loses a paid use. Same in `gateway-workers`.
 
-Loop marker (F43): `headers::upstream_request_headers` sets `Via: 1.1 nft-gate` after dropping the
+Loop marker (F43): `headers::upstream_request_headers` sets `Via: 1.1 access-gate-gateway` after dropping the
 client's; the core's `Gateway::handle` answers `508 loop detected` to a request whose `Via` already names `access-gate-gateway`
 (after `/healthz` and the CORS preflight, before any state work). Foreign values pass. Parity table:
 `via_loop_table` in `../core/src/headers.rs` = `VIA_TABLE` in `gateway-workers/test/proxy.test.ts`.

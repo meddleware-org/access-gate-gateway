@@ -16,7 +16,7 @@
 //!
 //! Required:
 //! - `GATEWAY_ORIGIN` — the canonical public origin of THIS gateway (`https://host`, no path,
-//!   lower-case). Signed into every access proof (`nft-gate:access:v2`), so a proof made for another
+//!   lower-case). Signed into every access proof (`access-gate-gateway:access:v3`), so a proof made for another
 //!   gateway is useless here.
 //! - `NETWORK` — `localnet` | `devnet` | `testnet` | `mainnet`; signed into every access proof.
 //! - `UPSTREAM_URL` — base URL of the upstream this gateway protects (trailing `/` stripped).

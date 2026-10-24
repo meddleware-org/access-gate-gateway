@@ -48,7 +48,7 @@ command = "CARGO_PROFILE_RELEASE_OPT_LEVEL=s worker-build --release"
 # Public fullnode — safe to keep as a plain var (no sensitive information).
 SUI_RPC_URL = "https://fullnode.testnet.sui.io:443"
 NETWORK = "testnet"
-# The public origin of THIS gateway, signed into every access proof (nft-gate:access:v2): a proof made
+# The public origin of THIS gateway, signed into every access proof (access-gate-gateway:access:v3): a proof made
 # for another gateway, gate or network is useless here. Must equal the route's hostname below.
 GATEWAY_ORIGIN = "https://sui-walrus-storage-relay-testnet.meddleware.co.uk"
 

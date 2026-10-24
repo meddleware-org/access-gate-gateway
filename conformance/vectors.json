@@ -1,6 +1,6 @@
 {
-  "description": "Conformance vectors shared by the access-gate gateways and clients (protocol nft-gate:access:v2). `personalMessage.cases` are the exact signed bytes for a context; `personalMessageRejects` are contexts no implementation may sign or accept; `signatures` are real Sui personal-message signatures that must verify against the message rebuilt from `context`; `audienceMismatch` are valid signatures whose verifier-side context differs in one bound field and must be refused; `negativeSignatures` must be refused; `zip215` pins ed25519 to ZIP-215 (Sui's rule); `proofDecode*` pin the token grammar; `txDigest` pins the consume digest rule (base58 that decodes to exactly 32 bytes); `responses` pins the status and error body each gateway answers per outcome; `addressNormalization` pins canonical addresses. Regenerate with: node scripts/gen-vectors.mjs > vectors.json",
-  "version": "nft-gate:access:v2",
+  "description": "Conformance vectors shared by the access-gate gateways and clients (protocol access-gate-gateway:access:v3). `personalMessage.cases` are the exact signed bytes for a context; `personalMessageRejects` are contexts no implementation may sign or accept; `signatures` are real Sui personal-message signatures that must verify against the message rebuilt from `context`; `audienceMismatch` are valid signatures whose verifier-side context differs in one bound field and must be refused; `negativeSignatures` must be refused; `zip215` pins ed25519 to ZIP-215 (Sui's rule); `proofDecode*` pin the token grammar; `txDigest` pins the consume digest rule (base58 that decodes to exactly 32 bytes); `responses` pins the status and error body each gateway answers per outcome; `addressNormalization` pins canonical addresses. Regenerate with: node scripts/gen-vectors.mjs > vectors.json",
+  "version": "access-gate-gateway:access:v3",
   "personalMessage": {
     "cases": [
       {
@@ -11,8 +11,8 @@
           "network": "testnet",
           "nonce": "GOLDEN-NONCE-123"
         },
-        "messageUtf8": "nft-gate:access:v2\norigin:https://gateway.example\ngate:0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\nnetwork:testnet\nnonce:GOLDEN-NONCE-123",
-        "messageBytesBase64": "bmZ0LWdhdGU6YWNjZXNzOnYyCm9yaWdpbjpodHRwczovL2dhdGV3YXkuZXhhbXBsZQpnYXRlOjB4YTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMQpuZXR3b3JrOnRlc3RuZXQKbm9uY2U6R09MREVOLU5PTkNFLTEyMw=="
+        "messageUtf8": "access-gate-gateway:access:v3\norigin:https://gateway.example\ngate:0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\nnetwork:testnet\nnonce:GOLDEN-NONCE-123",
+        "messageBytesBase64": "YWNjZXNzLWdhdGUtZ2F0ZXdheTphY2Nlc3M6djMKb3JpZ2luOmh0dHBzOi8vZ2F0ZXdheS5leGFtcGxlCmdhdGU6MHhhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExCm5ldHdvcms6dGVzdG5ldApub25jZTpHT0xERU4tTk9OQ0UtMTIz"
       },
       {
         "name": "single-use gateway",
@@ -23,8 +23,8 @@
           "nonce": "GOLDEN-NONCE-123",
           "consumeDigest": "5Wq9tE4gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL"
         },
-        "messageUtf8": "nft-gate:access:v2\norigin:https://gateway.example\ngate:0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\nnetwork:testnet\nnonce:GOLDEN-NONCE-123\nconsume:5Wq9tE4gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL",
-        "messageBytesBase64": "bmZ0LWdhdGU6YWNjZXNzOnYyCm9yaWdpbjpodHRwczovL2dhdGV3YXkuZXhhbXBsZQpnYXRlOjB4YTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMQpuZXR3b3JrOnRlc3RuZXQKbm9uY2U6R09MREVOLU5PTkNFLTEyMwpjb25zdW1lOjVXcTl0RTRnWHo4aEV2RmhZdDhLa1RKYjJQcDZxWHFqOGNSazN4TjFtWWRM"
+        "messageUtf8": "access-gate-gateway:access:v3\norigin:https://gateway.example\ngate:0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\nnetwork:testnet\nnonce:GOLDEN-NONCE-123\nconsume:5Wq9tE4gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL",
+        "messageBytesBase64": "YWNjZXNzLWdhdGUtZ2F0ZXdheTphY2Nlc3M6djMKb3JpZ2luOmh0dHBzOi8vZ2F0ZXdheS5leGFtcGxlCmdhdGU6MHhhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExYTFhMWExCm5ldHdvcms6dGVzdG5ldApub25jZTpHT0xERU4tTk9OQ0UtMTIzCmNvbnN1bWU6NVdxOXRFNGdYejhoRXZGaFl0OEtrVEpiMlBwNnFYcWo4Y1JrM3hOMW1ZZEw="
       }
     ]
   },
@@ -530,8 +530,8 @@
         "network": "testnet",
         "nonce": "GOLDEN-NONCE-123"
       },
-      "signature": "AHjXWmJbnMY8ALZt75FJRfhbqzF/IYHVjRhaFZ0nG2hLHJAb9yERXBPN3sGCVJb3LmK20Jd8bHIuOxqIkrv36wjqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
-      "proofToken": "eyJhZGRyZXNzIjoiMHhhMGNjYzhiY2M4M2Y2YzYyODM0MDEzNGY4NTQ2YTIxZTA2MThmZDFhYWEwMjQzMmJiYTQ1NGM0YTJjMjIzM2RhIiwibm9uY2UiOiJHT0xERU4tTk9OQ0UtMTIzIiwic2lnbmF0dXJlIjoiQUhqWFdtSmJuTVk4QUxadDc1RkpSZmhicXpGL0lZSFZqUmhhRlowbkcyaExISkFiOXlFUlhCUE4zc0dDVkpiM0xtSzIwSmQ4YkhJdU94cUlrcnYzNndqcVNteGo0cHhTQ3I3MVVIc1RMc1g1bFVkMnJyNitlNUpDSHVwcEZFYlNMQT09In0=",
+      "signature": "AL0U5cMDCgMZ+3wHmxLvs/zs4wAuPkru2IMS7lB683bDvssX+Orci5Y6wOSOvrqZxCHnBsBVm3QmdvxJOaqNGAnqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+      "proofToken": "eyJhZGRyZXNzIjoiMHhhMGNjYzhiY2M4M2Y2YzYyODM0MDEzNGY4NTQ2YTIxZTA2MThmZDFhYWEwMjQzMmJiYTQ1NGM0YTJjMjIzM2RhIiwibm9uY2UiOiJHT0xERU4tTk9OQ0UtMTIzIiwic2lnbmF0dXJlIjoiQUwwVTVjTURDZ01aKzN3SG14THZzL3pzNHdBdVBrcnUySU1TN2xCNjgzYkR2c3NYK09yY2k1WTZ3T1NPdnJxWnhDSG5Cc0JWbTNRbWR2eEpPYXFOR0FucVNteGo0cHhTQ3I3MVVIc1RMc1g1bFVkMnJyNitlNUpDSHVwcEZFYlNMQT09In0=",
       "expect": true
     },
     {
@@ -543,8 +543,8 @@
         "network": "testnet",
         "nonce": "GOLDEN-NONCE-123"
       },
-      "signature": "ATP4RPmUcS9r6ldY1oHi2+YjiamXVqwtSNGvpatP+2t2a3NYif9wA53lSaFindwt0QU/2tGrjl+dFzJIBzFxl3sCVrMoswyL9YOeJAWHR4eUCL2zYkHcnC58YZ+qErKSCWc=",
-      "proofToken": "eyJhZGRyZXNzIjoiMHhmZjU0MTYyZmY1Y2Y2YzI1YjJmNjk4NWVmMjc0ZjE3MDljY2Y1ODE3NTE4OGE1NzJlY2ZlYTRiMTQyM2M4Y2EwIiwibm9uY2UiOiJHT0xERU4tTk9OQ0UtMTIzIiwic2lnbmF0dXJlIjoiQVRQNFJQbVVjUzlyNmxkWTFvSGkyK1lqaWFtWFZxd3RTTkd2cGF0UCsydDJhM05ZaWY5d0E1M2xTYUZpbmR3dDBRVS8ydEdyamwrZEZ6SklCekZ4bDNzQ1ZyTW9zd3lMOVlPZUpBV0hSNGVVQ0wyellrSGNuQzU4WVorcUVyS1NDV2M9In0=",
+      "signature": "AaE/VGRRqZrJRAyGV/fdK1ccvco4tzsBF+2y0IFhVT17CAdfZ0D/G6xys78LPnH+SW+FGU3aizzm6yZpEdYupt8CVrMoswyL9YOeJAWHR4eUCL2zYkHcnC58YZ+qErKSCWc=",
+      "proofToken": "eyJhZGRyZXNzIjoiMHhmZjU0MTYyZmY1Y2Y2YzI1YjJmNjk4NWVmMjc0ZjE3MDljY2Y1ODE3NTE4OGE1NzJlY2ZlYTRiMTQyM2M4Y2EwIiwibm9uY2UiOiJHT0xERU4tTk9OQ0UtMTIzIiwic2lnbmF0dXJlIjoiQWFFL1ZHUlJxWnJKUkF5R1YvZmRLMWNjdmNvNHR6c0JGKzJ5MElGaFZUMTdDQWRmWjBEL0c2eHlzNzhMUG5IK1NXK0ZHVTNhaXp6bTZ5WnBFZFl1cHQ4Q1ZyTW9zd3lMOVlPZUpBV0hSNGVVQ0wyellrSGNuQzU4WVorcUVyS1NDV2M9In0=",
       "expect": true
     },
     {
@@ -556,8 +556,8 @@
         "network": "testnet",
         "nonce": "GOLDEN-NONCE-123"
       },
-      "signature": "Anyye7JlQ7qQYANKEWpXboVixEqnM06zVN54HTem/0wSNNMFOzEr+GN/NmsYqgcwVNqL7plY9Pyo5GXgHQP8Wx8DIJwxe2N5Nd09ocVPY0ld+zH5fSk98IVxAyBZXJqsuD8=",
-      "proofToken": "eyJhZGRyZXNzIjoiMHhhZjhhMjViODkyM2I0MmFiYWFjMGNjM2Q1OTQ1ODMxMDJlZDEyMmU2OTM0YTY5YmMzYjZlOTNkYjM2ZDBlOWRjIiwibm9uY2UiOiJHT0xERU4tTk9OQ0UtMTIzIiwic2lnbmF0dXJlIjoiQW55eWU3SmxRN3FRWUFOS0VXcFhib1ZpeEVxbk0wNnpWTjU0SFRlbS8wd1NOTk1GT3pFcitHTi9ObXNZcWdjd1ZOcUw3cGxZOVB5bzVHWGdIUVA4V3g4RElKd3hlMk41TmQwOW9jVlBZMGxkK3pINWZTazk4SVZ4QXlCWlhKcXN1RDg9In0=",
+      "signature": "ApEKYazDeTKp4av4OKq+zdysZIfj5T/pPmB3HCpENkg8XXpllPoGl1WtvZdmNfsCZ5pGq9XhAJMlddVdPHcubtYDIJwxe2N5Nd09ocVPY0ld+zH5fSk98IVxAyBZXJqsuD8=",
+      "proofToken": "eyJhZGRyZXNzIjoiMHhhZjhhMjViODkyM2I0MmFiYWFjMGNjM2Q1OTQ1ODMxMDJlZDEyMmU2OTM0YTY5YmMzYjZlOTNkYjM2ZDBlOWRjIiwibm9uY2UiOiJHT0xERU4tTk9OQ0UtMTIzIiwic2lnbmF0dXJlIjoiQXBFS1lhekRlVEtwNGF2NE9LcSt6ZHlzWklmajVUL3BQbUIzSENwRU5rZzhYWHBsbFBvR2wxV3R2WmRtTmZzQ1o1cEdxOVhoQUpNbGRkVmRQSGN1YnRZRElKd3hlMk41TmQwOW9jVlBZMGxkK3pINWZTazk4SVZ4QXlCWlhKcXN1RDg9In0=",
       "expect": true
     },
     {
@@ -570,8 +570,8 @@
         "nonce": "GOLDEN-NONCE-123",
         "consumeDigest": "5Wq9tE4gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL"
       },
-      "signature": "AOGh7vaz1pyInQuMWZzO9M28bMUsJXFNOZn2Qt0DP8uSgnAF2IdC9X4nwHTcVd1+2sVl47WXgo2umgNnOK/ADwvqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
-      "proofToken": "eyJhZGRyZXNzIjoiMHhhMGNjYzhiY2M4M2Y2YzYyODM0MDEzNGY4NTQ2YTIxZTA2MThmZDFhYWEwMjQzMmJiYTQ1NGM0YTJjMjIzM2RhIiwibm9uY2UiOiJHT0xERU4tTk9OQ0UtMTIzIiwic2lnbmF0dXJlIjoiQU9HaDd2YXoxcHlJblF1TVdaek85TTI4Yk1Vc0pYRk5PWm4yUXQwRFA4dVNnbkFGMklkQzlYNG53SFRjVmQxKzJzVmw0N1dYZ28ydW1nTm5PSy9BRHd2cVNteGo0cHhTQ3I3MVVIc1RMc1g1bFVkMnJyNitlNUpDSHVwcEZFYlNMQT09IiwiY29uc3VtZURpZ2VzdCI6IjVXcTl0RTRnWHo4aEV2RmhZdDhLa1RKYjJQcDZxWHFqOGNSazN4TjFtWWRMIn0=",
+      "signature": "AChoTM5lA2y8OUKtzBLW9FMqvhNoY2CG9W9u9+g2Eu54W2CdIJuxK6ZqYftZyEj9FByDBFDJ4ZsVaW6BstrjPQTqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+      "proofToken": "eyJhZGRyZXNzIjoiMHhhMGNjYzhiY2M4M2Y2YzYyODM0MDEzNGY4NTQ2YTIxZTA2MThmZDFhYWEwMjQzMmJiYTQ1NGM0YTJjMjIzM2RhIiwibm9uY2UiOiJHT0xERU4tTk9OQ0UtMTIzIiwic2lnbmF0dXJlIjoiQUNob1RNNWxBMnk4T1VLdHpCTFc5Rk1xdmhOb1kyQ0c5Vzl1OStnMkV1NTRXMkNkSUp1eEs2WnFZZnRaeUVqOUZCeURCRkRKNFpzVmFXNkJzdHJqUFFUcVNteGo0cHhTQ3I3MVVIc1RMc1g1bFVkMnJyNitlNUpDSHVwcEZFYlNMQT09IiwiY29uc3VtZURpZ2VzdCI6IjVXcTl0RTRnWHo4aEV2RmhZdDhLa1RKYjJQcDZxWHFqOGNSazN4TjFtWWRMIn0=",
       "expect": true
     }
   ],
@@ -579,7 +579,7 @@
     {
       "case": "wrong origin",
       "address": "0xa0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da",
-      "signature": "AHjXWmJbnMY8ALZt75FJRfhbqzF/IYHVjRhaFZ0nG2hLHJAb9yERXBPN3sGCVJb3LmK20Jd8bHIuOxqIkrv36wjqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+      "signature": "AL0U5cMDCgMZ+3wHmxLvs/zs4wAuPkru2IMS7lB683bDvssX+Orci5Y6wOSOvrqZxCHnBsBVm3QmdvxJOaqNGAnqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
       "context": {
         "origin": "https://other.example",
         "gateId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
@@ -591,7 +591,7 @@
     {
       "case": "wrong gate",
       "address": "0xa0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da",
-      "signature": "AHjXWmJbnMY8ALZt75FJRfhbqzF/IYHVjRhaFZ0nG2hLHJAb9yERXBPN3sGCVJb3LmK20Jd8bHIuOxqIkrv36wjqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+      "signature": "AL0U5cMDCgMZ+3wHmxLvs/zs4wAuPkru2IMS7lB683bDvssX+Orci5Y6wOSOvrqZxCHnBsBVm3QmdvxJOaqNGAnqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
       "context": {
         "origin": "https://gateway.example",
         "gateId": "0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
@@ -603,7 +603,7 @@
     {
       "case": "wrong network",
       "address": "0xa0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da",
-      "signature": "AHjXWmJbnMY8ALZt75FJRfhbqzF/IYHVjRhaFZ0nG2hLHJAb9yERXBPN3sGCVJb3LmK20Jd8bHIuOxqIkrv36wjqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+      "signature": "AL0U5cMDCgMZ+3wHmxLvs/zs4wAuPkru2IMS7lB683bDvssX+Orci5Y6wOSOvrqZxCHnBsBVm3QmdvxJOaqNGAnqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
       "context": {
         "origin": "https://gateway.example",
         "gateId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
@@ -615,7 +615,7 @@
     {
       "case": "wrong nonce",
       "address": "0xa0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da",
-      "signature": "AHjXWmJbnMY8ALZt75FJRfhbqzF/IYHVjRhaFZ0nG2hLHJAb9yERXBPN3sGCVJb3LmK20Jd8bHIuOxqIkrv36wjqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+      "signature": "AL0U5cMDCgMZ+3wHmxLvs/zs4wAuPkru2IMS7lB683bDvssX+Orci5Y6wOSOvrqZxCHnBsBVm3QmdvxJOaqNGAnqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
       "context": {
         "origin": "https://gateway.example",
         "gateId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
@@ -627,7 +627,7 @@
     {
       "case": "gateway is single-use but the signature has no consume line",
       "address": "0xa0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da",
-      "signature": "AHjXWmJbnMY8ALZt75FJRfhbqzF/IYHVjRhaFZ0nG2hLHJAb9yERXBPN3sGCVJb3LmK20Jd8bHIuOxqIkrv36wjqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+      "signature": "AL0U5cMDCgMZ+3wHmxLvs/zs4wAuPkru2IMS7lB683bDvssX+Orci5Y6wOSOvrqZxCHnBsBVm3QmdvxJOaqNGAnqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
       "context": {
         "origin": "https://gateway.example",
         "gateId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
@@ -640,7 +640,7 @@
     {
       "case": "gateway is not single-use but the signature has a consume line",
       "address": "0xa0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da",
-      "signature": "AOGh7vaz1pyInQuMWZzO9M28bMUsJXFNOZn2Qt0DP8uSgnAF2IdC9X4nwHTcVd1+2sVl47WXgo2umgNnOK/ADwvqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+      "signature": "AChoTM5lA2y8OUKtzBLW9FMqvhNoY2CG9W9u9+g2Eu54W2CdIJuxK6ZqYftZyEj9FByDBFDJ4ZsVaW6BstrjPQTqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
       "context": {
         "origin": "https://gateway.example",
         "gateId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
@@ -652,7 +652,7 @@
     {
       "case": "single-use: wrong consume digest",
       "address": "0xa0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da",
-      "signature": "AOGh7vaz1pyInQuMWZzO9M28bMUsJXFNOZn2Qt0DP8uSgnAF2IdC9X4nwHTcVd1+2sVl47WXgo2umgNnOK/ADwvqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+      "signature": "AChoTM5lA2y8OUKtzBLW9FMqvhNoY2CG9W9u9+g2Eu54W2CdIJuxK6ZqYftZyEj9FByDBFDJ4ZsVaW6BstrjPQTqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
       "context": {
         "origin": "https://gateway.example",
         "gateId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
@@ -685,7 +685,7 @@
         "network": "testnet",
         "nonce": "GOLDEN-NONCE-123"
       },
-      "signature": "ATP4RPmUcS9r6ldY1oHi2+YjiamXVqwtSNGvpatP+2t2lIyndgCP/GIatl6dYiPSLbVvAhUDukCeqKAWhZ7EqcYCVrMoswyL9YOeJAWHR4eUCL2zYkHcnC58YZ+qErKSCWc=",
+      "signature": "AaE/VGRRqZrJRAyGV/fdK1ccvco4tzsBF+2y0IFhVT179/igmL8A5FONTED0wY4BtUspw5jUvWNU1Kv1evoHmmICVrMoswyL9YOeJAWHR4eUCL2zYkHcnC58YZ+qErKSCWc=",
       "expect": false
     },
     {
@@ -697,7 +697,7 @@
         "network": "testnet",
         "nonce": "GOLDEN-NONCE-123"
       },
-      "signature": "Anyye7JlQ7qQYANKEWpXboVixEqnM06zVN54HTem/0wSyyz6w87UB52AyZTnVfjPquJbDBROIqHcD1PqpfhmyjIDIJwxe2N5Nd09ocVPY0ld+zH5fSk98IVxAyBZXJqsuD8=",
+      "signature": "ApEKYazDeTKp4av4OKq+zdysZIfj5T/pPmB3HCpENkg8ooWaagX5aKtSQmiZygT9mCKgTtfGFwtffeRthoU0tnsDIJwxe2N5Nd09ocVPY0ld+zH5fSk98IVxAyBZXJqsuD8=",
       "expect": false
     },
     {
@@ -709,7 +709,7 @@
         "network": "testnet",
         "nonce": "GOLDEN-NONCE-123"
       },
-      "signature": "AHjXWmJbnMY8ALZt75FJRfhbqzF/IYHVjRhaFZ0nG2hLCWQRVDx0bmuje7klM5DWQ2K20Jd8bHIuOxqIkrv36xjqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+      "signature": "AL0U5cMDCgMZ+3wHmxLvs/zs4wAuPkru2IMS7lB683bDq58NVQVAnu4QXdwxnbR42SHnBsBVm3QmdvxJOaqNGBnqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
       "expect": false
     },
     {
@@ -721,7 +721,7 @@
         "network": "testnet",
         "nonce": "GOLDEN-NONCE-123"
       },
-      "signature": "AIbykdHmzZNJw8zVAkG38KfKlLh/7OycHBHVF8p3r26UTpD5iIArpOIzih5pLb8HAO48UEX17sw4ZG2GIFFxBQLqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+      "signature": "AEDqwFjADGCRq7xuZUFEEHlDIBoDYJ+SLYGjnm9rvbMKHiu4UoxPjA5Uc0GsTvDUYcOv8Sgnudkb4lfUki73/QXqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
       "expect": false
     },
     {
@@ -733,7 +733,7 @@
         "network": "testnet",
         "nonce": "GOLDEN-NONCE-123"
       },
-      "signature": "AHjXWmJbnMY8ALZt75FJRfhbqzF/IYHVjRhaFZ0nG2hLHJAb9yERXBPN3sGCVJb3LmK20Jd8bHIuOxqIkrv36wjqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbS",
+      "signature": "AL0U5cMDCgMZ+3wHmxLvs/zs4wAuPkru2IMS7lB683bDvssX+Orci5Y6wOSOvrqZxCHnBsBVm3QmdvxJOaqNGAnqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbS",
       "expect": false
     },
     {
@@ -745,7 +745,7 @@
         "network": "testnet",
         "nonce": "GOLDEN-NONCE-123"
       },
-      "signature": "A3jXWmJbnMY8ALZt75FJRfhbqzF/IYHVjRhaFZ0nG2hLHJAb9yERXBPN3sGCVJb3LmK20Jd8bHIuOxqIkrv36wjqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+      "signature": "A70U5cMDCgMZ+3wHmxLvs/zs4wAuPkru2IMS7lB683bDvssX+Orci5Y6wOSOvrqZxCHnBsBVm3QmdvxJOaqNGAnqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
       "expect": false
     },
     {
@@ -757,7 +757,7 @@
         "network": "testnet",
         "nonce": "GOLDEN-NONCE-123"
       },
-      "signature": "BXjXWmJbnMY8ALZt75FJRfhbqzF/IYHVjRhaFZ0nG2hLHJAb9yERXBPN3sGCVJb3LmK20Jd8bHIuOxqIkrv36wjqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+      "signature": "Bb0U5cMDCgMZ+3wHmxLvs/zs4wAuPkru2IMS7lB683bDvssX+Orci5Y6wOSOvrqZxCHnBsBVm3QmdvxJOaqNGAnqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
       "expect": false
     },
     {
@@ -769,7 +769,7 @@
         "network": "testnet",
         "nonce": "GOLDEN-NONCE-123"
       },
-      "signature": "BnjXWmJbnMY8ALZt75FJRfhbqzF/IYHVjRhaFZ0nG2hLHJAb9yERXBPN3sGCVJb3LmK20Jd8bHIuOxqIkrv36wjqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+      "signature": "Br0U5cMDCgMZ+3wHmxLvs/zs4wAuPkru2IMS7lB683bDvssX+Orci5Y6wOSOvrqZxCHnBsBVm3QmdvxJOaqNGAnqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
       "expect": false
     }
   ],

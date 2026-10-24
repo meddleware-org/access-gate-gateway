@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.32] - 2026-10-24
+
+### Changed
+
+- **Breaking (wire protocol, ADR-0004):** access proofs are verified against the `access-gate-gateway:access:v3` message (the audience lines are unchanged); a `nft-gate:access:v2` proof is refused (`BadSignature`). Needs `@meddleware/access-gate-gateway-client` 0.0.21 on the client side.
+- The loop marker is `Via: 1.1 access-gate-gateway` (was `1.1 nft-gate`); a request carrying it is refused `508`.
+- Conformance vectors re-synced from `@meddleware/access-gate-gateway-client` 0.0.21.
+
 ## [0.0.31] - 2026-10-24
 
 ### Security

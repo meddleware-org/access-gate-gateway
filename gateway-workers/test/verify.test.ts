@@ -299,6 +299,14 @@ describe('audience binding (protocol v2)', () => {
     expect(res).toEqual({ ok: false, denied: 'BadSignature' })
   })
 
+  it('refuses the retired v2 domain (nft-gate:access:v2) with otherwise identical audience lines', async () => {
+    const v2 = new TextEncoder().encode(
+      ['nft-gate:access:v2', 'origin:' + cfg(false).gatewayOrigin, 'gate:' + cfg(false).gateId, 'network:' + cfg(false).network, 'nonce:aud-nonce'].join('\n'),
+    )
+    const { res } = await decide((c) => c, () => ed25519Token(7, 'aud-nonce', undefined, v2).token)
+    expect(res).toEqual({ ok: false, denied: 'BadSignature' })
+  })
+
   it('an ownership gateway refuses a proof signed for single-use (consume line in the message)', async () => {
     const { res } = await decide((c) => c, () => ed25519Token(7, 'aud-nonce', DIGEST).token)
     expect(res).toEqual({ ok: false, denied: 'BadSignature' })

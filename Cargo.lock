@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "access-gate-gateway"
-version = "0.0.31"
+version = "0.0.32"
 dependencies = [
  "access-gate-gateway-core",
  "anyhow",
@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "access-gate-gateway-ci"
-version = "0.0.31"
+version = "0.0.32"
 dependencies = [
  "access-gate-gateway-core",
  "anyhow",
@@ -36,7 +36,7 @@ dependencies = [
 
 [[package]]
 name = "access-gate-gateway-core"
-version = "0.0.31"
+version = "0.0.32"
 dependencies = [
  "anyhow",
  "base64",
@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "access-gate-gateway-worker"
-version = "0.0.31"
+version = "0.0.32"
 dependencies = [
  "access-gate-gateway-core",
  "anyhow",

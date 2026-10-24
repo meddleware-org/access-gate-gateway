@@ -14,12 +14,11 @@ rate / redemption state machines, the header / path / CORS / config policy and t
 `redeem_and_forward`) as a state machine over the ports `StateStore`, `ChainQuery`, `Upstream`, `Clock`, `Rng`, `Env`.
 A gateway is an adapter that supplies only I/O: `gateway-rust/` (hyper / axum / Redis) and the Cloudflare Worker.
 
-The maintainer's standing rule is **no JS/TS backend code**. The live Worker `gateway-workers/` (TypeScript) is therefore
-being replaced by the Rust Worker `worker/` (workers-rs) on the same core. Status (0.0.29): **built and tested, shadow not yet
-deployed**. `gateway-workers/` is marked superseded-pending-cutover and is NOT deleted: it is the live deployment and the rollback until
-the maintainer has shadow-deployed the Rust Worker (`deploy-worker-rust.yml`, mode `shadow`), read the CPU-time p99 ≤ 5 ms and p99.9 ≤ 10 ms in
-Workers analytics over a week on Free, cut over (same Worker name, Durable Object class `NonceRateState`, migration tag `v1`, so the live DO data is kept), and
-retired the TypeScript source (runbook: `worker/README.md`). The Workers KV nonce backend is not carried over. The spike's findings are `docs/SPIKE-FINDINGS.md`.
+The maintainer's standing rule is **no JS/TS backend code**. The Rust Worker `worker/` (workers-rs) on the same core is **live**
+(cutover 2026-10-20; redeployed 2026-10-24 after the rename re-created the Worker `access-gate-gateway`, same Durable Object class
+`NonceRateState` and migration tag `v1`). `gateway-workers/` (TypeScript) is superseded and kept only as the rollback until a clean
+week on the Rust Worker, then retired (runbook: `worker/README.md`, `OPERATOR_TASKS.md`). The Workers KV nonce backend is not carried
+over. The spike's findings are `docs/SPIKE-FINDINGS.md`.
 
 **The Worker adapter** (`worker/`): `lib.rs` routes around the core (`/healthz`, CORS preflight, 508) and builds `Gateway`; `state.rs` + `do_state.rs` are the
 `StateStore` over the SQLite Durable Object (exact schema of the TypeScript one); `upstream.rs` is the streamed `fetch` proxy (byte cap,
@@ -44,7 +43,7 @@ does not. workers-rs / wasm-bindgen / worker-build are pinned exactly and move t
   return false — the same posture in both impls.
 - **Public paths bypass auth.** Configured in `PUBLIC_PATHS` (Workers) / the same env var (Rust).
   The default is `/v1/tip-config` so relay tip-config endpoints are publicly readable.
-- **Loop marker.** Every upstream request carries `Via: 1.1 nft-gate` (the client's own `Via` is
+- **Loop marker.** Every upstream request carries `Via: 1.1 access-gate-gateway` (the client's own `Via` is
   dropped); a request that arrives already carrying that received-by name is refused `508 loop
   detected` before any nonce, rate-limit or redemption work. Foreign `Via` values (a CDN hop) pass.
   `/healthz` and CORS preflights are answered first. Identical in both impls (audit F43).
@@ -72,7 +71,7 @@ decision is `core/`); until the TypeScript Worker is retired the coupling is als
 `conformance/vectors.json` golden vectors, which the core's tests and the TypeScript tests both consume.
 
 If you change any of the following, update the core AND (until it is retired) the TypeScript Worker (the differential run `worker/tests/differential.diff.mjs` fails when the two diverge), and regenerate the vectors:
-- The signed message (`nft-gate:access:v2` and its audience lines: origin, gate, network, nonce, consume)
+- The signed message (`access-gate-gateway:access:v3` and its audience lines: origin, gate, network, nonce, consume)
 - The proof token format (`base64(JSON { address, nonce, signature, consumeDigest? })`)
 - The `Authorization: Bearer` / `X-Access-Proof` header preference logic
 - The Sui signature wire format (flag || sig || pubkey)

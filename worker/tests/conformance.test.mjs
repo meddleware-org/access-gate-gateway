@@ -154,7 +154,7 @@ const drivers = {
     return answer(await fixtures.limited.call('GET', '/v1/challenge', { 'CF-Connecting-IP': ip }))
   },
   'method-not-allowed': async () => answer(await fixtures.own.call('DELETE', '/v1/upload', { 'CF-Connecting-IP': nextIp() })),
-  'loop-detected': async () => answer(await fixtures.own.call('PUT', '/v1/upload', { via: '1.1 nft-gate', 'CF-Connecting-IP': nextIp() })),
+  'loop-detected': async () => answer(await fixtures.own.call('PUT', '/v1/upload', { via: '1.1 access-gate-gateway', 'CF-Connecting-IP': nextIp() })),
   'consume-redeemed': async () => {
     const digest = await registerConsume(fixtures.single.rpc, wallet)
     assert.equal((await uploadConsume(fixtures.single, digest)).status, 200)

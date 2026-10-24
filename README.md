@@ -1,6 +1,6 @@
 # access-gate-gateway
 
-[![npm](https://img.shields.io/npm/v/%40meddleware%2Fnft-gate-gateway)](https://www.npmjs.com/package/@meddleware/access-gate-gateway)
+[![npm](https://img.shields.io/npm/v/%40meddleware%2Faccess-gate-gateway)](https://www.npmjs.com/package/@meddleware/access-gate-gateway)
 [![Crates.io](https://img.shields.io/crates/v/access-gate-gateway)](https://crates.io/crates/access-gate-gateway)
 [![License: 0BSD](https://img.shields.io/badge/license-0BSD-blue)](LICENSE)
 
@@ -91,7 +91,7 @@ See [gateway-rust/README.md](gateway-rust/README.md) for the full configuration 
 **Signed message** — the client signs an audience-bound, human-readable message as a Sui personal message (ed25519, secp256k1, or secp256r1):
 
 ```text
-nft-gate:access:v2
+access-gate-gateway:access:v3
 origin:<this gateway's canonical origin>
 gate:<0x + 64 lower-case hex>
 network:<localnet|devnet|testnet|mainnet>

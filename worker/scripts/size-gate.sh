@@ -11,7 +11,7 @@ out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 # The build already ran; skip wrangler's [build] step by pointing a throwaway config at build/.
 cat > "$out/wrangler.dry.json" <<JSON
-{ "name": "nft-gate-size-gate", "main": "$PWD/build/index.js", "compatibility_date": "2026-06-01",
+{ "name": "access-gate-gateway-size-gate", "main": "$PWD/build/index.js", "compatibility_date": "2026-06-01",
   "durable_objects": { "bindings": [ { "name": "NONCE_STATE", "class_name": "NonceRateState" } ] },
   "migrations": [ { "tag": "v1", "new_sqlite_classes": ["NonceRateState"] } ] }
 JSON

@@ -23,7 +23,7 @@ const misconfigured = async (f, { cors = false } = {}) => {
   // /healthz and the preflight do not depend on the config; the 508 guard does not either.
   assert.equal((await f.call('GET', '/healthz')).status, 200)
   assert.equal((await f.call('OPTIONS', '/v1/challenge', { origin: ALLOWED_ORIGIN })).status, 204)
-  assert.equal((await f.call('GET', '/v1/challenge', { via: '1.1 nft-gate' })).status, 508)
+  assert.equal((await f.call('GET', '/v1/challenge', { via: '1.1 access-gate-gateway' })).status, 508)
 }
 
 describe('misconfiguration fails closed', () => {

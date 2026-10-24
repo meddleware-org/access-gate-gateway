@@ -24,7 +24,7 @@ and in the Cloudflare Worker (workers-rs). A platform is an adapter that supplie
 
 | Module | What it holds |
 | --- | --- |
-| `proof` | the access-proof token and the signed message (`nft-gate:access:v2`); strict decoding |
+| `proof` | the access-proof token and the signed message (`access-gate-gateway:access:v3`); strict decoding |
 | `sig` | Sui signature schemes: ed25519 (ZIP-215), secp256k1, secp256r1 (low-S); address helpers; multisig / zkLogin fail closed |
 | `decision` | `verify_access_request`: the allow / deny decision over `ChainQuery` and `NonceTake` |
 | `grpc`, `chain` | the hand-rolled protobuf and gRPC-web codec, the `Transport` port, and the Sui reads (`GetTransaction`, `ListOwnedObjects`, `GetObject`) |

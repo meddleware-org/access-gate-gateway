@@ -16,7 +16,7 @@ BINARYEN_SHA256=195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572
 ESBUILD_VERSION=0.28.2
 ESBUILD_SHA256=9573bb2233aab0f9ea7647d5cca9726113cc1768de61d66b17267f4db84488f6 # npm @esbuild/linux-x64; sha512 matches the registry's dist.integrity
 
-TOOLS_DIR="${TOOLS_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/nft-gate-build-tools}"
+TOOLS_DIR="${TOOLS_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/access-gate-gateway-build-tools}"
 mkdir -p "$TOOLS_DIR"
 
 fetch() { # url sha256 file

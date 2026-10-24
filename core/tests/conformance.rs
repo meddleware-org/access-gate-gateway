@@ -23,7 +23,7 @@ fn message_of(ctx: &serde_json::Value) -> anyhow::Result<Vec<u8>> {
 #[test]
 fn conformance_shared_vectors() {
     let v: serde_json::Value = serde_json::from_str(VECTORS).unwrap();
-    assert_eq!(v["version"], "nft-gate:access:v2");
+    assert_eq!(v["version"], "access-gate-gateway:access:v3");
     for c in v["personalMessage"]["cases"].as_array().unwrap() {
         let bytes = message_of(&c["context"]).unwrap();
         assert_eq!(

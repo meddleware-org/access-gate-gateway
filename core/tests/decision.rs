@@ -7,7 +7,7 @@ use access_gate_gateway_core::decision::{
     verify_access_request as decide, ChainQuery, Denied, NonceTake, Verified, VerifyParams,
 };
 use access_gate_gateway_core::proof::{
-    decode_access_proof, personal_message, AccessProof, MessageContext,
+    decode_access_proof, personal_message, AccessProof, MessageContext, ACCESS_MESSAGE_VERSION,
 };
 use access_gate_gateway_core::sig::{
     derive_address, normalize_address, signing_digest, verify_personal_message_signature,
@@ -165,7 +165,10 @@ fn secp256r1_signature_verifies_and_recovers_address() {
     let msg = signed_msg("r1-nonce");
     let digest = signing_digest(&msg);
     // p256 Signer applies SHA256 internally, matching Sui's ECDSA hash: SHA256(blake2b).
+    // Sui wallets emit low-S signatures and the verifier refuses the high-S twin (sig.rs), so normalise here: whether the
+    // raw signature is high-S depends on the message bytes.
     let sig: Signature = sk.sign(&digest);
+    let sig = sig.normalize_s();
     let mut serialized = vec![FLAG_SECP256R1];
     serialized.extend_from_slice(&sig.to_bytes());
     serialized.extend_from_slice(pk_bytes);
@@ -509,7 +512,7 @@ fn refuses_a_proof_made_for_another_gateway_gate_or_network() {
 }
 
 #[test]
-fn refuses_the_v1_message_and_a_cross_mode_signature() {
+fn refuses_the_v1_and_v2_messages_and_a_cross_mode_signature() {
     pollster::block_on(async {
         let (sk, address) = keypair();
         // v1: just "nft-gate:access:<nonce>" signed.
@@ -521,6 +524,24 @@ fn refuses_the_v1_message_and_a_cross_mode_signature() {
         let token = BASE64_STANDARD.encode(
         serde_json::to_vec(&json!({"address": address, "nonce": "aud-nonce", "signature": BASE64_STANDARD.encode(ser)})).unwrap(),
     );
+        let store = Nonces::default();
+        store.issue("aud-nonce");
+        let res = verify_access_request(&cfg(false), &store, &token, &chain_ok()).await;
+        assert_eq!(res.unwrap_err(), Denied::BadSignature);
+
+        // v2: the same audience lines under the retired `nft-gate:access:v2` domain (ADR-0004) are refused.
+        let v3 = String::from_utf8(msg_for("aud-nonce", None)).unwrap();
+        let v2 = v3
+            .replacen(ACCESS_MESSAGE_VERSION, "nft-gate:access:v2", 1)
+            .into_bytes();
+        assert_ne!(v2, v3.as_bytes());
+        let sig = sk.sign(&signing_digest(&v2));
+        let mut ser = vec![0x00];
+        ser.extend_from_slice(&sig.to_bytes());
+        ser.extend_from_slice(sk.verifying_key().as_bytes());
+        let token = BASE64_STANDARD.encode(
+            serde_json::to_vec(&json!({"address": address, "nonce": "aud-nonce", "signature": BASE64_STANDARD.encode(ser)})).unwrap(),
+        );
         let store = Nonces::default();
         store.issue("aud-nonce");
         let res = verify_access_request(&cfg(false), &store, &token, &chain_ok()).await;

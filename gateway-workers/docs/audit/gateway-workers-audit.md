@@ -2419,3 +2419,4 @@ PROXY lens:
 - [x] Executive summary reflects current dispositions.
 - [x] Counts and versions re-measured 2026-10-10.
 - [x] Re-verification log entry added (2026-10-22, F58; 2026-10-22 close-out).
+- 2026-10-24 — identifier alignment (`docs/architecture/ADR-0004-identifier-alignment.md`): verifies `access-gate-gateway:access:v3` and refuses v2 (new test), loop marker `Via: 1.1 access-gate-gateway` (F43 table updated); 207 tests pass against client 0.0.21. Superseded; rollback only.
