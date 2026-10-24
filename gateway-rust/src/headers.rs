@@ -2,10 +2,10 @@
 //! go, the `Via` loop marker, the safe-path rule) is `access_gate_gateway_core::headers`, shared with the
 //! Cloudflare Worker; this module only walks a native header map with it.
 
-use axum::http::{header, HeaderMap, HeaderName, HeaderValue};
 use access_gate_gateway_core::headers::{
     connection_named, drop_request_header, drop_response_header, VIA_TOKEN,
 };
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue};
 
 /// The values of `Connection`, joined: the fields it names are hop-by-hop for this message.
 fn named_by_connection(headers: &HeaderMap) -> Vec<String> {

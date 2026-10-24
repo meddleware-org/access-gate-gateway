@@ -105,9 +105,10 @@ fn run(args: &[String]) -> Result<bool, String> {
             println!("{} {detail}", state.as_str());
             Ok(true)
         }
-        _ => {
-            Err("usage: access-gate-gateway-ci check-upstream-auth|report-origin-check|classify-origin".into())
-        }
+        _ => Err(
+            "usage: access-gate-gateway-ci check-upstream-auth|report-origin-check|classify-origin"
+                .into(),
+        ),
     }
 }
 

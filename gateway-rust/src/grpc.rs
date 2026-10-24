@@ -2,8 +2,8 @@
 //! only the hyper-backed [`Transport`].
 use crate::config::AuthHeader;
 use crate::http_client::HttpClient;
-use bytes::Bytes;
 pub use access_gate_gateway_core::grpc::*;
+use bytes::Bytes;
 use std::time::Duration;
 
 /// [`Transport`] over the shared hyper-rustls [`HttpClient`].

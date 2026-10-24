@@ -1,10 +1,12 @@
 //! The shared golden vectors (`conformance/vectors.json`) run against `access-gate-gateway-core` — the same
 //! assertions as `gateway-rust` `verify::tests::conformance_shared_vectors`, but against the core
 //! crate alone, natively. The wasm32 build is checked by `worker/tests` through workerd.
-use base64::prelude::*;
 use access_gate_gateway_core::origin::is_canonical_origin;
-use access_gate_gateway_core::proof::{decode_access_proof, is_tx_digest, personal_message, MessageContext};
+use access_gate_gateway_core::proof::{
+    decode_access_proof, is_tx_digest, personal_message, MessageContext,
+};
 use access_gate_gateway_core::sig::{normalize_address, verify_personal_message_signature};
+use base64::prelude::*;
 
 const VECTORS: &str = include_str!("../../conformance/vectors.json");
 

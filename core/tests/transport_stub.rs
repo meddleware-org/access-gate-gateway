@@ -2,7 +2,9 @@
 //! scripted in-memory transport drives `SuiRpc` through GetTransaction (with the NOT_FOUND retry
 //! policy) and ListOwnedObjects (pagination), and the full `verify_access_request` decision.
 use access_gate_gateway_core::chain::SuiRpc;
-use access_gate_gateway_core::decision::{verify_access_request, ChainQuery, Denied, NonceTake, VerifyParams};
+use access_gate_gateway_core::decision::{
+    verify_access_request, ChainQuery, Denied, NonceTake, VerifyParams,
+};
 use access_gate_gateway_core::grpc::{frame, ProtoWriter, Transport};
 use std::cell::RefCell;
 use std::collections::VecDeque;

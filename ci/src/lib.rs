@@ -370,7 +370,10 @@ mod tests {
         for s in [401, 403] {
             let (st, _) = classify_origin_response(
                 s,
-                &h(&[("cf-access-domain", "walrus-storage-relay-origin.example.com")]),
+                &h(&[(
+                    "cf-access-domain",
+                    "walrus-storage-relay-origin.example.com",
+                )]),
             );
             assert_eq!(st, OriginLock::Locked);
         }

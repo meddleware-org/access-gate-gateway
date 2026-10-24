@@ -9,10 +9,10 @@ use crate::testkit::{
     broken_redis, gate_json, proof_token, string_struct, string_value, struct_of, test_signer,
     Reply, Seen, Stub,
 };
+use access_gate_gateway_core::config::GatewayConfig;
 use axum::body::Body;
 use axum::http::HeaderMap;
 use http_body_util::BodyExt;
-use access_gate_gateway_core::config::GatewayConfig;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tower::ServiceExt;

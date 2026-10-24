@@ -41,12 +41,12 @@ mod upstream;
 
 pub use do_state::NonceRateState;
 
-use config::WorkerConfig;
 use access_gate_gateway_core::chain::SuiRpc;
 use access_gate_gateway_core::config::Env as CoreEnv;
 use access_gate_gateway_core::gateway::{Gateway, JsonReply, Reply, RequestHead};
 use access_gate_gateway_core::headers::{cors_allowed_origin, via_is_looped};
 use access_gate_gateway_core::net::rate_key;
+use config::WorkerConfig;
 use out::{finish, Out};
 use state::{Budgets, DoState};
 use std::cell::RefCell;
