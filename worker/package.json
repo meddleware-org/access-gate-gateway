@@ -17,8 +17,12 @@
     "@meddleware/access-gate-gateway-client": "0.0.19",
     "@mysten/sui": "2.36.0",
     "esbuild": "0.28.2",
-    "smol-toml": "1.4.2",
+    "smol-toml": "1.9.1",
     "wrangler": "4.151.0"
+  },
+  "overrides": {
+    "undici": "7.30.1",
+    "zod": "4.6.7"
   },
   "allowScripts": {
     "esbuild": true,
