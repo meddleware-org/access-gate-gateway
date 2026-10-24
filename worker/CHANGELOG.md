@@ -3,6 +3,20 @@
 All notable changes to the Rust Cloudflare Worker (`nft-gate-worker`, not published to crates.io; built with `worker-build`) are documented here. It is versioned with the
 repository (one version for every artifact).
 
+## [0.0.31] - 2026-10-24
+
+### Security
+
+- `k256` and `p256` 0.14 (ECDSA verification for secp256k1 and secp256r1): they move to `crypto-bigint` 0.7.6, which fixes
+  RUSTSEC-2026-0387 (timing variability in constant-time operations). The low-S rule and the golden signature vectors are unchanged
+  (all 218 native tests and the workerd suites pass). `getrandom` 0.4 on `wasm32-unknown-unknown` needs the `wasm_js` backend
+  (`.cargo/config.toml`); it is never called on the verify path.
+
+### Added
+
+- `access-gate-gateway-core` and `access-gate-gateway` are published on crates.io (0.0.31 is the first version released by CI through trusted
+  publishing; 0.0.30 was uploaded by hand).
+
 ## [0.0.30] - 2026-10-24
 
 ### Changed

@@ -1,6 +1,6 @@
 {
   "name": "@meddleware/access-gate-gateway-worker-harness",
-  "version": "0.0.30",
+  "version": "0.0.31",
   "private": true,
   "type": "module",
   "description": "Black-box test harness and deploy tooling for the Rust Worker (wrangler + workerd). Test code only: no Worker logic lives here.",

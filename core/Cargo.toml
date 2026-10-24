@@ -20,8 +20,8 @@ hex = "0.4"
 # blake2 0.11 and ed25519-consensus: the same primitives Sui validators use (ZIP-215 for ed25519).
 blake2 = "0.11"
 ed25519-consensus = "2"
-k256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
-p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+k256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
 serde_json = "1"
 
 [dev-dependencies]
@@ -34,3 +34,6 @@ pollster = "1.0"
 # backend on wasm32-unknown-unknown unless "js" is set. Never called on the verify path.
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
+# crypto-bigint 0.7 (k256/p256 0.14) uses getrandom 0.4, which needs the wasm_js backend (feature here, cfg in
+# .cargo/config.toml). Never called on the verify path.
+getrandom04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }

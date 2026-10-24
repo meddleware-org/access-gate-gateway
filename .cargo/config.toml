@@ -1,0 +1,4 @@
+# getrandom 0.4 (via crypto-bigint 0.7, used by k256/p256 0.14) selects its browser/Workers backend with this cfg
+# on wasm32-unknown-unknown; the matching `wasm_js` feature is enabled in core/Cargo.toml.
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]

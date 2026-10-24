@@ -2,6 +2,12 @@
 
 All notable changes to `@meddleware/nft-gate-gateway` are documented here.
 
+## [0.0.31] - 2026-10-24
+
+### Security
+
+- The Rust gateway's signature libraries moved to `k256`/`p256` 0.14 (RUSTSEC-2026-0387). The Workers (TypeScript) code is unchanged; the version moves with the one-version rule. `undici` 7.30.1 and `zod` 4.6.7 are pinned through npm `overrides` past the new advisories.
+
 ## [0.0.30] - 2026-10-24
 
 ### Changed

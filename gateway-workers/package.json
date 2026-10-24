@@ -1,6 +1,6 @@
 {
   "name": "@meddleware/access-gate-gateway",
-  "version": "0.0.30",
+  "version": "0.0.31",
   "type": "module",
   "description": "Cloudflare Workers implementation of the access-gate gateway: a wire-identical, drop-in sibling of the Rust gateway that gates any HTTP upstream behind an access_gate NFT.",
   "license": "0BSD",

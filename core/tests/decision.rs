@@ -130,7 +130,7 @@ fn signature_verifies_and_recovers_address() {
 fn secp256k1_signature_verifies_and_recovers_address() {
     use k256::ecdsa::{signature::Signer, Signature, SigningKey as K1SigningKey};
     let sk = K1SigningKey::from_slice(&[9u8; 32]).unwrap();
-    let pk = sk.verifying_key().to_encoded_point(true);
+    let pk = sk.verifying_key().to_sec1_point(true);
     let pk_bytes = pk.as_bytes(); // 33-byte compressed
     let address = derive_address(FLAG_SECP256K1, pk_bytes);
 
@@ -158,7 +158,7 @@ fn secp256k1_signature_verifies_and_recovers_address() {
 fn secp256r1_signature_verifies_and_recovers_address() {
     use p256::ecdsa::{signature::Signer, Signature, SigningKey as R1SigningKey};
     let sk = R1SigningKey::from_slice(&[11u8; 32]).unwrap();
-    let pk = sk.verifying_key().to_encoded_point(true);
+    let pk = sk.verifying_key().to_sec1_point(true);
     let pk_bytes = pk.as_bytes();
     let address = derive_address(FLAG_SECP256R1, pk_bytes);
 

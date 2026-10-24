@@ -147,9 +147,9 @@ fn verify_secp256k1(address: &str, message: &[u8], body: &[u8]) -> bool {
         Ok(s) => s,
         Err(_) => return false,
     };
-    // Sui requires low-S; reject the high-S twin explicitly (k256 also does, but do not rely on
+    // Sui requires low-S; reject the high-S twin explicitly (normalize_s changes a high-S signature; k256 also does, but do not rely on
     // a library default for a consensus rule).
-    if sig.normalize_s().is_some() {
+    if sig.normalize_s() != sig {
         return false;
     }
     let pk_bytes = &body[64..97];
@@ -177,7 +177,7 @@ fn verify_secp256r1(address: &str, message: &[u8], body: &[u8]) -> bool {
     };
     // Sui requires low-S for secp256r1 too; `p256` does NOT enforce it on verify, so without this
     // check the gateway would accept the malleable high-S twin the chain and Workers reject.
-    if sig.normalize_s().is_some() {
+    if sig.normalize_s() != sig {
         return false;
     }
     let pk_bytes = &body[64..97];
