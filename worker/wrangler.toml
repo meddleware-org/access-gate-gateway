@@ -50,7 +50,7 @@ SUI_RPC_URL = "https://fullnode.testnet.sui.io:443"
 NETWORK = "testnet"
 # The public origin of THIS gateway, signed into every access proof (access-gate-gateway:access:v3): a proof made
 # for another gateway, gate or network is useless here. Must equal the route's hostname below.
-GATEWAY_ORIGIN = "https://sui-walrus-storage-relay-testnet.meddleware.co.uk"
+GATEWAY_ORIGIN = "https://sui-walrus-storage-relay-testnet.meddleware.dev"
 
 # Required: the pass type this gateway accepts, `<access_gate original id>::access_gate::AccessNFT`
 # or `…::SoulboundAccessNFT`. A public on-chain type, so a plain var (it was a secret until 0.0.14).
@@ -125,8 +125,8 @@ new_sqlite_classes = ["NonceRateState"]
 # Configured via CF API (route ID 63427e4dbf9b4428ad9c492487953551).
 # wrangler deploy will create/update this automatically.
 [[routes]]
-pattern = "sui-walrus-storage-relay-testnet.meddleware.co.uk/*"
-zone_name = "meddleware.co.uk"
+pattern = "sui-walrus-storage-relay-testnet.meddleware.dev/*"
+zone_name = "meddleware.dev"
 
 # ── optional quota guard (needs QUOTA_GUARD_ENABLED=true + the secrets above) ────────────────
 # [triggers]
