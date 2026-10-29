@@ -1,7 +1,9 @@
 # worker — the access-gate gateway as a Cloudflare Worker, in Rust
 
-**Status (0.0.29, 2026-10-22): built and tested; the shadow deploy has not been made.** This crate replaces the
-TypeScript Worker ([`../gateway-workers`](../gateway-workers/), still the live deployment and the rollback) 1:1,
+**Status (2026-10-29): live.** Cut over 2026-10-20; redeployed 2026-10-24 (rename) and 2026-10-27 (route and gateway
+origin on the machine zone, `sui-walrus-storage-relay-testnet.meddleware.dev`); upstream
+`walrus-storage-relay-origin.meddleware.dev`. This crate replaces the TypeScript Worker
+([`../gateway-workers`](../gateway-workers/), superseded; kept only as the rollback until it is retired) 1:1,
 under the maintainer's standing rule of no JS/TS backend code. All decisions are the shared
 [`access-gate-gateway-core`](../core/); this crate supplies only I/O: Durable Object state, a streamed `fetch` upstream, the
 gRPC-web `Transport` over `fetch`, CORS and the `scheduled` quota guard. Nothing is deployed by this repository's CI
