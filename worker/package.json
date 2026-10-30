@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "@meddleware/access-gate-gateway-client": "0.0.21",
-    "@mysten/sui": "2.36.0",
+    "@mysten/sui": "2.38.0",
     "esbuild": "0.28.2",
     "smol-toml": "1.9.1",
     "wrangler": "4.155.0"
