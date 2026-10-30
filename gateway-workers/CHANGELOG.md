@@ -2,6 +2,12 @@
 
 All notable changes to `@meddleware/nft-gate-gateway` are documented here.
 
+## [0.0.33] - 2026-10-30
+
+### Changed
+
+- Version alignment only (one version for every artifact); this Worker is superseded by the Rust Worker and kept as the rollback.
+
 ## [0.0.32] - 2026-10-24
 
 ### Changed

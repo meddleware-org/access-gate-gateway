@@ -22,7 +22,7 @@ crate-type = ["cdylib", "rlib"]
 test-hooks = []
 
 [dependencies]
-access-gate-gateway-core = { version = "=0.0.32", path = "../core" }
+access-gate-gateway-core = { version = "=0.0.33", path = "../core" }
 # workers-rs, wasm-bindgen and worker-build move together: the wasm-bindgen CLI that worker-build
 # downloads must be exactly the crate version, so every one of them is pinned (Dependabot ignores them).
 worker = { version = "=0.8.7", features = ["http"] }

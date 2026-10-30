@@ -16,7 +16,7 @@ name = "access-gate-gateway"
 path = "src/main.rs"
 
 [dependencies]
-access-gate-gateway-core = { version = "=0.0.32", path = "../core" }
+access-gate-gateway-core = { version = "=0.0.33", path = "../core" }
 axum = "0.7"
 # In-flight request cap + load shedding (MAX_CONCURRENT_REQUESTS); same tower as axum 0.7.
 tower = { version = "0.5", features = ["limit", "load-shed"] }

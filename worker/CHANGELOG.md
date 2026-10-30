@@ -3,6 +3,13 @@
 All notable changes to the Rust Cloudflare Worker (`nft-gate-worker`, not published to crates.io; built with `worker-build`) are documented here. It is versioned with the
 repository (one version for every artifact).
 
+## [0.0.33] - 2026-10-30
+
+### Changed
+
+- Dependency patch: the yanked `crypto-bigint` 0.7.6 is replaced by 0.7.10; wrangler 4.155.0. No behaviour change. The live Worker is redeployed from this version after a shadow check (see the runbook).
+- The relay route and gateway origin live on the machine zone (ADR-0005; deployed 2026-10-27 from 0.0.32).
+
 ## [0.0.32] - 2026-10-24
 
 ### Changed

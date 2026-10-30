@@ -65,7 +65,7 @@
   publication) **only through operator env**; the superseded `0xa55789…` / `0xfd6c3b…` appear only in
   the env-gated live test (F45, B.SC-1).
 
-**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release status 2026-10-19; decisions and F43 fix 2026-10-19; OQ9 decided 2026-10-19; core extraction (0.0.26) 2026-10-19; digest rule and response vectors (0.0.28) 2026-10-22; fix wave 2026-10-22, 0.0.29)
+**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release status 2026-10-19; decisions and F43 fix 2026-10-19; OQ9 decided 2026-10-19; core extraction (0.0.26) 2026-10-19; digest rule and response vectors (0.0.28) 2026-10-22; fix wave 2026-10-22, 0.0.29); 0.0.33 re-verified 2026-10-30 (dependency patch, ADR-0005 links)
 **Reviewer:** Internal review
 **Severity ceiling:** High — a verification bypass would admit unpaid traffic to the protected
   upstream, and a redemption-store failure would let one paid single-use consume buy unlimited

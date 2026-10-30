@@ -70,7 +70,7 @@
   consumed, `nft-gate:access:v2` proof, upload through this Worker; the indexer shows minted=1
   consumed=1.
 
-**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release and deployment status 2026-10-19; decisions and F43 fix 2026-10-19; OQ3/OQ4 and the plan work 2026-10-19; Rust-port note 2026-10-19; close-out 2026-10-22)
+**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release and deployment status 2026-10-19; decisions and F43 fix 2026-10-19; OQ3/OQ4 and the plan work 2026-10-19; Rust-port note 2026-10-19; close-out 2026-10-22); 0.0.33 re-verified 2026-10-30 (dependency patch, ADR-0005 links)
 **Reviewer:** Internal review
 **Severity ceiling:** High — the gateway is the only paywall in front of the operator's Walrus relay.
   A verification bypass gives unpaid uploads at the operator's cost, and a redemption flaw lets one
