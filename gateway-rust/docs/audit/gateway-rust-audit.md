@@ -6,7 +6,7 @@
   wire-identical sibling of `gateway-workers`; since 0.0.26 an I/O adapter on the shared `access-gate-gateway-core`
   crate in `../core`, which holds the decision logic once — F49)
 **Project type:** Rust service (+ container image + crates.io crate)
-**Template:** AUDIT_TEMPLATE.md (2026-10-08) + AUDIT_TEMPLATE_RUST.md (2026-10-08) +
+**Template:** AUDIT_TEMPLATE.md (2026-11-01) + AUDIT_TEMPLATE_RUST.md (2026-10-08) +
   AUDIT_TEMPLATE_SUI_CLIENT.md (2026-10-08) + AUDIT_TEMPLATE_WALRUS.md (2026-09-30) +
   AUDIT_TEMPLATE_IMG.md (2026-10-08) + AUDIT_TEMPLATE_AUTH.md (2026-10-08) +
   AUDIT_TEMPLATE_PROXY.md (2026-10-08)

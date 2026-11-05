@@ -6,8 +6,8 @@
   the **live** NFT-gated front of the Meddleware Walrus upload relay; wire-identical sibling of
   `gateway-rust`)
 **Project type:** Cloudflare Worker (TypeScript) + npm package (ships source)
-**Template:** AUDIT_TEMPLATE.md (2026-10-08) + AUDIT_TEMPLATE_WORKERS.md (2026-10-02) +
-  AUDIT_TEMPLATE_TS.md (2026-10-08) + AUDIT_TEMPLATE_SUI_CLIENT.md (2026-10-08) +
+**Template:** AUDIT_TEMPLATE.md (2026-11-01) + AUDIT_TEMPLATE_WORKERS.md (2026-10-02) +
+  AUDIT_TEMPLATE_TS.md (2026-11-01) + AUDIT_TEMPLATE_SUI_CLIENT.md (2026-10-08) +
   AUDIT_TEMPLATE_WALRUS.md (2026-09-30) + AUDIT_TEMPLATE_AUTH.md (2026-10-08) +
   AUDIT_TEMPLATE_PROXY.md (2026-10-08)
 **Deployment status:**
