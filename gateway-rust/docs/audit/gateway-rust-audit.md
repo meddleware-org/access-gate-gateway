@@ -12,6 +12,7 @@
   AUDIT_TEMPLATE_PROXY.md (2026-10-08)
 **Deployment status:**
 
+- **Current (2026-11-05): 0.0.33 is released** (tag `v0.0.33`, 2026-10-30; crates.io `access-gate-gateway-core` and `access-gate-gateway`, the npm sibling and the image; the crates' `crates-publish` run 41095540833 green). This crate remains **not deployed**, by decision (OQ9). What is live is the Rust Worker built on the same core (`worker/`, audited in `gateway-workers`' audit F51–F57): last deployed 2026-10-27 (`Deploy Worker (Rust)` run 40489741990, `4c167ac`, which already carries the patched `crypto-bigint`; 0.0.33 changes no code the Worker runs). Releases since 0.0.29: 0.0.30 (rename to `access-gate-gateway`, ADR-0003), 0.0.31 (`k256`/`p256` 0.14 for RUSTSEC-2026-0387; first CI trusted-publishing release of the crates), 0.0.32 (**wire break, ADR-0004:** proofs are verified against `access-gate-gateway:access:v3`, a v2 proof is refused; loop marker `Via: 1.1 access-gate-gateway`), 0.0.33 (yanked `crypto-bigint` 0.7.6 → 0.7.10; machine-zone documentation). The delta review is in the log entry of 2026-11-05 and F59. Everything below is the earlier history and is kept as written.
 - **0.0.26 is committed locally** (2026-10-19, unreleased): the decision logic moves into the shared crate
   `access-gate-gateway-core` (`core/`, a Cargo workspace at the repository root) and this crate becomes an I/O adapter on it
   (F49, F50). Behaviour is unchanged apart from two stricter configuration checks; the 117 + 3 ignored tests are
@@ -65,13 +66,13 @@
   publication) **only through operator env**; the superseded `0xa55789…` / `0xfd6c3b…` appear only in
   the env-gated live test (F45, B.SC-1).
 
-**Review date:** 2026-10-03 (re-verified 2026-10-09; fix wave 2026-10-10; release status 2026-10-19; decisions and F43 fix 2026-10-19; OQ9 decided 2026-10-19; core extraction (0.0.26) 2026-10-19; digest rule and response vectors (0.0.28) 2026-10-22; fix wave 2026-10-22, 0.0.29); 0.0.33 re-verified 2026-10-30 (dependency patch, ADR-0005 links)
+**Review date:** 2026-10-03 (delta review 2026-11-05 of 0.0.30–0.0.33; F59; re-verified 2026-10-09; fix wave 2026-10-10; release status 2026-10-19; decisions and F43 fix 2026-10-19; OQ9 decided 2026-10-19; core extraction (0.0.26) 2026-10-19; digest rule and response vectors (0.0.28) 2026-10-22; fix wave 2026-10-22, 0.0.29); 0.0.33 re-verified 2026-10-30 (dependency patch, ADR-0005 links)
 **Reviewer:** Internal review
 **Severity ceiling:** High — a verification bypass would admit unpaid traffic to the protected
   upstream, and a redemption-store failure would let one paid single-use consume buy unlimited
   uploads. The gateway holds no user funds and signs nothing on-chain, so nothing here reaches
   Critical.
-**Status:** Fix wave 2026-10-22 (0.0.29, committed locally, unreleased) — F10 (rate-limiter maps), F25 (clock read) and the licence-notices part of F29 are done; 43 findings dispositioned (29 RESOLVED, 3 MITIGATED, 6 ADJUDICATED, 2 ACCEPTED-RISK, 3 DEFERRED) plus 8 Positive.
+**Status:** Delta review 2026-11-05 (0.0.30–0.0.33, released; F59 added, ACCEPTED-RISK; the counts below are as of 2026-10-22 and gain one ACCEPTED-RISK). Fix wave 2026-10-22 (0.0.29, released) — F10 (rate-limiter maps), F25 (clock read) and the licence-notices part of F29 are done; 43 findings dispositioned (29 RESOLVED, 3 MITIGATED, 6 ADJUDICATED, 2 ACCEPTED-RISK, 3 DEFERRED) plus 8 Positive.
   Digest rule and response vectors 2026-10-22 (0.0.28, released as v0.0.28 = `a6b86ae`; `gateway-rust` itself stays undeployed by decision OQ9) — F51 added (the core's consume-digest check was
   shape-only; RESOLVED): 43 findings dispositioned (27 RESOLVED, 4 MITIGATED, 6 ADJUDICATED, 3 ACCEPTED-RISK, 3 DEFERRED) plus 8 Positive.
   Core extraction 2026-10-19 (0.0.26, committed locally, unreleased) — 42 findings dispositioned (26 RESOLVED,
@@ -91,8 +92,8 @@
   server is a hyper HTTP/1 accept loop (`serve` in `main.rs`) with a `TokioTimer`
 
 **Sui SDK:** none — hand-rolled gRPC-web + protobuf client (`core/src/grpc.rs`, `core/src/chain.rs`; the hyper `Transport` is `src/grpc.rs`); crypto
-  via `ed25519-consensus` 2.1.0, `k256` 0.13.4, `p256` 0.13.2 (the 0.14 major was declined on
-  2026-10-09), `blake2` 0.11.0 on `main` (0.10.6 in the tagged 0.0.21)
+  via `ed25519-consensus` 2.1.0, `k256` 0.14.0, `p256` 0.14.0 and `ecdsa` 0.17.0 (the 0.14 major was declined on
+  2026-10-09 and merged on 2026-10-24 in 0.0.31 for RUSTSEC-2026-0387; lockfile read 2026-11-05), `blake2` 0.11.0
 **Transport:** gRPC-web (`application/grpc-web+proto`, HTTP/1.1) — no JSON-RPC
 **Networks:** any — the network is `NETWORK` (signed into every proof) plus `SUI_RPC_URL` + `NFT_TYPE`
   + `GATE_ID` (operator env)
@@ -1258,7 +1259,7 @@ soonest-to-expire lease). Committed entries are never evicted.
   green, `verify.rs` unchanged).
 - ed25519 via `ed25519-consensus` (ZIP-215; `ed25519-dalek` 3.0.0 is a dev-dependency used to sign
   test fixtures only).
-- secp256k1 and secp256r1 reject high-S explicitly (`normalize_s().is_some()` ⇒ reject).
+- secp256k1 and secp256r1 reject high-S explicitly (since `k256`/`p256` 0.14 `normalize_s()` returns the normalised signature, so a signature that differs from its normalisation is high-S ⇒ reject: `sig.normalize_s() != sig`; 0.0.31). F59 records which of the two checks the tests pin.
 - The address is `blake2b(flag ‖ pk)`, normalised.
 - Flags 0x03/0x05 have named constants and fail closed; 0x06 falls to `_ => false`.
 - Pinned by the shared vectors (`conformance_shared_vectors`), including every negative and the
@@ -1608,6 +1609,14 @@ produces were asserted only by this repository's own tests, so a change in one i
   vectors (gateway-workers F58; `worker/tests/conformance.test.mjs`, 15 of 16 black box).
 - `scripts/sync-vectors.mjs` takes a `ACCESS_GATE_GATEWAY_CLIENT_VECTORS` path for the step before a client release is published; it is refused when `CI` is set, so the CI `--check` still compares with the published package.
 
+### F59 — Only the secp256r1 low-S check is pinned by a test; the secp256k1 check is defence in depth
+
+**Severity:** Info   **Disposition:** ACCEPTED-RISK
+**Where:** `core/src/sig.rs::verify_secp256k1` and `verify_secp256r1` (`sig.normalize_s() != sig`); `conformance/vectors.json` `negativeSignatures` ("secp256k1 high-S", "secp256r1 high-S").
+**Issue:** Sui requires low-S and the gateway checks it explicitly in both ECDSA verifiers rather than relying on a library default. Mutation check on 2026-11-05 (the condition replaced by `false &&`, then reverted, `cargo test -p access-gate-gateway-core --test conformance`): with the **secp256r1** check disabled the shared vectors fail (the "secp256r1 high-S" case is accepted), so that check is pinned; with the **secp256k1** check disabled the vectors still pass, because `k256`'s own `verify` refuses a high-S signature, so the explicit k1 check is currently redundant and no test would notice its removal. Disabling both fails the suite (through the r1 vector).
+**Impact:** none today: both curves reject high-S. The vectors pin the combined outcome (the explicit check or the library, whichever refuses), so removing the explicit secp256k1 check would not fail a test while `k256` enforces low-S; a later `k256` that stopped enforcing it would then be caught by the k1 vector, not by a test of the check.
+**Remediation / evidence:** accepted: the explicit check is kept as the comment in `sig.rs` says (a consensus rule is not left to a library default) and the vectors pin the observable behaviour for both curves, which is what a consumer depends on. Not changed.
+
 ---
 
 ## Section A — Invariant verification matrix
@@ -1674,7 +1683,7 @@ version updates are configured and were triaged on 2026-10-09 (Scope).
 | `hyper-rustls` / `rustls` / `webpki-roots` | 0.27.10 / 0.23.46 / 1.0.9 | TLS to RPC + upstream | cargo-deny (CI) | baked-in roots; rebuild to refresh. rustls 0.23.46 fixes RUSTSEC-2026-0346/-0347 and the Brotli advisory (in 0.0.23; 0.0.22 carried 0.23.45) |
 | `tokio` / `tower` | 1.53.3 / 0.5.3 | runtime; load shedding | cargo-deny (CI) | |
 | `ed25519-consensus` | 2.1.0 | ed25519 verify path | cargo-deny (CI) | ZIP-215 |
-| `k256` / `p256` / `ecdsa` | 0.13.4 / 0.13.2 / 0.16.9 | ECDSA verify path | cargo-deny (CI) | low-S enforced explicitly. The 0.14 major was declined 2026-10-09 (PRs #4, #6 closed); the repo's `dependabot.yml` carries no `ignore` entry for `k256`/`p256` (it gained `ignore` rules for other majors on 2026-10-19), so an ignore for them, if set, lives on the GitHub side and is not verifiable here |
+| `k256` / `p256` / `ecdsa` | 0.14.0 / 0.14.0 / 0.17.0 (lockfile, 2026-11-05) | ECDSA verify path | cargo-deny (CI; `cargo deny check` clean 2026-11-05) | low-S enforced explicitly (F59). The 0.14 major was declined 2026-10-09 (PRs #4, #6 closed) and adopted 2026-10-24 (0.0.31): `crypto-bigint` 0.7 fixes RUSTSEC-2026-0387 (timing variability in constant-time operations); it needs `getrandom` 0.4 with the `wasm_js` backend on `wasm32-unknown-unknown` (`.cargo/config.toml`, `core/Cargo.toml`), never called on the verify path. `crypto-bigint` 0.7.6 was then yanked and replaced by 0.7.10 in 0.0.33 (the live Worker was redeployed on it, 2026-10-27, `4c167ac`) |
 | `blake2` / `sha2` | 0.10.6 (0.11.0 on `main`, `85b18e1`, Dependabot) / 0.10.9 (+0.9.9, 0.11.0 transitive) | intent hash, address | cargo-deny (CI) | the 0.11 bump changed only `Cargo.toml`/`Cargo.lock`; CI (vectors included) green. The 0.0.21 crate and image still carry 0.10.6 |
 | `redis` | 0.27.6 (`script`, `connection-manager`) | Redis backend — fails **closed** | cargo-deny (CI) | `GETDEL` needs Redis ≥ 6.2 / Dragonfly |
 | `rand_core` (OsRng) | 0.6.4 | nonce and lease-token generation | cargo-deny (CI) | 24-byte tokens |
@@ -1986,7 +1995,7 @@ in front of any upstream if a revisit trigger fires. Items ticked have evidence 
 - **Supply chain & release integrity:**
   - `Cargo.lock` is committed, and actions and base images are pinned by SHA/digest; Dependabot (weekly,
     grouped) keeps them current and was triaged on 2026-10-09 (`k256`/`p256` 0.14, TypeScript 7,
-    vitest 5 declined; `blake2` 0.11 and `ed25519-dalek` 3 merged).
+    vitest 5 declined; `blake2` 0.11 and `ed25519-dalek` 3 merged; `k256`/`p256` 0.14 adopted 2026-10-24 for RUSTSEC-2026-0387).
   - cargo-deny (advisories, licences, sources) and a coverage figure run in CI, and the published image is scanned with Trivy before it is signed (F28, F29).
   - crates.io uses OIDC; image registries use tokens without an inventory (F30, maintainer item).
   - The release job runs the same workflow as CI.
@@ -2296,7 +2305,7 @@ PROXY lens:
     volatile redemptions development-only (OQ3); small-body scope, kept at parity, not deployed (OQ4);
     consume age bound (OQ5); commit-failure behaviour kept (OQ6); public paths `GET`/`HEAD` (OQ7);
     vectors published by access-gate-gateway-client; GatePolicy and pass kind immutable; `k256`/`p256` 0.14 major
-    declined; repo-local audit canonical. OQ8, OQ9 and the new OQ10 stay open (image source, the
+    declined 2026-10-09, adopted 2026-10-24 (0.0.31); repo-local audit canonical. OQ8, OQ9 and the new OQ10 stay open (image source, the
     decision to deploy, the live-test fixture).
   - Cross-audit note: `gateway-workers-audit.md` B.SC-3 lists a success check and full pagination for
     Rust; the code has neither (F17, F21). That table needs a correction on the Workers side.
@@ -2415,6 +2424,7 @@ PROXY lens:
     `scripts/check-versions.sh` passes (0.0.29); rootless `podman build --target notices -f gateway-rust/Dockerfile .` succeeds and the file holds 175 crates (Apache-2.0 108, MIT 34, Unicode-3.0 19, BSD-3-Clause 7, ISC 4, 0BSD 2, CDLA-Permissive-2.0 1); the full rootless `podman build -f gateway-rust/Dockerfile .` succeeds and the image holds `/app/THIRD_PARTY_LICENSES.txt` (239,281 bytes, identical to the stage output) beside `/app/Cargo.lock`.
   - **Counts:** **29 RESOLVED, 3 MITIGATED** (F27, F29, F49), **6 ADJUDICATED, 2 ACCEPTED-RISK** (F11, F34), **3 DEFERRED** (F30, F31, F32); 8 Positive.
   - **Not done / not verified here:** a GitHub run of the new `notices` job and of the Docker publish with the added stage (CI runs them on push; the local rootless build stands in); the Worker's workerd suites (the core change is additive: `RateTable::check` is unchanged).
+- 2026-11-05 — delta review of 0.0.30–0.0.33 (the last full pass was 0.0.29, 2026-10-22; the 2026-10-30 mark said only "0.0.33 re-verified (dependency patch, ADR-0005 links)"). Read the diffs `v0.0.29..HEAD` for `core/src/sig.rs`, `core/Cargo.toml`, `.cargo/config.toml`, `core/tests/decision.rs`, the three CHANGELOGs and the Dependabot bumps. Ran, on the stable toolchain with the lockfile: `cargo test --workspace --locked` (230 tests across the workspace, 0 failed, 3 ignored live-chain tests), `cargo fmt --check` (clean), `cargo clippy --workspace --all-targets --locked -- -D warnings` (clean), `cargo deny check` (advisories, bans, licences, sources ok). Findings: (1) this audit's dependency statements were stale — `k256`/`p256`/`ecdsa` are 0.14.0/0.14.0/0.17.0 in the lockfile since 0.0.31 (RUSTSEC-2026-0387 in `crypto-bigint`), where the text said 0.13.x with the 0.14 major declined; the header, the low-S invariant text (the code is `sig.normalize_s() != sig` since the 0.14 API returns the normalised signature), the B.SC-3 row, the supply-chain bullet and the open-question summary are corrected; (2) the Deployment status block ended at 0.0.26 "committed locally": a current bullet is added on top (0.0.30–0.0.33, what is live, last Worker deploy 2026-10-27 at `4c167ac`); (3) F59 (new, ACCEPTED-RISK): a mutation check shows the secp256r1 low-S check is pinned by the shared vectors and the secp256k1 one is redundant with `k256`'s own verify. The ADR-0004 break (v3 proof message, v2 refused; `Via: 1.1 access-gate-gateway`) is covered by `decision.rs` (`refuses_the_v1_and_v2_messages_and_a_cross_mode_signature`) and the shared vectors. Not re-run: the `worker/` workerd suites and the differential run (they need the wasm toolchain and workerd; the Worker's own 12 Rust unit tests ran with the workspace), the live paywall run (the Worker was not redeployed in this pass), signatures and provenance of the 0.0.33 artefacts. Lens check: A11Y not triggered (no UI); the template line's base date is re-cited to the 2026-11-01 registry (the base gained the A11Y code only); RUST row unchanged. Counts: the 2026-10-22 counts plus 1 ACCEPTED-RISK (F59).
 
 ## Pre-save consistency checklist (this pass)
 
