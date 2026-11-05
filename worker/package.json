@@ -14,11 +14,11 @@
     "test:diff": "node tests/prepare.mjs && node --test --test-concurrency=1 --test-timeout=600000 tests/differential.diff.mjs"
   },
   "devDependencies": {
-    "@meddleware/access-gate-gateway-client": "0.0.21",
+    "@meddleware/access-gate-gateway-client": "0.0.22",
     "@mysten/sui": "2.38.0",
     "esbuild": "0.28.2",
     "smol-toml": "1.9.1",
-    "wrangler": "4.155.0"
+    "wrangler": "4.156.1"
   },
   "overrides": {
     "undici": "7.30.1",
