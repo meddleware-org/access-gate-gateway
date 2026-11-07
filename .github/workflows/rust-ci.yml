@@ -149,6 +149,14 @@ jobs:
       - name: Build (deployed variant and test-hooks variant)
         run: bash worker/scripts/build.sh all
 
+      # The deployed bundle must not contain the test-hooks feature (audit F59); the self-test proves the guard
+      # fails on the hooks variant.
+      - name: Production bundle has no test-hooks code
+        working-directory: worker
+        run: |
+          bash scripts/assert-prod-build.sh build
+          bash scripts/assert-prod-build.sh --self-test build-hooks
+
       - name: Size gate (wrangler deploy --dry-run, gzip total <= 1.5 MiB)
         working-directory: worker
         run: bash scripts/size-gate.sh 1536

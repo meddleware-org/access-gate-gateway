@@ -1,0 +1,44 @@
+# Fuzz targets for access-gate-gateway-core (cargo-fuzz / libFuzzer). Deliberately NOT part of the repository
+# workspace: it needs a nightly toolchain and a sanitizer runtime, so the empty `[workspace]` table below makes
+# this directory its own workspace root and keeps it out of `cargo build --workspace`, `cargo test --workspace`,
+# `cargo deny` and every default CI job. Run it by hand or with .github/workflows/fuzz.yml (see README.md).
+[package]
+name = "access-gate-gateway-core-fuzz"
+version = "0.0.0"
+edition = "2021"
+license = "0BSD"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+base64 = "0.22"
+serde_json = "1"
+access-gate-gateway-core = { path = ".." }
+
+[workspace]
+
+# `test = false` / `doc = false` / `bench = false`: these are libFuzzer binaries, not cargo tests.
+[[bin]]
+name = "grpc"
+path = "fuzz_targets/grpc.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proof"
+path = "fuzz_targets/proof.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sig"
+path = "fuzz_targets/sig.rs"
+test = false
+doc = false
+bench = false

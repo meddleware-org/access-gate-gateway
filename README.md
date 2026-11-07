@@ -14,16 +14,14 @@ deployment target:
 
 | Implementation | Directory | Distributed as | Deploy target | State backend |
 | --- | --- | --- | --- | --- |
-| Cloudflare Workers (live, TypeScript; superseded pending cutover) | [`gateway-workers/`](gateway-workers/) | [npm package](https://www.npmjs.com/package/@meddleware/access-gate-gateway) | Wrangler deploy | Durable Objects or KV |
-| Cloudflare Workers (Rust; built, shadow not yet deployed) | [`worker/`](worker/) | built from source (`worker-build`) | `deploy-worker-rust.yml` (shadow, then cutover) | Durable Objects |
+| Cloudflare Workers (Rust; live since 2026-10-20) | [`worker/`](worker/) | built from source (`worker-build`) | `deploy-worker-rust.yml` (shadow, then cutover) | Durable Objects |
+| Cloudflare Workers (TypeScript; superseded, the rollback until retired) | [`gateway-workers/`](gateway-workers/) | [npm package](https://www.npmjs.com/package/@meddleware/access-gate-gateway) | Wrangler deploy | Durable Objects or KV |
 | Rust / Axum | [`gateway-rust/`](gateway-rust/) | [crates.io](https://crates.io/crates/access-gate-gateway) / Docker | Docker / k8s | In-memory or Redis |
 
-The live Workers gateway is still TypeScript (`gateway-workers/`) and is **superseded, pending cutover, by a Rust
-Worker (workers-rs) built on the same core**: [`worker/`](worker/) (0.0.29) is built and tested (workerd suites that
-port every behavioural case of the TypeScript tests, plus a differential run against it), but not yet deployed. The
-maintainer deploys it as a shadow first and cuts over after reading the CPU-time p99 in Workers analytics; the
-TypeScript gateway stays as the rollback until then and is retired afterwards, leaving one implementation of the
-logic on both platforms. See [worker/README.md](worker/README.md) (build, test map, runbook).
+The live Workers gateway is the Rust Worker (workers-rs) built on the same core: [`worker/`](worker/) has served the paywall since the
+2026-10-20 cutover (workerd suites that port every behavioural case of the TypeScript tests, plus a differential run against it). The
+TypeScript gateway (`gateway-workers/`) is superseded and stays only as the rollback until the maintainer retires it, leaving one
+implementation of the logic on both platforms. See [worker/README.md](worker/README.md) (build, test map, runbook).
 
 Both gateways serve the same wire protocol and verify the same [conformance vectors](conformance/).
 

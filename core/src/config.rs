@@ -240,7 +240,12 @@ pub fn parse_rpc_auth_header(raw: Option<&str>) -> anyhow::Result<Option<AuthHea
 pub fn check_scheme(var: &str, url: &str, allow_http: bool) -> anyhow::Result<()> {
     if url.starts_with("https://") || (allow_http && url.starts_with("http://")) {
         let after = url.find("://").map_or(0, |i| i + 3);
-        let authority = url[after..].split(['/', '?', '#']).next().unwrap_or("");
+        let authority = url
+            .get(after..)
+            .unwrap_or("")
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or("");
         if authority.contains('@') {
             anyhow::bail!("{var} must not carry credentials (use the auth header variables)");
         }

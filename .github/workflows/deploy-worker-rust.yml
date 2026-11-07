@@ -120,6 +120,10 @@ jobs:
       - name: Build the Worker (the same command wrangler.toml runs)
         run: bash scripts/build.sh prod
 
+      # The bundle about to be deployed must not contain the test-hooks feature (audit F59).
+      - name: Production bundle has no test-hooks code
+        run: bash scripts/assert-prod-build.sh build
+
       # The Rust CLI uses the core's own parser: no TypeScript in the deploy path. With the repository
       # variable UPSTREAM_CHECK_URL set, the origin must also accept the headers (curl reads them from a
       # 0600 config file, never from the command line).

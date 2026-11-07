@@ -115,7 +115,7 @@ for the on-chain side.
 
 ## Gateway selection guide
 
-| Use `worker/` (Rust) / `gateway-workers/` (TypeScript, superseded pending cutover) if | Use `gateway-rust/` if |
+| Use `worker/` (Rust) / `gateway-workers/` (TypeScript, superseded, the rollback) if | Use `gateway-rust/` if |
 | --- | --- |
 | Zero-infra Wrangler deploy | Docker / k8s / bare metal |
 | Cloudflare edge distribution | Redis for horizontal scale-out |

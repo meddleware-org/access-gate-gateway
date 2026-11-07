@@ -1,9 +1,9 @@
 # CLAUDE.md — gateway-workers
 
-## Status: superseded, pending cutover (0.0.27)
+## Status: superseded by the Rust Worker (live since 2026-10-20); kept as the rollback
 
-Replaced 1:1 by the Rust Worker `../worker` (workers-rs on `access-gate-gateway-core`), which is built and tested but not yet deployed; this package is the live deployment and the
-rollback until the maintainer's shadow deploy, CPU-time gate and cutover (`../worker/README.md` "Runbook"), then it is retired. Do not add features here. A behavioural change goes
+Replaced 1:1 by the Rust Worker `../worker` (workers-rs on `access-gate-gateway-core`), which has been the live deployment since the 2026-10-20 cutover; this package is only the
+rollback until the maintainer retires it (`../worker/README.md` "Runbook"). Do not add features here. A behavioural change goes
 in the core and the Rust Worker; `../worker/tests/differential.diff.mjs` fails when this Worker and the Rust Worker diverge, so a change made here alone is caught.
 
 ## What this package is

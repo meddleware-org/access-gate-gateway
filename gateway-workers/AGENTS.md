@@ -2,7 +2,7 @@
 
 ## Status
 
-Superseded, pending cutover (0.0.27): the Rust Worker `../worker` replaces this package; keep it working (it is live and the rollback), add nothing. See `../worker/README.md`.
+Superseded: the Rust Worker `../worker` has replaced this package (live since 2026-10-20); keep it working (it is the rollback until retired), add nothing. See `../worker/README.md`.
 
 ## Package
 

@@ -4,12 +4,11 @@
 
 This policy covers security issues in:
 
-- The gateway implementations — `gateway-workers/` (TypeScript, Cloudflare Workers; live, superseded pending cutover), `worker/`
-  (Rust, Cloudflare Workers; built, not yet deployed) and `gateway-rust/` (Rust/Axum) — including signature-verification bypass, nonce replay, single-use
+- The gateway implementations — `worker/` (Rust, Cloudflare Workers; the live deployment since the 2026-10-20 cutover), `gateway-workers/`
+  (TypeScript, Cloudflare Workers; superseded, kept only as the rollback until it is retired) and `gateway-rust/` (Rust/Axum) — including signature-verification bypass, nonce replay, single-use
   double-spend, consume-event forgery, open-proxy/SSRF, header injection, secret disclosure, and any
   behavioural divergence between the two implementations
-- The shared decision logic, `core/` (the `access-gate-gateway-core` crate, used by `gateway-rust/` and by the Rust Worker `worker/` that is
-  replacing the TypeScript one), and the CI helper `ci/`
+- The shared decision logic, `core/` (the `access-gate-gateway-core` crate, used by `gateway-rust/` and by the Rust Worker `worker/`), and the CI helper `ci/`
 - The shared wire protocol and conformance vectors (`conformance/vectors.json`)
 - The published artifacts (`@meddleware/access-gate-gateway` npm package, `access-gate-gateway` and `access-gate-gateway-core` crates,
   container images)

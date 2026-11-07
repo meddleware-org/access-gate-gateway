@@ -124,7 +124,9 @@ impl<'a> Iterator for ProtoReader<'a> {
                 Some(Field::Varint(field, v))
             }
             2 => {
-                let len = self.read_varint()? as usize;
+                // `try_from`, not `as`: on wasm32 `usize` is 32 bits and `as` would truncate a length of 2^32 + n to n
+                // (audit F60); a length that does not fit is a length the buffer cannot hold.
+                let len = usize::try_from(self.read_varint()?).ok()?;
                 let start = self.pos;
                 let end = start.checked_add(len)?;
                 if end > self.buf.len() {
@@ -266,6 +268,9 @@ pub fn frame(msg: &[u8]) -> Vec<u8> {
     out
 }
 
+/// The trailer line that carries the status (compared case-insensitively).
+const GRPC_STATUS_PREFIX: &str = "grpc-status:";
+
 /// Parse a `grpc-status` value.
 fn parse_status(v: &str) -> Option<i64> {
     v.trim().parse::<i64>().ok()
@@ -302,9 +307,15 @@ pub fn unframe(grpc_status_header: Option<&str>, body: &[u8]) -> anyhow::Result<
         if flag & 0x80 != 0 {
             // Trailer frame: an HTTP-header block, e.g. "grpc-status:0\r\ngrpc-message:...".
             for line in String::from_utf8_lossy(frame).split("\r\n") {
+                // `get`, not slicing: lossy decoding yields multi-byte replacement characters, and byte 12 of a
+                // hostile trailer may fall inside one (a `str` slice there panics: audit F58).
                 let line = line.trim();
-                if line.len() > 12 && line[..12].eq_ignore_ascii_case("grpc-status:") {
-                    grpc_status = parse_status(&line[12..]);
+                if let Some(value) = line
+                    .get(..GRPC_STATUS_PREFIX.len())
+                    .filter(|p| p.eq_ignore_ascii_case(GRPC_STATUS_PREFIX))
+                    .and_then(|_| line.get(GRPC_STATUS_PREFIX.len()..))
+                {
+                    grpc_status = parse_status(value);
                 }
             }
         } else {
@@ -411,6 +422,24 @@ mod proptests {
             let _ = value_field(&buf, "paused").and_then(value_as_bool);
         }
 
+        // Trailer frames with arbitrary text (including multi-byte and invalid UTF-8) never panic (audit F58).
+        #[test]
+        fn trailer_frames_never_panic(
+            payload in proptest::collection::vec(any::<u8>(), 0..64),
+            tail in proptest::collection::vec(any::<u8>(), 0..16),
+        ) {
+            let mut body = vec![0x80];
+            body.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+            body.extend_from_slice(&payload);
+            body.extend_from_slice(&tail);
+            let _ = unframe(None, &body);
+            let text: String = String::from_utf8_lossy(&payload).into_owned();
+            let mut body = vec![0x80];
+            body.extend_from_slice(&(text.len() as u32).to_be_bytes());
+            body.extend_from_slice(text.as_bytes());
+            let _ = unframe(None, &body);
+        }
+
         #[test]
         fn unframe_never_panics_and_respects_the_cap(buf in proptest::collection::vec(any::<u8>(), 0..512)) {
             if let Ok(msg) = unframe(None, &buf) {
@@ -469,6 +498,70 @@ mod tests {
     fn unframe_fails_closed_without_a_status() {
         // A data frame with no trailer and no grpc-status header is not a complete response.
         assert!(unframe(None, &frame(b"msg")).is_err());
+    }
+
+    fn trailer_frame(payload: &[u8]) -> Vec<u8> {
+        let mut body = vec![0x80];
+        body.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        body.extend_from_slice(payload);
+        body
+    }
+
+    /// Audit F58: byte 12 of a trailer line fell inside a multi-byte character (a lossy-decoding replacement
+    /// character, or a real one) and `line[..12]` panicked. Found by the `grpc` fuzz target; this is its minimised input.
+    #[test]
+    fn a_trailer_line_with_a_multibyte_character_at_byte_12_is_not_a_panic() {
+        // The fuzzer's minimised input after the selector byte: 0x80, length 15, then invalid UTF-8 that decodes to
+        // U+FFFD (3 bytes each), so bytes 10..13 of the line are one character.
+        let fuzz = [
+            128u8, 0, 0, 0, 15, 255, 0, 231, 231, 231, 231, 231, 231, 231, 0, 231, 231, 231, 231,
+            255,
+        ];
+        assert!(unframe(None, &fuzz).is_err());
+        // With a status in the HTTP headers the unreadable trailer changes nothing.
+        assert_eq!(unframe(Some("0"), &fuzz).unwrap(), Vec::<u8>::new());
+        // The same with valid UTF-8: "grpc-status" is 11 bytes, then a two-byte character covers bytes 11..13.
+        for line in [
+            "grpc-status\u{e9}:0",
+            "grpc-statu\u{20ac}0",
+            "\u{1f600}\u{1f600}\u{1f600}\u{1f600}",
+        ] {
+            assert!(
+                unframe(None, &trailer_frame(line.as_bytes())).is_err(),
+                "{line:?}"
+            );
+        }
+        // A well-formed status after such a line is still read, and the prefix is case-insensitive.
+        let mut payload = "grpc-status\u{e9}:9\r\nGRPC-Status: 0\r\n"
+            .as_bytes()
+            .to_vec();
+        assert_eq!(
+            unframe(None, &trailer_frame(&payload)).unwrap(),
+            Vec::<u8>::new()
+        );
+        payload.extend_from_slice(b"grpc-status:5\r\n");
+        assert!(unframe(None, &trailer_frame(&payload)).is_err()); // the last status wins: NOT_FOUND
+    }
+
+    /// Audit F60: the length of a length-delimited field is converted with `try_from`, so a length that does not fit
+    /// `usize` (on wasm32: anything at or above 2^32) can never be read as a shorter one.
+    #[test]
+    fn a_field_length_above_u32_max_is_never_truncated() {
+        // field 1, wire type 2, length 2^32 + 3 (varint), then three bytes that a truncated length would accept.
+        let mut msg = vec![0x0a];
+        let mut n: u64 = (1u64 << 32) + 3;
+        while n >= 0x80 {
+            msg.push((n & 0x7f) as u8 | 0x80);
+            n >>= 7;
+        }
+        msg.push(n as u8);
+        msg.extend_from_slice(b"abc");
+        assert!(field_bytes(&msg, 1).is_none());
+        assert_eq!(ProtoReader::new(&msg).count(), 0);
+        assert_eq!(
+            usize::try_from(u64::from(u32::MAX) + 1).is_ok(),
+            usize::BITS > 32
+        );
     }
 
     #[test]

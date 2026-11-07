@@ -21,12 +21,12 @@ access-gate-gateway/
 │   │   ├── headers.rs, forward.rs, net.rs, origin.rs   # header / path / CORS / forwarding / client-IP / origin policy
 │   │   └── config.rs           # Env port + the validated GatewayConfig
 │   └── tests/                  # conformance vectors, real-signature decisions, scenario.json, scripted Transport
-├── worker/                     # the Rust Cloudflare Worker (workers-rs) on the core: built, shadow not yet deployed; replaces gateway-workers 1:1
+├── worker/                     # the Rust Cloudflare Worker (workers-rs) on the core: LIVE since 2026-10-20; replaced gateway-workers 1:1
 │   ├── src/                    # lib.rs, state.rs + do_state.rs (Durable Object), upstream.rs (streamed proxy), transport.rs, config.rs, quota_guard.rs ...
 │   ├── tests/                  # black-box workerd suites + the differential run against gateway-workers (Node, test code only)
 │   └── scripts/                # build, checksummed tool download, size gate, lint canary, shadow config, cold-start instruments
 ├── ci/                         # access-gate-gateway-ci: UPSTREAM_AUTH_HEADERS check and origin-lock verdicts for the workflows
-├── gateway-workers/            # Cloudflare Workers gateway (TypeScript; LIVE; superseded pending cutover, not deleted: it is the rollback)
+├── gateway-workers/            # Cloudflare Workers gateway (TypeScript; superseded by worker/, not deleted: it is the rollback until retired)
 │   ├── src/                    # index.ts, config.ts, verify.ts, chain.ts, proxy.ts, quota.ts, state/ (DO + KV) ...
 │   ├── test/                   # vitest unit + cloudflare-integration tests
 │   ├── wrangler.toml           # Cloudflare Workers config (edit routes here)

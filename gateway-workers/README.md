@@ -3,10 +3,9 @@
 [![npm](https://img.shields.io/npm/v/%40meddleware%2Faccess-gate-gateway)](https://www.npmjs.com/package/@meddleware/access-gate-gateway)
 [![License: 0BSD](https://img.shields.io/badge/license-0BSD-blue)](LICENSE)
 
-> **Superseded, pending cutover (0.0.27).** The standing rule is no JS/TS backend code, so this Worker is being replaced 1:1 by the Rust Worker
-> [`../worker`](../worker/README.md) (same Worker name, Durable Object class and schema). The Rust Worker is built and tested, with a differential run against this one;
-> it is not yet deployed. **This package stays the live deployment and the rollback until the maintainer has shadow-deployed the Rust Worker, read its CPU-time p99/p99.9, and cut over**
-> (runbook below), and is retired after a clean week. It is not deleted. Do not add features here; change the core and the Rust Worker.
+> **Superseded by the Rust Worker (live since 2026-10-20); this package is kept as the rollback.** The standing rule is no JS/TS backend code, so this Worker was replaced 1:1 by the Rust Worker
+> [`../worker`](../worker/README.md) (same Worker name, Durable Object class and schema), which has a differential run against this one. **This package stays only as the rollback**
+> (runbook below) until the maintainer retires it. It is not deleted. Do not add features here; change the core and the Rust Worker.
 >
 > **Runbook (maintainer).** 1. Actions → *Deploy Worker (Rust)* → `mode=shadow` (a different Worker name, its own empty Durable Object namespace, workers.dev). 2. `cd integrations/paywall && node run.mjs --relay <shadow origin>`.
 > 3. Workers analytics for the shadow: **CPU time p99 ≤ 5 ms and p99.9 ≤ 10 ms over a week of real traffic on Free.** 4. *Deploy Worker (Rust)* → `mode=cutover`, `confirm=cutover` (same name, class and migration tag: the live

@@ -1,0 +1,68 @@
+name: Fuzz (manual)
+
+# Optional, manual-only run of the cargo-fuzz targets in core/fuzz (the hand-rolled gRPC-web / protobuf decoder, access-proof
+# decoding and the signature-verification entry points). Not part of any default job: the fuzz crate is outside the
+# Cargo workspace and needs a nightly toolchain. A crash is printed in the log with its input as base64; reproduce and
+# minimise it locally (core/fuzz/README.md), fix it in core with a regression test, and keep the minimised input in
+# core/fuzz/seeds/.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "fuzz target"
+        type: choice
+        options: [all, grpc, proof, sig]
+        default: all
+      seconds:
+        description: "seconds per target (10-3600)"
+        type: string
+        default: "120"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: cargo fuzz
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate inputs
+        env:
+          SECONDS_PER_TARGET: ${{ inputs.seconds }}
+        run: |
+          set -euo pipefail
+          [[ "$SECONDS_PER_TARGET" =~ ^[0-9]+$ ]] && [ "$SECONDS_PER_TARGET" -ge 10 ] && [ "$SECONDS_PER_TARGET" -le 3600 ] \
+            || { echo "::error::seconds must be an integer from 10 to 3600"; exit 1; }
+
+      - name: Install the nightly toolchain
+        run: rustup toolchain install nightly --profile minimal --no-self-update && rustup default nightly
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: "core/fuzz -> target"
+          key: fuzz
+          save-if: false
+
+      - name: Install cargo-fuzz (pinned)
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+
+      - name: Fuzz
+        working-directory: core
+        env:
+          TARGET: ${{ inputs.target }}
+          SECONDS_PER_TARGET: ${{ inputs.seconds }}
+        run: |
+          set -euo pipefail
+          targets="$TARGET"; [ "$targets" = all ] && targets="grpc proof sig"
+          for t in $targets; do
+            mkdir -p "fuzz/corpus/$t"
+            dict=(); [ -f "fuzz/dictionaries/$t.dict" ] && dict=("-dict=fuzz/dictionaries/$t.dict")
+            seeds=(); [ -d "fuzz/seeds/$t" ] && seeds=("fuzz/seeds/$t")
+            echo "::group::fuzz $t"
+            cargo fuzz run "$t" "fuzz/corpus/$t" "${seeds[@]}" -- "-max_total_time=$SECONDS_PER_TARGET" "${dict[@]}"
+            echo "::endgroup::"
+          done

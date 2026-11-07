@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- `core`: the gRPC-web trailer parser no longer panics when byte 12 of a trailer line falls inside a multi-byte character (found by the new `core/fuzz` `grpc` target); the protobuf length varint is converted with `usize::try_from` (it was truncated on wasm32); `clippy::string_slice` is denied for non-test core code. Not deployed.
+
+### Added
+
+- `core/fuzz`: cargo-fuzz targets `grpc`, `proof`, `sig` (own workspace, nightly) and the manual `fuzz.yml` workflow.
+- `worker/scripts/assert-prod-build.sh`: CI and the deploy job assert the deployed bundle has no `test-hooks` code.
+- `worker/docs/audit/gateway-rust-worker-audit.md`: the Rust Worker's own audit (F51-F57 moved from the TypeScript Worker's).
+
 ## [0.0.33] - 2026-10-30
 
 ### Changed

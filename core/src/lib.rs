@@ -13,6 +13,8 @@
 //! Cloudflare Worker (workers-rs: `fetch`, Durable Objects). The crate has no hyper, no tokio, no clock,
 //! no RNG and no logging, so it compiles natively and for `wasm32-unknown-unknown`.
 #![forbid(unsafe_code)]
+// A `str` slice by byte index panics inside a multi-byte character: use `get` (audit F58, the class the `grpc` fuzz target found).
+#![cfg_attr(not(test), deny(clippy::string_slice))]
 
 pub mod chain;
 pub mod config;
