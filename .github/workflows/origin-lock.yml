@@ -24,6 +24,11 @@ on:
       - 'scripts/check-origin-locked.sh'
       - 'ci/**'
 
+# Privacy by default: no tool in this workflow reports usage to its vendor (Wrangler metrics, the DO_NOT_TRACK convention).
+env:
+  WRANGLER_SEND_METRICS: "false"
+  DO_NOT_TRACK: "1"
+
 permissions:
   contents: read
 

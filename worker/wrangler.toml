@@ -35,6 +35,8 @@ compatibility_date = "2026-06-01"
 # edge rules (WAF, rate limits) on the zone.
 workers_dev = false
 preview_urls = false
+# Privacy by default: Wrangler sends no usage metrics for this project (overrides a developer's own setting).
+send_metrics = false
 
 [build]
 # opt-level "s" keeps the wasm small (the rest of the workspace builds at the release default).
