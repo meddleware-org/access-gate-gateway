@@ -1924,7 +1924,7 @@ PROXY lens §C:
 - [ ] mainnet `access_gate` published and `NFT_TYPE`/`GATE_ID`/`NETWORK`/`GATEWAY_ORIGIN` populated from
   the canonical record — not yet (mainnet publication is a maintainer step, `OPERATOR_TASKS.md`
   "Mainnet release custody")
-- [ ] external review — not started (maintainer: `OPERATOR_TASKS.md` "Funding, grants and an external
+- [ ] external review (ADR-0009 gate G3: recommended before paid traffic at scale; FU-0018) — not started (maintainer: `OPERATOR_TASKS.md` "Funding, grants and an external
   audit — after launch")
 
 ---

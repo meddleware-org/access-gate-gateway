@@ -709,7 +709,7 @@ The Worker already runs on testnet; "pre-testnet" is therefore the gate it must 
 - [x] cache key normalised (query dropped); CORS sends `Vary: Origin`; errors reveal no configuration — I17, I18, B.PX-1
 - [ ] secrets management verified; Access token expiry tracked — FU-0030, FU-0035
 - [ ] grants and denials logged, or the decision recorded — F64, OQ3
-- [ ] external review of the forwarding and verification path — not started (`OPERATOR_TASKS.md`)
+- [ ] external review (ADR-0009 gate G3: recommended before paid traffic at scale; FU-0018) of the forwarding and verification path — not started (`OPERATOR_TASKS.md`)
 
 ---
 

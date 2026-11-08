@@ -1985,7 +1985,7 @@ in front of any upstream if a revisit trigger fires. Items ticked have evidence 
 - [ ] registry credential inventory and rotation — F30 (maintainer: `OPERATOR_TASKS.md` "Image registry
   credentials")
 - [ ] secrets management verified; Access token expiry tracked — F31 (deployment)
-- [ ] external review — not started (maintainer: `OPERATOR_TASKS.md` "Funding, grants and an external
+- [ ] external review (ADR-0009 gate G3: recommended before paid traffic at scale; FU-0018) — not started (maintainer: `OPERATOR_TASKS.md` "Funding, grants and an external
   audit — after launch")
 
 ---
