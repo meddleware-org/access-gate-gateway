@@ -15,7 +15,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
-base64 = "0.22"
+base64 = "0.23"
 serde_json = "1"
 access-gate-gateway-core = { path = ".." }
 

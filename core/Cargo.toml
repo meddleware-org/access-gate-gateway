@@ -15,7 +15,7 @@ categories = ["authentication", "wasm", "web-programming"]
 
 [dependencies]
 anyhow = "1"
-base64 = "0.22"
+base64 = "0.23"
 hex = "0.4"
 # blake2 0.11 and ed25519-consensus: the same primitives Sui validators use (ZIP-215 for ed25519).
 blake2 = "0.11"
