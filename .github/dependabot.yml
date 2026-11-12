@@ -46,6 +46,14 @@ updates:
     groups:
       cargo-minor-patch:
         update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: /core/fuzz # its own Cargo workspace (libfuzzer-sys, arbitrary): not covered by the root entry
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      cargo-fuzz-minor-patch:
+        update-types: [minor, patch]
   - package-ecosystem: docker
     directory: /gateway-rust
     schedule:

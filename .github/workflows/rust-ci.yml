@@ -81,6 +81,13 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           manifest-path: Cargo.toml
+      # core/fuzz is its own Cargo workspace (nightly-only fuzz targets), so the step above never sees its dependencies:
+      # check them with their own policy (core/fuzz/deny.toml).
+      - name: cargo deny (core/fuzz)
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: core/fuzz/Cargo.toml
+          arguments: --config core/fuzz/deny.toml
       # The release binary is built inside the Dockerfile (with --locked).
 
   # The decision logic runs in two places: natively (gateway-rust) and as wasm32 in the Cloudflare
