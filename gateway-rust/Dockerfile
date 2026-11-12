@@ -17,7 +17,7 @@
 # Both base images are pinned by digest (multi-arch index); bump tag and digest together.
 # =============================================================================
 
-FROM rust:1-slim@sha256:4df2ae8cfdfebdfc13a65da7f253b73d68983dc0339f2719bc17a279c913b13d AS chef
+FROM rust:1-slim@sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7 AS chef
 RUN cargo install cargo-chef --version 0.1.78 --locked
 WORKDIR /src
 
@@ -47,7 +47,7 @@ COPY . .
 RUN cargo build --release --locked -p access-gate-gateway && strip target/release/access-gate-gateway
 
 # ── Runtime: minimal distroless image ────────────────────────────────────────
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:08476c244888bfb425bae1ae4dd7c17f093e972aab8426883d97f3c6f280f7c1
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:cc66d222f0a7ec996b78a99fe76a969bc80b539a5016ad866c14d1949bc6d0ab
 WORKDIR /app
 COPY --from=builder /src/target/release/access-gate-gateway /app/access-gate-gateway
 # The lockfile makes the image's SBOM list the compiled crates (a stripped binary carries none);
