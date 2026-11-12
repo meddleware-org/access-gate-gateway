@@ -15,10 +15,10 @@
   },
   "devDependencies": {
     "@meddleware/access-gate-gateway-client": "0.0.22",
-    "@mysten/sui": "2.38.0",
+    "@mysten/sui": "2.39.1",
     "esbuild": "0.28.2",
     "smol-toml": "1.9.1",
-    "wrangler": "4.156.1"
+    "wrangler": "4.159.0"
   },
   "overrides": {
     "undici": "7.30.1",
