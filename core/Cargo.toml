@@ -33,7 +33,7 @@ pollster = "1.0"
 # rand_core 0.6 (pulled in by ed25519-consensus / elliptic-curve) enables getrandom 0.2, which has no
 # backend on wasm32-unknown-unknown unless "js" is set. Never called on the verify path.
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-getrandom = { version = "0.2", features = ["js"] }
+getrandom = { version = "0.4", features = ["js"] }
 # crypto-bigint 0.7 (k256/p256 0.14) uses getrandom 0.4, which needs the wasm_js backend (feature here, cfg in
 # .cargo/config.toml). Never called on the verify path.
 getrandom04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
