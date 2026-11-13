@@ -9,6 +9,11 @@ repository (one version for every artifact).
 
 - `core`: the gRPC-web trailer parser no longer panics when byte 12 of a trailer line falls inside a multi-byte character (found by the new `core/fuzz` `grpc` target); the protobuf length varint is converted with `usize::try_from` (it was truncated on wasm32); `clippy::string_slice` is denied for non-test core code. Not deployed.
 
+### Changed
+
+- `worker/src/transport.rs`: the fullnode response is read chunk by chunk and refused at `MAX_GRPC_MESSAGE_BYTES` (it was buffered whole with `array_buffer()` and measured afterwards), a content-length over the limit is refused before reading, and the fetch is aborted through an `AbortController` as well as the timeout (FU-0032). Not deployed.
+- `core/fuzz` has its own cargo-deny policy (`core/fuzz/deny.toml`) and a Dependabot entry (FU-0037).
+
 ### Added
 
 - `core/fuzz`: cargo-fuzz targets `grpc`, `proof`, `sig` (own workspace, nightly) and the manual `fuzz.yml` workflow.

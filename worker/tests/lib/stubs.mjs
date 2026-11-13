@@ -52,7 +52,7 @@ export function txDigest() {
  * addresses that own a pass. `paused` pauses the gate. Counts calls per method.
  */
 export async function startFullnode() {
-  const state = { stall: false, failed: new Set(), headers: [], paused: false, consumes: new Map(), owners: new Set(), calls: [], failAll: false, consumeAgeMs: 1000, gate: GATE_ID }
+  const state = { oversize: 0, stall: false, failed: new Set(), headers: [], paused: false, consumes: new Map(), owners: new Set(), calls: [], streamed: 0, failAll: false, consumeAgeMs: 1000, gate: GATE_ID }
   const server = http.createServer((req, res) => {
     const chunks = []
     req.on('data', (c) => chunks.push(c))
@@ -67,6 +67,23 @@ export async function startFullnode() {
       const end = res.end.bind(res)
       res.end = (b) => end(text && Buffer.isBuffer(b) && b.length ? b.toString('base64') : b)
       if (state.failAll) { res.statusCode = 500; return res.end() }
+      // oversize: stream that many bytes, 256 KiB every 10 ms, with no content-length (a chunked body). The pacing matters: on loopback an
+      // unpaced stream is over before any cancel can show, so the test reads `streamed` to see whether the Worker stopped reading at its limit.
+      if (state.oversize) {
+        let left = state.oversize
+        const chunk = Buffer.alloc(256 * 1024)
+        res.writeHead(200, { 'content-type': 'application/grpc-web+proto' })
+        const pump = () => {
+          if (res.destroyed || res.writableEnded) return
+          if (left <= 0) return res.end()
+          const n = Math.min(left, chunk.length)
+          left -= n
+          state.streamed += n
+          res.write(chunk.subarray(0, n))
+          setTimeout(pump, 10)
+        }
+        return pump()
+      }
       if (req.url.endsWith('LedgerService/GetObject')) return res.end(grpc(gateObject(state.gate, state.paused, true)))
       if (req.url.endsWith('LedgerService/BatchGetObjects')) {
         // one result per request entry: count the `requests` (field 1) in the body

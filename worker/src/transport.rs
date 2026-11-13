@@ -38,9 +38,20 @@ impl Transport for WorkerTransport {
         init.set_method("POST");
         init.set_headers(&headers);
         init.set_body(&js_sys::Uint8Array::from(body.as_slice()));
-        init.set_signal(Some(&web_sys::AbortSignal::timeout_with_u32(
-            self.timeout_ms,
-        )));
+        // The fetch is aborted by the timeout OR by this controller, which the body read triggers when the response is over the size limit:
+        // cancelling the reader alone leaves the connection open (workerd drains it), so the request would only end at the timeout.
+        let controller = web_sys::AbortController::new().map_err(js)?;
+        let timeout = web_sys::AbortSignal::timeout_with_u32(self.timeout_ms);
+        let signals = js_sys::Array::of2(&timeout, &controller.signal());
+        let signal_ctor =
+            js_sys::Reflect::get(&js_sys::global(), &"AbortSignal".into()).map_err(js)?;
+        let any = js_sys::Reflect::get(&signal_ctor, &"any".into()).map_err(js)?;
+        let either: web_sys::AbortSignal = any
+            .unchecked_ref::<js_sys::Function>()
+            .call1(&signal_ctor, &signals)
+            .map_err(js)?
+            .unchecked_into();
+        init.set_signal(Some(&either));
         let req = web_sys::Request::new_with_str_and_init(url, &init).map_err(js)?;
         let global: web_sys::WorkerGlobalScope = js_sys::global().unchecked_into();
         let resp: web_sys::Response = JsFuture::from(global.fetch_with_request(&req))
@@ -51,14 +62,39 @@ impl Transport for WorkerTransport {
             anyhow::bail!("gRPC-web HTTP {}", resp.status());
         }
         let status = resp.headers().get("grpc-status").map_err(js)?;
-        let buf = JsFuture::from(resp.array_buffer().map_err(js)?)
-            .await
-            .map_err(js)?;
-        let arr = js_sys::Uint8Array::new(&buf);
-        if arr.length() as usize > MAX_GRPC_MESSAGE_BYTES {
-            anyhow::bail!("gRPC response over {MAX_GRPC_MESSAGE_BYTES} bytes");
+        // Bound the body while it is read, not after: a faulty or hostile fullnode must not make the isolate buffer far more than the
+        // limit (the content-length check alone misses chunked bodies). Over the limit, the stream is cancelled and the call fails.
+        if let Some(len) = resp.headers().get("content-length").map_err(js)? {
+            if len
+                .parse::<usize>()
+                .is_ok_and(|n| n > MAX_GRPC_MESSAGE_BYTES)
+            {
+                anyhow::bail!("gRPC response over {MAX_GRPC_MESSAGE_BYTES} bytes");
+            }
         }
-        Ok((status, arr.to_vec()))
+        let body = resp
+            .body()
+            .ok_or_else(|| anyhow::anyhow!("gRPC response has no body"))?;
+        let reader: web_sys::ReadableStreamDefaultReader = body.get_reader().unchecked_into();
+        let mut out: Vec<u8> = Vec::new();
+        loop {
+            let chunk = JsFuture::from(reader.read()).await.map_err(js)?;
+            let done = js_sys::Reflect::get(&chunk, &"done".into())
+                .map_err(js)?
+                .as_bool()
+                .unwrap_or(true);
+            if done {
+                break;
+            }
+            let value = js_sys::Reflect::get(&chunk, &"value".into()).map_err(js)?;
+            let part: js_sys::Uint8Array = value.unchecked_into();
+            if out.len() + part.length() as usize > MAX_GRPC_MESSAGE_BYTES {
+                controller.abort();
+                anyhow::bail!("gRPC response over {MAX_GRPC_MESSAGE_BYTES} bytes");
+            }
+            out.extend_from_slice(&part.to_vec());
+        }
+        Ok((status, out))
     }
 
     async fn sleep_ms(&self, ms: u64) {

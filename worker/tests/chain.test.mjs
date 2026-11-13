@@ -145,3 +145,27 @@ describe('SUI_RPC_AUTH_HEADER', () => {
     } finally { await f.close() }
   })
 })
+
+describe('an oversize fullnode response', () => {
+  let f
+  before(async () => { f = await fixture({ name: 'chain-oversize', vars: base }) })
+  after(async () => { await f.close() })
+
+  // MAX_GRPC_MESSAGE_BYTES is 4 MiB. The stub streams 64 MiB (256 KiB every 10 ms, no content-length: a chunked body). The transport reads the
+  // body chunk by chunk and stops at the limit instead of buffering it with array_buffer(), so the call fails (502) without the isolate ever
+  // holding more than the limit plus one chunk. That bound is by construction; workerd keeps draining a cancelled subrequest until its timeout, so
+  // the stub's byte count and the call's duration cannot show it from outside. What this proves from outside: an oversize body is refused, and
+  // the next call works.
+  it('is refused with 502', async () => {
+    const { txDigest } = await import('./lib/stubs.mjs')
+    f.rpc.state.oversize = 64 * 1024 * 1024
+    f.rpc.state.streamed = 0
+    const res = await attempt(f, txDigest())
+    f.rpc.state.oversize = 0
+    assert.equal(res.status, 502)
+  })
+
+  it('does not break the next call', async () => {
+    assert.equal((await attempt(f, await registerConsume(f.rpc, wallet))).status, 200)
+  })
+})
