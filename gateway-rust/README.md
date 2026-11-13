@@ -6,7 +6,7 @@
 
 A high-performance, generic **NFT-gated reverse proxy** (Rust / Axum / Tokio). Put it in front of
 any HTTP upstream to restrict access to holders of an
-[`access_gate`](https://github.com/meddleware-org/vault/tree/main/blockchain/sui/contracts/access-gate)
+[`access_gate`](https://github.com/meddleware-org/access-gate-sui)
 NFT — an upload relay, a website, a game API, anything.
 
 Wire-identical to the [Cloudflare Workers gateway](../gateway-workers/): same routes, status codes,
