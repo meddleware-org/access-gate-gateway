@@ -29,6 +29,42 @@ does not. workers-rs / wasm-bindgen / worker-build are pinned exactly and move t
 
 **Where a change goes:** decision logic, policy or request flow → `core/`, once. I/O → the adapter. Never fix a rule in only one gateway.
 
+## Layout, commands and configuration
+
+```text
+core/             access-gate-gateway-core: all decision logic (gateway.rs, decision.rs, sig.rs, proof.rs, grpc.rs, chain.rs,
+                  redemption.rs, state.rs, headers.rs, forward.rs, net.rs, origin.rs, quota.rs, config.rs); tests/ hold the
+                  conformance vectors, real-signature decisions, scenario.json and a scripted Transport
+worker/            the Rust Cloudflare Worker (workers-rs) on the core; tests/ are black-box workerd suites + the differential run
+                  against gateway-workers; scripts/ are build, checksummed tool download, size gate, lint canary, shadow config
+gateway-workers/   TypeScript Worker (superseded, the rollback); src/, test/ (vitest), wrangler.toml, package.json
+gateway-rust/      Rust / Axum adapter (hyper server and client, Redis, clock, entropy); Dockerfile (build context = repo root)
+ci/                access-gate-gateway-ci: UPSTREAM_AUTH_HEADERS check and origin-lock verdicts for the workflows
+conformance/       vectors.json (golden wire-format vectors; synced from the gateway client, see below)
+scripts/           check-versions.sh, check-origin-locked.sh, sync-vectors.mjs
+```
+
+| Task | Command |
+| --- | --- |
+| Core + gateway-rust tests | `cargo test --locked --workspace` |
+| Core alone / its wasm32 build | `cargo test --locked -p access-gate-gateway-core` / `cargo build --locked -p access-gate-gateway-core --target wasm32-unknown-unknown` |
+| Rust Worker (both variants, size gate, workerd suites, differential run; needs `npm ci` in `gateway-workers` too) | `cd worker && npm ci && bash scripts/build.sh all && bash scripts/size-gate.sh && npm test` |
+| TypeScript Worker | `cd gateway-workers && npm run type-check` / `npm test` (unit) / `npm run test:all` (unit + cloudflare integration) |
+| Sync conformance vectors | `node scripts/sync-vectors.mjs` |
+| Deploy the TypeScript Worker | `cd gateway-workers && npm run deploy` (`UPSTREAM_URL` and the other secrets via `wrangler secret put`; `NFT_TYPE`, `GATE_ID`, `SUI_RPC_URL` are `wrangler.toml` vars) |
+| Build the Rust image | `docker build -f gateway-rust/Dockerfile -t access-gate-gateway .` from the repo root |
+
+Configuration is validated once, in `core/src/config.rs` (its module docs list every variable and default). Required:
+`UPSTREAM_URL`, `GATEWAY_ORIGIN` (signed into every proof), `NETWORK` (`localnet|devnet|testnet|mainnet`, signed into every proof),
+`SUI_RPC_URL` (gRPC-web), `NFT_TYPE` (`<pkg>::access_gate::AccessNFT` or `SoulboundAccessNFT`), `GATE_ID`. Notable optional ones:
+`SINGLE_USE` (default `false`), `PUBLIC_PATHS` (default `/v1/tip-config`), `RATE_LIMIT_PER_MIN` (30), `CHALLENGE_TTL_SECS` (300).
+Platform-only: Workers `NONCE_BACKEND`, `NONCE_SHARD`, `QUOTA_GUARD_ENABLED`, `WORKERS_PLAN`; Rust `REDIS_URL`, `BIND_ADDR`,
+`TRUSTED_PROXY_HOPS`, the connection limits.
+
+CI: `node-ci.yml` (type-check, lint, vitest unit and workerd tests for `gateway-workers`); `rust-ci.yml` (fmt, clippy
+`-D warnings`, `cargo test --workspace`, the Redis round trip, coverage, `cargo deny`, a `core` job with the wasm32 build, an
+MSRV job, a Trivy scan of the Dockerfile). The conformance vectors run in the core's suite and the TypeScript suite.
+
 ## Architectural invariants
 
 - **Fail closed.** Any ambiguous state (bad signature, missing nonce, chain error) must deny.
