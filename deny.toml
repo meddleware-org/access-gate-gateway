@@ -14,6 +14,11 @@ targets = [
 # for the whole graph so a replacement can be planned.
 yanked = "deny"
 unmaintained = "all"
+ignore = [
+    # Informational (unmaintained, no vulnerability). chrono reaches us only through Cloudflare's `worker` crate (workers-rs);
+    # nothing here calls it. It goes when workers-rs drops it; tracked in the workspace as FU-0161.
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained (informational), transitive via the worker crate only; workspace FU-0161" },
+]
 
 [licenses]
 # Permissive licences present in the dependency tree (2026-09-30). Adding a crate under any other
