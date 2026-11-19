@@ -47,7 +47,7 @@ COPY . .
 RUN cargo build --release --locked -p access-gate-gateway && strip target/release/access-gate-gateway
 
 # ── Runtime: minimal distroless image ────────────────────────────────────────
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:08476c244888bfb425bae1ae4dd7c17f093e972aab8426883d97f3c6f280f7c1
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:cb87acc574abe719b6e5c547384defa2f7b1f24af9605d3f618cf852495d8be2
 WORKDIR /app
 COPY --from=builder /src/target/release/access-gate-gateway /app/access-gate-gateway
 # The lockfile makes the image's SBOM list the compiled crates (a stripped binary carries none);
