@@ -34,11 +34,14 @@ fn unix_ms(t: SystemTime) -> u64 {
 /// so a stepped system clock cannot make a nonce, lease or rate window outlive (or cut short) its TTL.
 #[derive(Clone, Copy)]
 pub struct SystemClock {
+    /// The wall time at start-up, in epoch milliseconds.
     wall_at_start: u64,
+    /// The monotonic start, so elapsed time never goes backwards.
     start: Instant,
 }
 
 impl SystemClock {
+    /// Anchor a clock at the current wall time.
     pub fn new() -> Self {
         Self {
             wall_at_start: wall_ms(),
@@ -48,12 +51,14 @@ impl SystemClock {
 }
 
 impl Default for SystemClock {
+    /// Same as [`SystemClock::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl Clock for SystemClock {
+    /// Wall time at start plus the monotonic time elapsed since, so the clock never steps backwards if the system time is changed.
     fn now_ms(&self) -> u64 {
         self.wall_at_start
             .saturating_add(self.start.elapsed().as_millis() as u64)
@@ -64,6 +69,7 @@ impl Clock for SystemClock {
 pub struct OsRngSource;
 
 impl Rng for OsRngSource {
+    /// Fill the buffer from the operating system entropy source.
     fn fill(&self, buf: &mut [u8]) {
         OsRng.fill_bytes(buf);
     }
@@ -71,27 +77,34 @@ impl Rng for OsRngSource {
 
 /// The per-request view of the server's state: the nonce / redemption backend plus the rate windows.
 pub struct NativeState<'a> {
+    /// The nonce and redemption backend (in memory or Redis).
     pub store: &'a NonceStore,
+    /// The rate windows.
     pub rates: &'a MemoryRates<SystemClock>,
 }
 
 impl StateStore for NativeState<'_> {
+    /// Issue a challenge nonce and its expiry (epoch seconds) (from the configured backend: memory or Redis).
     async fn issue_nonce(&self) -> anyhow::Result<(String, u64)> {
         self.store.issue().await
     }
 
+    /// Take a nonce exactly once: `true` only for the first take of a live nonce.
     async fn take_nonce(&self, nonce: &str) -> anyhow::Result<bool> {
         self.store.take_if_valid(nonce).await
     }
 
+    /// Count one request against the budget for `scope` and `key`: `false` when the budget is spent.
     async fn rate_check(&self, scope: RateScope, key: &str) -> anyhow::Result<bool> {
         Ok(self.rates.check(scope, key))
     }
 
+    /// Try to lease the single-use redemption `key` for `lease_ttl_secs`: a fresh lease, or "already leased" or "already redeemed".
     async fn try_lease_redemption(&self, key: &str, lease_ttl_secs: u64) -> anyhow::Result<Lease> {
         self.store.try_lease_redemption(key, lease_ttl_secs).await
     }
 
+    /// Turn the lease held with `token` into a permanent redemption kept for `retention_secs`; `Lost` if the lease is no longer ours.
     async fn commit_redemption(
         &self,
         key: &str,
@@ -103,15 +116,18 @@ impl StateStore for NativeState<'_> {
             .await
     }
 
+    /// Give a lease back after a failed upload; a stale token releases nothing.
     async fn release_redemption(&self, key: &str, token: &str) {
         self.store.release_redemption(key, token).await;
     }
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The clock reads unix time and never goes backwards.
     #[test]
     fn the_clock_reads_unix_time_and_never_goes_backwards() {
         let c = SystemClock::new();
@@ -122,6 +138,7 @@ mod tests {
         assert!(a.abs_diff(wall_ms()) < 1000, "anchored to the wall clock");
     }
 
+    /// A clock before 1970 reads as zero instead of panicking.
     #[test]
     fn a_clock_before_1970_reads_as_zero_instead_of_panicking() {
         use std::time::Duration;
@@ -130,6 +147,7 @@ mod tests {
         assert_eq!(unix_ms(UNIX_EPOCH + Duration::from_millis(1_234)), 1_234);
     }
 
+    /// The os source fills with entropy.
     #[test]
     fn the_os_source_fills_with_entropy() {
         let (mut x, mut y) = ([0u8; 24], [0u8; 24]);

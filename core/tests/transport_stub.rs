@@ -9,23 +9,35 @@ use access_gate_gateway_core::grpc::{frame, ProtoWriter, Transport};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 
+/// The pretend current time, in epoch milliseconds.
 const NOW: u64 = 1_800_000_000_000;
+/// The gate id the stub chain data names.
 const GATE: &str = "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
+/// The pass type the stub chain data names.
 const NFT: &str = "0xabc::access_gate::SoulboundAccessNFT";
 
+/// One scripted answer of the stub transport.
 enum Reply {
+    /// A well-formed gRPC-web response carrying this protobuf message.
     Grpc(Vec<u8>),
+    /// An empty body with this `grpc-status` header (a gRPC error).
     Status(&'static str),
+    /// A transport failure, as a 503 from the node.
     HttpError,
 }
 
+/// A transport that answers from a script and records what it was asked.
 struct Scripted {
+    /// The answers still to give, in order.
     replies: RefCell<VecDeque<Reply>>,
+    /// Each URL called, to assert the right RPC method was used.
     urls: RefCell<Vec<String>>,
+    /// Each sleep requested, to assert the retry delay without waiting.
     sleeps: RefCell<Vec<u64>>,
 }
 
 impl Scripted {
+    /// A transport with this script.
     fn new(r: Vec<Reply>) -> Self {
         Self {
             replies: RefCell::new(r.into()),
@@ -36,11 +48,13 @@ impl Scripted {
 }
 
 impl Transport for &Scripted {
+    /// Answer the next scripted reply (failing the test if the script ran out) and record the URL.
     async fn post_grpc_web(
         &self,
         url: &str,
         body: Vec<u8>,
     ) -> anyhow::Result<(Option<String>, Vec<u8>)> {
+        // The client must send an uncompressed data frame (flag byte 0).
         assert_eq!(body[0], 0, "uncompressed data frame");
         self.urls.borrow_mut().push(url.to_string());
         match self
@@ -51,6 +65,7 @@ impl Transport for &Scripted {
         {
             Reply::Grpc(msg) => {
                 let mut b = frame(&msg);
+                // A success trailer frame follows the data frame, as a real node sends.
                 let trailer = b"grpc-status:0\r\n";
                 b.push(0x80);
                 b.extend_from_slice(&(trailer.len() as u32).to_be_bytes());
@@ -58,25 +73,31 @@ impl Transport for &Scripted {
                 Ok((None, b))
             }
             Reply::Status(s) => Ok((Some(s.to_string()), vec![])),
+            // A transport error, which the chain code must surface (and not turn into "not found").
             Reply::HttpError => anyhow::bail!("HTTP 503"),
         }
     }
+    /// Record the sleep instead of waiting.
     async fn sleep_ms(&self, ms: u64) {
         self.sleeps.borrow_mut().push(ms);
     }
+    /// The fixed pretend time.
     fn now_ms(&self) -> u64 {
         NOW
     }
 }
 
+/// A protobuf message with one string field.
 fn s(field: u32, v: &str) -> Vec<u8> {
     let mut w = ProtoWriter::new();
     w.string_field(field, v);
     w.into_bytes()
 }
+/// A protobuf `Value` holding a string (field 3).
 fn string_value(v: &str) -> Vec<u8> {
     s(3, v)
 }
+/// A protobuf `Value` holding a struct of the named values.
 fn struct_of(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
     let mut st = ProtoWriter::new();
     for (k, v) in entries {
@@ -116,6 +137,7 @@ fn consume_tx(sender: &str) -> Vec<u8> {
     resp.into_bytes()
 }
 
+/// A `GetObject` response for a gate whose JSON has the two pause flags.
 fn gate_object(paused: bool, blocks: bool) -> Vec<u8> {
     let b = |v: bool| {
         let mut w = ProtoWriter::new();
@@ -133,6 +155,7 @@ fn gate_object(paused: bool, blocks: bool) -> Vec<u8> {
     resp.into_bytes()
 }
 
+/// A `ListOwnedObjects` page with this many usable passes and an optional next-page token.
 fn list_page(passes: usize, next: Option<&[u8]>) -> Vec<u8> {
     let mut resp = ProtoWriter::new();
     for _ in 0..passes {
@@ -156,6 +179,7 @@ fn list_page(passes: usize, next: Option<&[u8]>) -> Vec<u8> {
     resp.into_bytes()
 }
 
+/// Get transaction retries only not found then succeeds.
 #[test]
 fn get_transaction_retries_only_not_found_then_succeeds() {
     let t = Scripted::new(vec![
@@ -180,6 +204,7 @@ fn get_transaction_retries_only_not_found_then_succeeds() {
     );
 }
 
+/// Not found four times is a clean false and other failures are errors.
 #[test]
 fn not_found_four_times_is_a_clean_false_and_other_failures_are_errors() {
     let t = Scripted::new(vec![
@@ -211,6 +236,7 @@ fn not_found_four_times_is_a_clean_false_and_other_failures_are_errors() {
     assert!(t.sleeps.borrow().is_empty());
 }
 
+/// List owned objects paginates.
 #[test]
 fn list_owned_objects_paginates() {
     let t = Scripted::new(vec![
@@ -223,13 +249,16 @@ fn list_owned_objects_paginates() {
     assert!(t.urls.borrow()[1].ends_with("sui.rpc.v2.StateService/ListOwnedObjects"));
 }
 
+/// A nonce store holding one nonce that can be taken once.
 struct Nonces(RefCell<bool>);
 impl NonceTake for Nonces {
+    /// Take the nonce: true the first time, false after.
     async fn take_if_valid(&self, _n: &str) -> anyhow::Result<bool> {
         Ok(self.0.replace(false))
     }
 }
 
+/// Verification parameters for the test gateway, in single-use mode.
 fn params() -> VerifyParams {
     VerifyParams {
         single_use: true,
@@ -241,6 +270,7 @@ fn params() -> VerifyParams {
     }
 }
 
+/// Full single use decision over a stub transport.
 #[test]
 fn full_single_use_decision_over_a_stub_transport() {
     let v: serde_json::Value =
@@ -327,11 +357,13 @@ struct Clocked {
 }
 
 impl Transport for &Clocked {
+    /// Answer with one page holding a usable pass, and count the call.
     async fn post_grpc_web(
         &self,
         _url: &str,
         _body: Vec<u8>,
     ) -> anyhow::Result<(Option<String>, Vec<u8>)> {
+        // Count the calls: the cache test asserts how many reached the node.
         self.calls.set(self.calls.get() + 1);
         let mut b = frame(&list_page(1, None));
         let trailer = b"grpc-status:0\r\n";
@@ -340,12 +372,16 @@ impl Transport for &Clocked {
         b.extend_from_slice(trailer);
         Ok((None, b))
     }
+    // No retries happen here, so there is nothing to wait for.
+    /// No retry happens here, so there is nothing to wait for.
     async fn sleep_ms(&self, _ms: u64) {}
+    /// The clock the test moves.
     fn now_ms(&self) -> u64 {
         self.now.get()
     }
 }
 
+/// The ownership cache serves within the ttl and expires.
 #[test]
 fn the_ownership_cache_serves_within_the_ttl_and_expires() {
     let t = Clocked {
@@ -362,6 +398,7 @@ fn the_ownership_cache_serves_within_the_ttl_and_expires() {
     assert_eq!(t.calls.get(), 2, "an expired entry is looked up again");
 }
 
+/// The ownership cache stays bounded.
 #[test]
 fn the_ownership_cache_stays_bounded() {
     let t = Clocked {

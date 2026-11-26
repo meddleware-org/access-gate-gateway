@@ -9,9 +9,12 @@ import fs from 'node:fs'
 import { spawn, spawnSync } from 'node:child_process'
 import { freePort } from './lib/worker.mjs'
 
+// The repository root, where the script and the Cargo workspace are.
 const ROOT = path.resolve(import.meta.dirname, '../..')
+// The classifier binary the script calls.
 const CLI = path.join(ROOT, 'target/debug/access-gate-gateway-ci')
 
+// Build the classifier once if the workspace has not already.
 before(() => {
   if (!fs.existsSync(CLI)) {
     const b = spawnSync('cargo', ['build', '--quiet', '--locked', '-p', 'access-gate-gateway-ci'], { cwd: ROOT, encoding: 'utf8' })
@@ -20,15 +23,18 @@ before(() => {
 })
 
 // Asynchronous: the stub origin lives in this process and must keep answering while the script runs.
+/** Run the real script with the given environment and arguments, and return its exit status and combined output. */
 function run(env, args = []) {
   return new Promise((resolve) => {
     const c = spawn('bash', [path.join(ROOT, 'scripts/check-origin-locked.sh'), ...args], {
+      // A minimal environment: only what the script needs, so nothing from the caller leaks in.
       env: { PATH: process.env.PATH, ACCESS_GATE_GATEWAY_CI: CLI, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let out = ''
     c.stdout.on('data', (d) => { out += d })
     c.stderr.on('data', (d) => { out += d })
+    // A hard stop so a stuck script cannot hang the suite.
     const t = setTimeout(() => c.kill('SIGKILL'), 90_000)
     c.on('close', (status) => { clearTimeout(t); resolve({ status, out }) })
   })
@@ -47,6 +53,7 @@ async function origin(answer) {
   await new Promise((r) => server.listen(port, '127.0.0.1', r))
   return { url: `http://127.0.0.1:${port}/v1/tip-config`, seen, close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r) }) }
 }
+// The test seams the script allows: an http URL and no retry pause.
 const test = (url) => ({ UPSTREAM_CHECK_URL: url, ORIGIN_LOCK_TEST_HTTP: '1', ORIGIN_LOCK_RETRY_SLEEP: '0' })
 
 describe('check-origin-locked.sh', () => {

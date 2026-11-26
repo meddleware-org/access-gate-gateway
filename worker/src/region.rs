@@ -40,10 +40,12 @@ pub fn instance_name(shard: &str) -> String {
     format!("nonce:{shard}")
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Routes only known continent shards and the global shard.
     #[test]
     fn routes_only_known_continent_shards_and_the_global_shard() {
         assert_eq!(shard_of_nonce("eu.abc"), Some("eu"));
@@ -55,6 +57,7 @@ mod tests {
         assert_eq!(shard_of_nonce("attacker-shard-1.deadbeef"), None);
     }
 
+    /// Region follows the continent unless global.
     #[test]
     fn region_follows_the_continent_unless_global() {
         assert_eq!(region_of(false, Some("EU")), "eu");

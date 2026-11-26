@@ -10,6 +10,7 @@
  * and `UPSTREAM_AUTH_HEADERS` are shared with the Rust gateway in the same formats.
  */
 
+/** The Worker's environment: its variables and secrets (plain strings) and its bindings. `loadConfig` turns it into a validated {@link Config}. */
 export interface Env {
   // ── config (parity with the Rust gateway) ─────────────────────────────────
   UPSTREAM_URL: string
@@ -97,6 +98,7 @@ export type NonceBackendKind = 'durable-object' | 'kv'
 export type NonceShardMode = 'region' | 'global'
 /** The account's Cloudflare Workers plan (`WORKERS_PLAN`). */
 export const WORKERS_PLANS = ['free', 'paid'] as const
+/** A Workers plan name. */
 export type WorkersPlan = (typeof WORKERS_PLANS)[number]
 
 /** Fully-resolved gateway configuration derived from {@link Env} by {@link loadConfig}. */
@@ -146,6 +148,7 @@ export interface Config {
   allowedOrigins: string[]
 }
 
+/** The value of a required variable; an unset or empty one is an error that names the key. */
 function req(env: Env, key: keyof Env): string {
   const v = env[key]
   if (typeof v !== 'string' || v.length === 0) {
@@ -197,6 +200,7 @@ function oneOf<T extends string>(env: Env, key: keyof Env, dflt: T, allowed: rea
 }
 
 const NETWORKS = ['localnet', 'devnet', 'testnet', 'mainnet'] as const
+/** A Sui network name. */
 export type SuiNetwork = (typeof NETWORKS)[number]
 
 /** A URL that must be https (http only for a loopback host), without credentials. */
@@ -235,14 +239,14 @@ function parseAllowedOrigins(v: string | undefined): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
-    .map((o) => {
+    .map((o, i) => {
       let origin: string
       try {
         origin = httpsUrl('ALLOWED_ORIGINS', o).origin
       } catch {
-        throw new Error(`ALLOWED_ORIGINS entry is not an https origin: ${o}`)
+        throw new Error(`ALLOWED_ORIGINS entry ${i + 1} is not an https origin`)
       }
-      if (origin !== o) throw new Error(`ALLOWED_ORIGINS entry is not a canonical origin: ${o}`)
+      if (origin !== o) throw new Error(`ALLOWED_ORIGINS entry ${i + 1} is not a canonical origin`)
       return o
     })
 }
@@ -253,9 +257,9 @@ function parsePublicPaths(v: string | undefined): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
-    .map((p) => {
+    .map((p, i) => {
       if (!/^\/[A-Za-z0-9._~\-/]*$/.test(p) || p.split('/').some((seg) => seg === '..' || seg === '.')) {
-        throw new Error(`PUBLIC_PATHS entry is not a plain absolute path: ${p}`)
+        throw new Error(`PUBLIC_PATHS entry ${i + 1} is not a plain absolute path`)
       }
       return p
     })

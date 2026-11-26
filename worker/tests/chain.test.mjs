@@ -8,13 +8,17 @@ import { newWallet, proofToken, registerConsume } from './lib/proof.mjs'
 import { rawRequest } from './lib/http.mjs'
 import { sleep } from './lib/worker.mjs'
 
+// Rate limits off (they have their own tests) and a one-second RPC deadline, so the stall case is quick.
 const base = { RATE_LIMIT_PER_MIN: '0', GATED_PREAUTH_RATE_LIMIT_PER_MIN: '0', CHALLENGE_RATE_LIMIT_PER_MIN: '0', RPC_TIMEOUT_SECS: '1' }
+// One wallet for the file.
 const wallet = newWallet()
 
+/** A single-use upload request carrying a fresh proof that names `digest`. */
 async function attempt(f, digest, w = wallet, path = '/v1/blob-upload-relay') {
   const token = await proofToken({ base: f.base, wallet: w, consumeDigest: digest })
   return await rawRequest(f.base, { method: 'PUT', path, headers: { authorization: `Bearer ${token}`, 'CF-Connecting-IP': nextIp() }, body: Buffer.from('x') })
 }
+// An ownership-mode request: a proof with no consume digest.
 const own = async (f, w = wallet) => {
   const token = await proofToken({ base: f.base, wallet: w })
   return await rawRequest(f.base, { method: 'GET', path: '/v1/x', headers: { authorization: `Bearer ${token}`, 'CF-Connecting-IP': nextIp() } })
@@ -30,10 +34,13 @@ describe('single-use consume check (digest-first)', () => {
   })
 
   it('refuses a consume older than the age bound, a failed transaction and a foreign sender', async () => {
+    // The stub node reports the consume as six days old, which is past the five-day bound.
     f.rpc.state.consumeAgeMs = 6 * 24 * 3600 * 1000 // CONSUME_MAX_AGE_SECS is 5 days
     assert.equal((await attempt(f, await registerConsume(f.rpc, wallet))).status, 403)
+    // Back to a fresh consume for the next two cases.
     f.rpc.state.consumeAgeMs = 1000
     const failed = await registerConsume(f.rpc, wallet)
+    // The stub reports this transaction as aborted.
     f.rpc.state.failed.add(failed)
     assert.equal((await attempt(f, failed)).status, 403)
     assert.equal((await attempt(f, await registerConsume(f.rpc, newWallet()))).status, 403)
@@ -44,12 +51,14 @@ describe('single-use consume check (digest-first)', () => {
     f.rpc.state.calls.length = 0
     const res = await attempt(f, txDigest())
     assert.equal(res.status, 403)
+    // Exactly the four attempts the core allows, then a denial.
     assert.equal(f.rpc.state.calls.filter((c) => c.endsWith('GetTransaction')).length, 4) // TX_FETCH_ATTEMPTS
   })
 
   it('a late-indexed transaction is found on a retry', async () => {
     const { txDigest } = await import('./lib/stubs.mjs')
     const digest = txDigest()
+    // The node learns of the transaction after the first retry, as when indexing lags.
     setTimeout(() => f.rpc.state.consumes.set(digest, wallet.address), 700) // after the first retry
     f.rpc.state.calls.length = 0
     assert.equal((await attempt(f, digest)).status, 200)
@@ -57,6 +66,7 @@ describe('single-use consume check (digest-first)', () => {
   })
 
   it('any other failure is an error at once (no amplification): 502, one call', async () => {
+    // Every node call fails: an outage, not a 'not found'.
     f.rpc.state.failAll = true
     f.rpc.state.calls.length = 0
     const res = await attempt(f, await registerConsume(f.rpc, wallet))
@@ -67,6 +77,7 @@ describe('single-use consume check (digest-first)', () => {
   })
 
   it('a hung node is bounded by RPC_TIMEOUT_SECS', async () => {
+    // The node accepts the request and never answers.
     f.rpc.state.stall = true
     const started = Date.now()
     const res = await attempt(f, await registerConsume(f.rpc, wallet))
@@ -77,6 +88,7 @@ describe('single-use consume check (digest-first)', () => {
 
   it('a malformed digest never reaches the chain (403 malformed access proof, no fullnode call)', async () => {
     f.rpc.state.calls.length = 0
+    // A well-formed token whose digest is not a base58 transaction digest.
     const token = Buffer.from(JSON.stringify({ address: '0x1', nonce: 'aud-nonce', signature: 'AAAA', consumeDigest: 'DIGEST-1' })).toString('base64')
     const res = await rawRequest(f.base, { method: 'PUT', path: '/v1/x', headers: { authorization: `Bearer ${token}`, 'CF-Connecting-IP': nextIp() }, body: 'x' })
     assert.equal(res.status, 403)
@@ -85,6 +97,7 @@ describe('single-use consume check (digest-first)', () => {
   })
 
   it('reads the gate strictly: a paused gate that blocks access denies, an unpaused one does not', async () => {
+    // The stub gate is paused with `pause_blocks_access`.
     f.rpc.state.paused = true
     const res = await attempt(f, await registerConsume(f.rpc, wallet))
     f.rpc.state.paused = false
@@ -127,6 +140,7 @@ describe('ownership mode without a cache (the default)', () => {
     await own(f, w)
     await own(f, w)
     assert.equal(f.rpc.state.calls.filter((c) => c.endsWith('ListOwnedObjects')).length, 2)
+    // The pass moves to another wallet: with no cache, the next request sees it at once.
     f.rpc.state.owners.delete(w.address) // transferred away
     assert.equal((await own(f, w)).status, 403)
   })

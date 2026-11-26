@@ -10,6 +10,7 @@ const normText = (t) => t
   .replace(/"nonce":"([a-z]{1,2})\.[0-9a-f]{48}"/g, '"nonce":"$1.<hex48>"')
   .replace(/"expiresAt":\d+/g, '"expiresAt":<ms>')
 
+/** The response headers that belong to the Worker, without the ones that differ per run or per runtime. */
 export function headersOf(res) {
   const o = {}
   for (const [k, v] of res.headers) if (!VOLATILE.has(k) && !k.startsWith('cf-')) o[k] = v

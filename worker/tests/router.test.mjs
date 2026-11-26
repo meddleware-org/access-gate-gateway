@@ -6,14 +6,18 @@ import path from 'node:path'
 import { fixture, nextIp } from './lib/fixture.mjs'
 import { ALLOWED_ORIGIN } from './lib/worker.mjs'
 
+// An origin that is not on the allow list.
 const DISALLOWED_ORIGIN = 'https://evil.example.com'
+// The shared conformance vectors: the same malformed tokens the core and the client refuse.
 const vectors = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '../../conformance/vectors.json'), 'utf8'))
+// The `Access-Control-Allow-Origin` of a response, or `null`.
 const acao = (res) => res.headers.get('access-control-allow-origin')
 
 let f
 let down // a second Worker whose upstream is unreachable
 before(async () => {
   f = await fixture({
+    // One Worker with a stub upstream; the stub answers the public path with a permissive CORS header, to prove the gateway ignores it.
     name: 'router',
     upstream: {
       respond: (req, res) => {
@@ -26,6 +30,7 @@ before(async () => {
       },
     },
   })
+  // A second Worker whose upstream is a closed port, for the failure case.
   down = await fixture({ name: 'router-down', upstreamUrl: 'http://127.0.0.1:1' })
 })
 after(async () => { await f.close(); await down.close() })
@@ -42,6 +47,7 @@ describe('router', () => {
     assert.equal(res.status, 200)
     assert.equal(res.headers.get('content-type'), 'application/json')
     const text = await res.text()
+    // The body bytes, not only the fields: clients may compare them, and the old Worker wrote the keys in this order.
     assert.match(text, /^\{"nonce":"[^"]+","expiresAt":\d+\}$/) // key order of the TypeScript Worker
     const body = JSON.parse(text)
     assert.ok(body.nonce.length > 10)
@@ -64,6 +70,7 @@ describe('router', () => {
   // refuse is a 403 at the door. A token with a newline cannot ride in a header value.
   for (const c of vectors.proofDecodeRejects.cases) {
     it(`refuses a malformed proof in workerd: ${c.name}`, async () => {
+      // A token with a line break cannot be sent as a header value at all, so there is nothing to test.
       if (/[\r\n]/.test(c.token)) return
       const res = await f.call('POST', '/v1/blob-upload', { authorization: `Bearer ${c.token}`, 'CF-Connecting-IP': nextIp() })
       assert.equal(res.status, 403)
@@ -114,6 +121,7 @@ describe('router', () => {
     const res = await f.call('GET', '/v1/challenge', { 'CF-Connecting-IP': nextIp() })
     const { nonce } = await res.json()
     assert.ok(nonce.includes('.')) // <region>.<hex> shard-tagged form
+    // `<shard>.<48 hex>`: the shard is a continent code or `g`, which tells a later take where the nonce lives.
     assert.match(nonce, /^(af|an|as|eu|na|oc|sa|g)\.[0-9a-f]{48}$/)
   })
 })
@@ -121,17 +129,21 @@ describe('router', () => {
 describe('router hardening', () => {
   it('rate-limits GET /v1/challenge per client IP (parity with Rust), with CORS on the 429', async () => {
     const headers = { 'CF-Connecting-IP': nextIp(), origin: ALLOWED_ORIGIN }
+    // The default budget is 30 a minute, so 30 pass and the 31st is refused.
     for (let i = 0; i < 30; i++) assert.equal((await f.call('GET', '/v1/challenge', headers)).status, 200)
     const limited = await f.call('GET', '/v1/challenge', headers)
     assert.equal(limited.status, 429)
     assert.deepEqual(await limited.json(), { error: 'rate limit exceeded' })
+    // The 429 carries CORS too, or a browser could not read the error.
     assert.equal(acao(limited), ALLOWED_ORIGIN)
+    // Limits are per client address.
     // Another client is unaffected.
     assert.equal((await f.call('GET', '/v1/challenge', { 'CF-Connecting-IP': nextIp() })).status, 200)
   })
 
   it('refuses a request that already carries the gateway Via marker with 508, with CORS, on every path class', async () => {
     const looped = { via: '1.1 access-gate-gateway', origin: ALLOWED_ORIGIN, 'CF-Connecting-IP': nextIp() }
+    // One path of each kind: the challenge, a public path and a gated path.
     for (const [method, p] of [['GET', '/v1/challenge'], ['GET', '/v1/tip-config'], ['POST', '/v1/blob-upload']]) {
       const res = await f.call(method, p, looped)
       assert.equal(res.status, 508, p)
@@ -158,6 +170,7 @@ describe('router hardening', () => {
 
   it('an unreachable upstream on a public path fails closed with a JSON body and CORS', async () => {
     const res = await down.call('GET', '/v1/tip-config', { origin: ALLOWED_ORIGIN, 'CF-Connecting-IP': nextIp() })
+    // Fail closed: an unreachable upstream is an error status, never an empty success.
     assert.ok(res.status >= 500)
     assert.match(res.headers.get('content-type'), /json/)
     assert.equal(acao(res), ALLOWED_ORIGIN)
@@ -179,6 +192,7 @@ describe('router hardening', () => {
 
   it('rate-limits gated requests per client IP BEFORE verifying the proof', async () => {
     const headers = { 'CF-Connecting-IP': nextIp(), authorization: 'Bearer !!!not-base64!!!' }
+    // Count the refusals: the first 120 get through to verification (and fail there), the rest are limited.
     let limited = 0
     for (let i = 0; i < 125; i++) {
       const res = await f.call('POST', '/v1/blob-upload', headers)
@@ -186,6 +200,7 @@ describe('router hardening', () => {
       else assert.equal(res.status, 403)
     }
     assert.ok(limited > 0) // GATED_PREAUTH_RATE_LIMIT_PER_MIN defaults to 120
+    // 125 requests against a budget of 120 leaves exactly five refused.
     assert.equal(limited, 5)
   })
 
@@ -203,6 +218,7 @@ describe('public-path edge cache', () => {
 
   it('drops the query string from the cache key and the forwarded request', async () => {
     const ip = nextIp()
+    // Two different query strings for one path: if the query were part of the cache key the upstream would be asked twice.
     const first = await c.call('GET', '/v1/tip-config?bust=1', { 'CF-Connecting-IP': ip })
     assert.equal(first.status, 200)
     await new Promise((r) => setTimeout(r, 300)) // cache.put runs in waitUntil
@@ -219,6 +235,7 @@ describe('public-path edge cache', () => {
     assert.equal(hit.status, 200)
     assert.equal(acao(hit), ALLOWED_ORIGIN)
     assert.match(hit.headers.get('vary'), /Origin/)
+    // A cache hit never reaches the upstream.
     assert.equal(c.up.seen.length, 1) // still the single upstream request
   })
 })

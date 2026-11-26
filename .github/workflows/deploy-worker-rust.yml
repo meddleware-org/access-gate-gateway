@@ -24,8 +24,11 @@ name: Deploy Worker (Rust)
 #            stored in Cloudflare. Rollback = re-run deploy-workers.yml at the last TypeScript tag.
 
 on:
+  # Manual only: deploying a Worker is never triggered by a push.
   workflow_dispatch:
+    # Job 1: check the inputs before anything is built, so a typo fails in seconds.
     inputs:
+      # Shadow deploys a separate Worker and touches nothing live; cutover deploys over the live one.
       mode:
         description: "shadow (default) or cutover"
         type: choice
@@ -50,10 +53,12 @@ env:
   DO_NOT_TRACK: "1"
 
 permissions:
+  # The token can only read the repository; the deploy uses the Cloudflare token below.
   contents: read
 
 concurrency:
   group: deploy-workers # the same group as deploy-workers.yml: the two never deploy at once
+  # Never cancel a deploy half way: a second run waits for the first.
   cancel-in-progress: false
 
 jobs:
@@ -71,6 +76,7 @@ jobs:
           CONFIRM: ${{ inputs.confirm }}
         run: |
           set -euo pipefail
+          # The name of the live Worker, which a shadow must never use.
           live=access-gate-gateway
           if [ "$MODE" = cutover ]; then
             [ "$CONFIRM" = cutover ] || { echo "::error::cutover deploys over the live Worker; set confirm=cutover"; exit 1; }
@@ -84,25 +90,31 @@ jobs:
             echo "::error::unknown mode"; exit 1
           fi
 
+  # Job 2: the whole Rust CI must pass first, on this same commit.
   ci:
     needs: inputs
     uses: ./.github/workflows/rust-ci.yml
 
+  # Job 3: build and deploy, only from main and only in the protected `production` environment (its reviewers approve the run).
   deploy:
     name: Wrangler deploy (worker/, Rust)
     needs: [inputs, ci]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
+    # Every `run` step below starts in `worker/` unless it says otherwise.
     defaults:
       run:
         working-directory: worker
     steps:
+      # Check out the commit this run was triggered for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The Worker is compiled to wasm32.
       - name: Install the stable toolchain with the wasm32 target
         run: rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown --no-self-update && rustup default stable
 
+      # Cache the Cargo build output between runs; this workflow only reads the cache, so a manual run cannot overwrite it.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: ". -> target"
@@ -115,13 +127,16 @@ jobs:
       - name: Fetch the pinned build tools (wasm-bindgen, wasm-opt, esbuild; SHA-256 verified)
         run: bash scripts/fetch-build-tools.sh
 
+      # The Node version the Worker tooling is built and tested with.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26'
 
+      # The Worker's npm tooling (wrangler), installed from the lock file.
       - name: Install dependencies
         run: npm ci
 
+      # The identical build the deployed bundle comes from, so what was tested is what ships.
       - name: Build the Worker (the same command wrangler.toml runs)
         run: bash scripts/build.sh prod
 
@@ -154,6 +169,7 @@ jobs:
           fi
           rm -f "$conf"
 
+      # Shadow: a new script with its own configuration and secrets. Cutover: the live script, with its secret applied together with the code when one is supplied.
       - name: Deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -167,11 +183,14 @@ jobs:
           TAG: run-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          # Shadow mode: nothing live is touched.
           if [ "$MODE" = shadow ]; then
             # A separate script: derive its config (name, workers.dev, own GATEWAY_ORIGIN, no route).
             [ -n "${UPSTREAM_URL}" ] || { echo "::error::a shadow needs the GitHub secret UPSTREAM_URL (a new Worker has no secrets)"; exit 1; }
+            # Generate a configuration for the shadow name, with no route, from the real wrangler.toml.
             bash scripts/make-shadow-config.sh "$WORKER_NAME" "$GATEWAY_ORIGIN" > wrangler.shadow.toml
             npx wrangler deploy --config wrangler.shadow.toml --message "shadow ${GITHUB_SHA}"
+            # Secrets go in through standard input, so they never appear on a command line or in the log.
             printf '%s' "${UPSTREAM_URL}" | npx wrangler secret put UPSTREAM_URL --config wrangler.shadow.toml
             if [ -n "${UPSTREAM_AUTH_HEADERS}" ]; then
               printf '%s' "${UPSTREAM_AUTH_HEADERS}" | npx wrangler secret put UPSTREAM_AUTH_HEADERS --config wrangler.shadow.toml

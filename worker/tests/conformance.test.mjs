@@ -14,9 +14,12 @@ import { newWallet, proofToken, registerConsume } from './lib/proof.mjs'
 import { rawRequest } from './lib/http.mjs'
 
 const vectors = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '../../conformance/vectors.json'), 'utf8'))
+// The audience the golden proofs were signed for.
 const golden = vectors.signatures[0].context // origin, gateId, network, nonce
+// The pass type of the deployed package the vectors name.
 const NFT_TYPE = '0xd7ddaa94b74330979b2b618fc81206d160a264f1c9ca148a77fa2144301388c9::access_gate::SoulboundAccessNFT'
 
+// The Worker's configuration is set to the vectors' audience, so the golden proofs are valid for it.
 const common = {
   GATEWAY_ORIGIN: golden.origin,
   GATE_ID: golden.gateId,
@@ -25,6 +28,7 @@ const common = {
   RATE_LIMIT_PER_MIN: '0',
   GATED_PREAUTH_RATE_LIMIT_PER_MIN: '0',
 }
+// The Workers the response vectors drive, one per situation.
 const fixtures = {}
 before(async () => {
   const start = async (name, vars, upstream) => {
@@ -171,8 +175,10 @@ const drivers = {
   'commit-failed': async () => answer(await uploadConsume(fixtures['commit-fails'], await registerConsume(fixtures['commit-fails'].rpc, wallet))),
 }
 /** Not reachable from outside: a lease that lapses mid-request (the config forbids a lease shorter than the request); pinned in core (gateway.rs) and at the store (state.test.mjs). */
+// A lease that lapses mid-request cannot be produced from outside.
 const UNREACHABLE = ['lease-lost']
 
+/** Wrap a response so `json()` works for both a fetch response and a raw one. */
 function answer(r) {
   return typeof r.json === 'function' ? r : { status: r.status, json: async () => asJson(r) }
 }

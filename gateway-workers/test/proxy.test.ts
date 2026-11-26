@@ -1,10 +1,14 @@
+// Tests of the TypeScript Worker's forwarding (src/proxy.ts) in the real workerd runtime: the body cap, redirects, the deadline, the header
+// policy and loop detection. The Rust Worker's twin is worker/tests/proxy.test.mjs.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { forward } from '../src/proxy.js'
 import { isLooped } from '../src/headers.js'
 import type { Config } from '../src/config.js'
 
 // Body-size enforcement in the real workerd runtime (streams, FixedLengthStream, abort).
+// A small cap, so the tests can cross it with a few hundred bytes.
 const CAP = 1000
+// Only the settings the proxy reads.
 const cfg = {
   upstreamUrl: 'https://upstream.invalid',
   maxBodyBytes: CAP,
@@ -12,6 +16,7 @@ const cfg = {
   upstreamAuthHeaders: [{ name: 'CF-Access-Client-Id', value: 'svc-id' }],
 } as unknown as Config
 
+/** What the stub upstream received: the body and the abort signal. */
 interface Seen {
   bytes: Uint8Array
   signal: AbortSignal | null
@@ -50,6 +55,7 @@ function stubUpstream(): Seen[] {
   return seen
 }
 
+/** A body of `n` bytes. */
 function payload(n: number): Uint8Array {
   return Uint8Array.from({ length: n }, (_, i) => i % 251)
 }
@@ -66,6 +72,7 @@ function chunked(data: Uint8Array, chunk: number): ReadableStream<Uint8Array> {
   })
 }
 
+/** A gated POST request carrying `body`. */
 function post(body: BodyInit, headers?: Record<string, string>): Request {
   return new Request('https://gw.example.com/v1/blob-upload-relay', { method: 'POST', body, headers })
 }
@@ -134,6 +141,7 @@ describe('forward body limit', () => {
   })
 })
 
+// A redirect is never followed: the upstream credentials must not be re-sent to the `Location` host.
 describe('forward redirects', () => {
   it('never follows a redirect: the service-token headers must not reach the Location host', async () => {
     const calls: Array<{ url: string; redirect?: string }> = []
@@ -148,6 +156,7 @@ describe('forward redirects', () => {
   })
 })
 
+// A stalled upstream ends with a 504 at the deadline.
 describe('forward deadline', () => {
   it('ends a stalled upstream with 504 once the total deadline passes', async () => {
     vi.stubGlobal(
@@ -162,6 +171,7 @@ describe('forward deadline', () => {
   })
 })
 
+// Which request and response headers cross the gateway.
 describe('forward header policy', () => {
   it('strips hop-by-hop (and Connection-named), credential and spoofable request fields', async () => {
     let sent: Headers | undefined
@@ -251,6 +261,7 @@ export const VIA_TABLE: Array<[string | null, boolean]> = [
   ['1.1 registry-auth-proxy', false],
 ]
 
+// Only this gateway's own name in `Via` counts as a loop.
 describe('loop detection (Via)', () => {
   it('matches only our own received-by token', () => {
     for (const [via, looped] of VIA_TABLE) {

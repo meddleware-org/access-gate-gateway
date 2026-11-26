@@ -15,12 +15,15 @@ use access_gate_gateway_core::sig::verify_personal_message_signature;
 use wasm_bindgen::JsCast;
 use worker::*;
 
+/// The shared conformance vectors, embedded so the timing route needs no network.
 const VECTORS: &str = include_str!("../../conformance/vectors.json");
 
+/// A JSON answer with this status.
 fn json(status: u16, v: serde_json::Value) -> Result<Response> {
     Ok(Response::from_json(&v)?.with_status(status))
 }
 
+/// A monotonic millisecond reading (`performance.now`), or the wall clock where that is missing.
 fn now_ms() -> f64 {
     js_sys::global()
         .unchecked_into::<web_sys::WorkerGlobalScope>()
@@ -28,14 +31,18 @@ fn now_ms() -> f64 {
         .map_or_else(js_sys::Date::now, |p| p.now())
 }
 
+/// Time signature verification of one scheme: the first call (cold), then the mean of `iters` warm calls.
 fn bench(url: &Url) -> Result<Response> {
     let q: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+    // Default to ed25519, the common wallet scheme.
     let want = q.get("scheme").map_or("ed25519", String::as_str);
     let iters: u32 = q
         .get("iters")
         .and_then(|v| v.parse().ok())
+        // 200 iterations is enough to see a warm mean without a long request.
         .unwrap_or(200)
         .max(1);
+    // Warm-up calls are not timed: they let the runtime compile and cache.
     let warmup: u32 = q.get("warmup").and_then(|v| v.parse().ok()).unwrap_or(20);
     let v: serde_json::Value =
         serde_json::from_str(VECTORS).map_err(|e| Error::RustError(e.to_string()))?;
@@ -62,9 +69,12 @@ fn bench(url: &Url) -> Result<Response> {
     .map_err(|e| Error::RustError(e.to_string()))?;
     let (address, signature) = (field(sig, "address"), field(sig, "signature"));
     let verify = || verify_personal_message_signature(&address, &message, &signature);
+    // The first call is timed on its own because cold start is what matters at the edge.
     let t0 = now_ms();
     let ok = verify();
+    // The cold figure: what the first request of an isolate pays.
     let first_ms = now_ms() - t0;
+    // Let the runtime settle before the timed loop.
     for _ in 0..warmup {
         verify();
     }
@@ -72,6 +82,7 @@ fn bench(url: &Url) -> Result<Response> {
     for _ in 0..iters {
         verify();
     }
+    // The mean per call over the timed loop.
     let warm = (now_ms() - t1) / f64::from(iters);
     json(
         200,
@@ -100,11 +111,14 @@ pub async fn route(req: &web_sys::Request, env: &Env) -> Option<Result<Response>
     })
 }
 
+/// Forward `/do/<shard>/<op>` to the Durable Object of that shard, with the query string intact (including a pinned `now`).
 async fn do_op(rest: &str, url: &Url, env: &Env) -> Result<Response> {
     let mut parts = rest.trim_start_matches("do/").splitn(2, '/');
     let shard = parts.next().unwrap_or("g");
     let op = parts.next().unwrap_or("");
+    // The same binding the gateway uses.
     let ns = env.durable_object("NONCE_STATE")?;
+    // The id derives from the shard name, as the gateway derives it, so a test reaches the same object.
     let stub = ns.id_from_name(&format!("nonce:{shard}"))?.get_stub()?;
     let mut inner = Url::parse("https://do.internal/")?;
     inner.set_path(op);

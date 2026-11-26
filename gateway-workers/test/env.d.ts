@@ -2,7 +2,9 @@
 
 // Augment Cloudflare.Env with the bindings for this Worker.
 // This types the `env` export from 'cloudflare:test' and 'cloudflare:workers'.
+/** The bindings and variables the unit tests give the Worker. */
 declare namespace Cloudflare {
+  /** The bindings and variables the unit tests give the Worker. */
   interface Env {
     NONCE_STATE: DurableObjectNamespace
     NONCE_KV: KVNamespace

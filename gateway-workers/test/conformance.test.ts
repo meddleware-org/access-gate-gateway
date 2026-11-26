@@ -1,3 +1,5 @@
+// The shared conformance vectors (conformance/vectors.json) run against the TypeScript Workers gateway: the same file the Rust core and the
+// Rust Worker are tested with, so the implementations cannot drift apart.
 import { describe, it, expect } from 'vitest'
 import vectors from '../../conformance/vectors.json'
 import published from '@meddleware/access-gate-gateway-client/vectors.json'
@@ -13,14 +15,17 @@ import type { CommitResult, LeaseResult, NonceBackend, RedemptionStore } from '.
 
 // The SAME fixtures the Rust gateway verifies (gateway-rust `conformance_shared_vectors`), generated
 // and published by @meddleware/access-gate-gateway-client. Drift on either side fails a test.
+/** The context object the vectors carry: origin, gate, network, nonce and optional consume digest. */
 type Ctx = Parameters<typeof personalMessage>[0]
 const msg = (c: unknown) => personalMessage(c as Ctx)
 
 describe('conformance vectors (shared with the Rust gateway)', () => {
+  // The vectors in this repository must equal the published client package's file.
   it('the repository copy is the published package file', () => {
     expect(published).toEqual(vectors)
   })
 
+  // One test per case: the message built from the context must equal the shared expectation.
   for (const c of vectors.personalMessage.cases) {
     it(`personal message: ${c.name}`, () => {
       const bytes = msg(c.context)
@@ -29,6 +34,7 @@ describe('conformance vectors (shared with the Rust gateway)', () => {
     })
   }
 
+  // Contexts that must not produce a message.
   for (const c of vectors.personalMessageRejects) {
     it(`refuses to build a message: ${c.name}`, () => {
       expect(() => msg(c.context)).toThrow()
@@ -73,6 +79,7 @@ describe('conformance vectors (shared with the Rust gateway)', () => {
     })
   }
 
+  // Proves the refusal is the low-S rule and not a broken signature.
   it('the high-S vectors fail only because of the low-S rule (otherwise valid ECDSA)', () => {
     const digest = signingDigest(msg(vectors.signatures[0]!.context))
     for (const [name, curve] of [
@@ -140,6 +147,7 @@ const chain = (o: { owns?: boolean | Error; consumed?: boolean; blocked?: boolea
   gateAccessBlocked: async () => o.blocked ?? false,
 })
 
+/** A redemption store whose answers a test scripts, to drive each response outcome. */
 class Store implements RedemptionStore {
   constructor(
     private lease: LeaseResult,
@@ -155,6 +163,7 @@ class Store implements RedemptionStore {
   async releaseRedemption(): Promise<void> {}
 }
 
+/** Run one request through the decision and return the answer the gateway would send for a denial. */
 async function denial(c: Config, token: string, nonce: NonceBackend, q: ChainQuery): Promise<Response> {
   const result = await verifyAccessRequest(c, nonce, token, q)
   if (result.ok) throw new Error('expected a denial')
@@ -184,6 +193,7 @@ const drivers: Record<string, () => Promise<Response> | Response> = {
   'lease-lost': () => redeem(new Store({ status: 'ok', token: 't' }, 'lost')),
 }
 
+// Every outcome in the vectors, driven to the status and body the contract names.
 describe('response vectors: the gateway answers what the shared contract says', () => {
   it('has a driver for exactly the outcomes in the vectors', () => {
     expect(Object.keys(drivers).sort()).toEqual(vectors.responses.cases.map((c) => c.outcome).sort())

@@ -181,6 +181,7 @@ export async function runQuotaGuard(env: Env, now: Date = new Date()): Promise<Q
   return a
 }
 
+/** One analytics row: the sums the query asks for. */
 type SumRow = { sum?: { requests?: number; cpuTimeUs?: number; activeTime?: number } }
 
 /**

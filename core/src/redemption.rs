@@ -7,40 +7,56 @@
 
 use std::collections::HashMap;
 
+/// The result of trying to lease a redemption.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Lease {
+    /// Leased: the owner token to commit or release with.
     Ok(String),
+    /// Someone else holds the lease.
     Leased,
+    /// Already redeemed.
     Redeemed,
 }
 
+/// The result of committing a leased redemption.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Commit {
+    /// Committed.
     Ok,
+    /// The lease was lost (expired and taken, or never held), so nothing was committed.
     Lost,
 }
 
+/// One redemption row.
 #[derive(Clone, Debug)]
 struct Row {
+    /// Whether the use has been spent for good.
     committed: bool,
+    /// When a lease (or the retained commit) expires, in epoch milliseconds.
     expiry_ms: u64,
+    /// The owner token of the lease.
     token: String,
 }
 
+/// The redemption rows: lease, commit and release by owner token.
 #[derive(Default)]
 pub struct RedemptionTable {
+    /// The rows by redemption key.
     rows: HashMap<String, Row>,
 }
 
 impl RedemptionTable {
+    /// An empty table.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// How many rows are held.
     pub fn len(&self) -> usize {
         self.rows.len()
     }
 
+    /// Whether no row is held.
     pub fn is_empty(&self) -> bool {
         self.rows.is_empty()
     }
@@ -54,16 +70,20 @@ impl RedemptionTable {
         max_entries: usize,
         new_token: String,
     ) -> Lease {
+        // Forget leases and commits whose time is up before looking anything up, so an expired row can never block a claim.
         self.rows.retain(|_, r| r.expiry_ms > now);
         if let Some(r) = self.rows.get(key) {
+            // A committed row is a spent use: it stays until its retention ends.
             if r.committed {
                 return Lease::Redeemed;
             }
+            // A live lease belongs to another request; a lapsed one is taken over below.
             if r.expiry_ms > now {
                 return Lease::Leased;
             }
         }
         if self.rows.len() >= max_entries.max(1) {
+            // At least one row is always allowed, so a zero cap cannot refuse every claim.
             // Evict the soonest-to-expire LEASE, never a commit (that would allow re-redemption).
             if let Some(oldest) = self
                 .rows
@@ -79,6 +99,7 @@ impl RedemptionTable {
             key.to_string(),
             Row {
                 committed: false,
+                // Seconds to milliseconds; saturating, so a huge setting cannot wrap into the past.
                 expiry_ms: now.saturating_add(lease_ttl_secs.saturating_mul(1000)),
                 token: new_token.clone(),
             },
@@ -86,22 +107,29 @@ impl RedemptionTable {
         Lease::Ok(new_token)
     }
 
+    /// Commit the lease on `key` if `token` still owns it, and retain the commit so the same use cannot be spent again.
     pub fn commit(&mut self, key: &str, token: &str, now: u64, retention_secs: u64) -> Commit {
         match self.rows.get_mut(key) {
+            // Only the holder of the live, uncommitted lease may commit it.
             Some(r) if !r.committed && r.token == token && r.expiry_ms > now => {
                 r.committed = true;
+                // The row now lives for the retention period instead of the lease period.
                 r.expiry_ms = now.saturating_add(retention_secs.saturating_mul(1000));
+                // The owner token is no longer needed, and no one can commit or release it again.
                 r.token.clear();
                 Commit::Ok
             }
+            // No row, someone else's token, an expired lease or an already committed row: the caller does not own the use.
             _ => Commit::Lost,
         }
     }
 
+    /// Release the lease on `key` if `token` owns it and it is not committed.
     pub fn release(&mut self, key: &str, token: &str) {
         if self
             .rows
             .get(key)
+            // A release by a stale holder, or of a committed row, does nothing.
             .is_some_and(|r| !r.committed && r.token == token)
         {
             self.rows.remove(key);
@@ -113,14 +141,17 @@ impl RedemptionTable {
 /// `issue` + `takeIfValid` (present => gone, valid iff unexpired).
 #[derive(Default)]
 pub struct NonceTable {
+    /// The nonces and when each expires.
     rows: HashMap<String, u64>,
 }
 
 impl NonceTable {
+    /// An empty table.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Store a nonce and return when it expires, evicting the soonest-to-expire if the table is full.
     pub fn issue(&mut self, nonce: String, now: u64, ttl_secs: u64, max_entries: usize) -> u64 {
         self.rows.retain(|_, e| *e > now);
         if self.rows.len() >= max_entries.max(1) {
@@ -133,13 +164,17 @@ impl NonceTable {
                 self.rows.remove(&oldest);
             }
         }
+        // The expiry in epoch milliseconds, returned to the client in the challenge.
         let expiry = now.saturating_add(ttl_secs.saturating_mul(1000));
         self.rows.insert(nonce, expiry);
         expiry
     }
 
+    /// Take the nonce once: true only if it is present and unexpired.
     pub fn take_if_valid(&mut self, nonce: &str, now: u64) -> bool {
+        // Removing is the check: a nonce can be taken once whether or not it was still valid.
         match self.rows.remove(nonce) {
+            // An expired nonce is gone but does not count.
             Some(expiry) => expiry > now,
             None => false,
         }
@@ -150,10 +185,12 @@ impl NonceTable {
         self.rows.retain(|_, e| *e > now);
     }
 
+    /// How many nonces are held.
     pub fn len(&self) -> usize {
         self.rows.len()
     }
 
+    /// Whether none is held.
     pub fn is_empty(&self) -> bool {
         self.rows.is_empty()
     }
@@ -171,10 +208,12 @@ const RATE_WINDOW_MS: u64 = 60_000;
 /// evicted key rather than closed for every new one (a flood of distinct keys must not lock the others out).
 #[derive(Default)]
 pub struct RateTable {
+    /// The windows by key: when the window started and how many requests it has seen.
     rows: HashMap<String, (u64, u64)>,
 }
 
 impl RateTable {
+    /// An empty table.
     pub fn new() -> Self {
         Self::default()
     }
@@ -187,9 +226,11 @@ impl RateTable {
     /// Charge one request to `key`; `false` when its budget for the current window is spent. The table
     /// holds at most `max_keys` (at least one) windows.
     pub fn check_capped(&mut self, key: &str, now: u64, max_per_min: u64, max_keys: usize) -> bool {
+        // A budget of zero means "no limit" and stores nothing.
         if max_per_min == 0 {
             return true;
         }
+        // Start a fresh window unless one is still running for this key.
         let (mut start, mut count) = (now, 0);
         if let Some(&(s, c)) = self.rows.get(key) {
             if now.saturating_sub(s) < RATE_WINDOW_MS {
@@ -197,6 +238,7 @@ impl RateTable {
                 count = c;
             }
         }
+        // The budget for this window is spent. Nothing is stored, so refused requests are not counted.
         if count >= max_per_min {
             return false;
         }
@@ -213,6 +255,7 @@ impl RateTable {
                 }
             }
         }
+        // Count this request in the window it belongs to.
         self.rows.insert(key.to_string(), (start, count + 1));
         true
     }
@@ -224,19 +267,23 @@ impl RateTable {
             .retain(|_, (s, _)| now.saturating_sub(*s) < RATE_WINDOW_MS);
     }
 
+    /// How many windows are held.
     pub fn len(&self) -> usize {
         self.rows.len()
     }
 
+    /// Whether none is held.
     pub fn is_empty(&self) -> bool {
         self.rows.is_empty()
     }
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Lease commit release semantics.
     #[test]
     fn lease_commit_release_semantics() {
         let mut t = RedemptionTable::new();
@@ -258,6 +305,7 @@ mod tests {
         ));
     }
 
+    /// Expired lease is reclaimable and old holder loses.
     #[test]
     fn expired_lease_is_reclaimable_and_old_holder_loses() {
         let mut t = RedemptionTable::new();
@@ -274,6 +322,7 @@ mod tests {
         assert_eq!(t.commit("d", &b, 2_002, 10), Commit::Ok);
     }
 
+    /// Release makes the consume retryable.
     #[test]
     fn release_makes_the_consume_retryable() {
         let mut t = RedemptionTable::new();
@@ -288,6 +337,7 @@ mod tests {
         ));
     }
 
+    /// Cap evicts leases never commits.
     #[test]
     fn cap_evicts_leases_never_commits() {
         let mut t = RedemptionTable::new();
@@ -301,6 +351,7 @@ mod tests {
         assert_eq!(t.try_lease("a", 4, 900, 2, "X".into()), Lease::Redeemed);
     }
 
+    /// Nonce is single use and expires.
     #[test]
     fn nonce_is_single_use_and_expires() {
         let mut n = NonceTable::new();
@@ -311,6 +362,7 @@ mod tests {
         assert!(!n.take_if_valid("y", 1_000)); // expired exactly at expiry
     }
 
+    /// Rate window.
     #[test]
     fn rate_window() {
         let mut r = RateTable::new();
@@ -321,6 +373,7 @@ mod tests {
         assert!(r.check("z", 0, 0));
     }
 
+    /// Prune drops only ended windows and changes no verdict.
     #[test]
     fn prune_drops_only_ended_windows_and_changes_no_verdict() {
         let mut r = RateTable::new();
@@ -335,6 +388,7 @@ mod tests {
         assert!(r.is_empty());
     }
 
+    /// The cap bounds the table and evicts the soonest ending window.
     #[test]
     fn the_cap_bounds_the_table_and_evicts_the_soonest_ending_window() {
         let mut r = RateTable::new();
@@ -350,6 +404,7 @@ mod tests {
         assert_eq!(r.len(), 3);
     }
 
+    /// A full table drops ended windows before evicting a live one.
     #[test]
     fn a_full_table_drops_ended_windows_before_evicting_a_live_one() {
         let mut r = RateTable::new();
@@ -361,6 +416,7 @@ mod tests {
         assert!(!r.check_capped("b", 60_600, 1, 2));
     }
 
+    /// Many distinct keys never exceed the cap.
     #[test]
     fn many_distinct_keys_never_exceed_the_cap() {
         let mut r = RateTable::new();
@@ -371,6 +427,7 @@ mod tests {
         assert_eq!(r.len(), 64);
     }
 
+    /// An unlimited budget stores nothing.
     #[test]
     fn an_unlimited_budget_stores_nothing() {
         let mut r = RateTable::new();

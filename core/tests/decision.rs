@@ -24,6 +24,7 @@ use std::sync::Mutex;
 struct Nonces(Mutex<HashSet<String>>);
 
 impl Nonces {
+    /// Record `nonce` as issued and return it with an expiry of zero (the tests do not read the expiry).
     fn issue(&self, nonce: &str) -> (String, u64) {
         self.0.lock().unwrap().insert(nonce.to_string());
         (nonce.to_string(), 0)
@@ -31,6 +32,7 @@ impl Nonces {
 }
 
 impl NonceTake for Nonces {
+    /// Remove the nonce: only the first take of an issued nonce succeeds.
     async fn take_if_valid(&self, nonce: &str) -> anyhow::Result<bool> {
         Ok(self.0.lock().unwrap().remove(nonce))
     }
@@ -55,6 +57,7 @@ fn test_cfg() -> GatewayConfig {
     GatewayConfig::from_env(&env).unwrap()
 }
 
+/// The decision under test, called with the parameters taken from a configuration the way the gateway does.
 async fn verify_access_request<C: ChainQuery>(
     cfg: &GatewayConfig,
     store: &Nonces,
@@ -64,6 +67,7 @@ async fn verify_access_request<C: ChainQuery>(
     decide(&VerifyParams::from(cfg), store, token, chain).await
 }
 
+/// A fixed base58 transaction digest for the single-use cases.
 const DIGEST: &str = "5Wq9tE4gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL";
 
 /// The message a client signs for the test gateway (origin https://gateway.example, gate 0x2,
@@ -85,6 +89,7 @@ fn signed_msg(nonce: &str) -> Vec<u8> {
     msg_for(nonce, None)
 }
 
+/// A real ed25519 proof: sign the personal message for this gateway and wrap address, nonce, signature (and consume digest) as the wire token.
 fn build_token(
     sk: &SigningKey,
     address: &str,
@@ -93,8 +98,10 @@ fn build_token(
 ) -> String {
     let message = msg_for(nonce, consume_digest);
     let digest = signing_digest(&message);
+    // Sign the Blake2b digest of the intent-wrapped message, as a Sui wallet does for a personal message.
     let sig = sk.sign(&digest);
     let mut serialized = Vec::with_capacity(97);
+    // Sui serialised signature: scheme flag (0 = ed25519), the 64-byte signature, then the 32-byte public key.
     serialized.push(0x00);
     serialized.extend_from_slice(&sig.to_bytes());
     serialized.extend_from_slice(sk.verifying_key().as_bytes());
@@ -106,12 +113,15 @@ fn build_token(
     BASE64_STANDARD.encode(serde_json::to_vec(&obj).unwrap())
 }
 
+/// A fixed test key and the Sui address derived from it.
 fn keypair() -> (SigningKey, String) {
+    // A fixed seed keeps the address and every signature reproducible.
     let sk = SigningKey::from_bytes(&[7u8; 32]);
     let address = derive_address(FLAG_ED25519, sk.verifying_key().as_bytes());
     (sk, address)
 }
 
+/// Signature verifies and recovers address.
 #[test]
 fn signature_verifies_and_recovers_address() {
     let (sk, address) = keypair();
@@ -126,6 +136,7 @@ fn signature_verifies_and_recovers_address() {
 }
 
 // ── secp256k1 (flag 0x01) ──────────────────────────────────────────────
+/// Secp256k1 signature verifies and recovers address.
 #[test]
 fn secp256k1_signature_verifies_and_recovers_address() {
     use k256::ecdsa::{signature::Signer, Signature, SigningKey as K1SigningKey};
@@ -154,6 +165,7 @@ fn secp256k1_signature_verifies_and_recovers_address() {
 }
 
 // ── secp256r1 (flag 0x02) ──────────────────────────────────────────────
+/// Secp256r1 signature verifies and recovers address.
 #[test]
 fn secp256r1_signature_verifies_and_recovers_address() {
     use p256::ecdsa::{signature::Signer, Signature, SigningKey as R1SigningKey};
@@ -178,6 +190,7 @@ fn secp256r1_signature_verifies_and_recovers_address() {
     assert!(!verify_personal_message_signature("0xdead", &msg, &sig_b64));
 }
 
+/// Multisig and zklogin flags fail closed.
 #[test]
 fn multisig_and_zklogin_flags_fail_closed() {
     // flag 0x03 (multisig) / 0x05 (zkLogin) are recognised but not yet verified → false.
@@ -198,6 +211,7 @@ fn multisig_and_zklogin_flags_fail_closed() {
     ));
 }
 
+/// Signature rejected for wrong address.
 #[test]
 fn signature_rejected_for_wrong_address() {
     let (sk, _addr) = keypair();
@@ -211,6 +225,7 @@ fn signature_rejected_for_wrong_address() {
     ));
 }
 
+/// Signature rejected when tampered.
 #[test]
 fn signature_rejected_when_tampered() {
     let (sk, address) = keypair();
@@ -225,15 +240,18 @@ fn signature_rejected_when_tampered() {
     ));
 }
 
+/// A scripted chain: each flag is the answer to one question the decision asks.
 struct MockChain {
     owns: bool,
     consumed: bool,
     blocked: bool,
 }
 impl ChainQuery for MockChain {
+    /// Answer the scripted ownership flag.
     async fn owns_nft(&self, _a: &str, _t: &str, _g: Option<&str>) -> anyhow::Result<bool> {
         Ok(self.owns)
     }
+    /// Check the asked-for event type and age bound, then answer the scripted consume flag.
     async fn consume_tx_valid(
         &self,
         _d: &str,
@@ -242,6 +260,7 @@ impl ChainQuery for MockChain {
         _g: Option<&str>,
         max_age_secs: u64,
     ) -> anyhow::Result<bool> {
+        // The decision must pass the configured bound (the default is five days) to the chain query unchanged.
         assert_eq!(max_age_secs, 432_000, "the configured consume age bound");
         // The verifier must ask for the configured package's exact event type.
         assert_eq!(
@@ -250,11 +269,13 @@ impl ChainQuery for MockChain {
         );
         Ok(self.consumed)
     }
+    /// Answer the scripted pause flag.
     async fn gate_access_blocked(&self, _g: &str) -> anyhow::Result<bool> {
         Ok(self.blocked)
     }
 }
 
+/// The test configuration with single-use mode on or off.
 fn cfg(single_use: bool) -> GatewayConfig {
     GatewayConfig {
         single_use,
@@ -262,6 +283,7 @@ fn cfg(single_use: bool) -> GatewayConfig {
     }
 }
 
+/// Allows owner with valid proof.
 #[test]
 fn allows_owner_with_valid_proof() {
     pollster::block_on(async {
@@ -286,6 +308,7 @@ fn allows_owner_with_valid_proof() {
     });
 }
 
+/// Denies non owner.
 #[test]
 fn denies_non_owner() {
     pollster::block_on(async {
@@ -308,6 +331,7 @@ fn denies_non_owner() {
     });
 }
 
+/// Denies replayed nonce.
 #[test]
 fn denies_replayed_nonce() {
     pollster::block_on(async {
@@ -343,6 +367,7 @@ fn denies_replayed_nonce() {
     });
 }
 
+/// Denies bad signature.
 #[test]
 fn denies_bad_signature() {
     pollster::block_on(async {
@@ -373,6 +398,7 @@ fn denies_bad_signature() {
     });
 }
 
+/// Single use requires consume event.
 #[test]
 fn single_use_requires_consume_event() {
     pollster::block_on(async {
@@ -414,6 +440,7 @@ fn single_use_requires_consume_event() {
     });
 }
 
+/// Single use denies missing consume digest.
 #[test]
 fn single_use_denies_missing_consume_digest() {
     pollster::block_on(async {
@@ -436,6 +463,7 @@ fn single_use_denies_missing_consume_digest() {
     });
 }
 
+/// Denies owner while gate paused with access policy.
 #[test]
 fn denies_owner_while_gate_paused_with_access_policy() {
     pollster::block_on(async {
@@ -453,6 +481,7 @@ fn denies_owner_while_gate_paused_with_access_policy() {
     });
 }
 
+/// Single use paused gate denies before redemption.
 #[test]
 fn single_use_paused_gate_denies_before_redemption() {
     pollster::block_on(async {
@@ -472,6 +501,7 @@ fn single_use_paused_gate_denies_before_redemption() {
 }
 
 // ── audience binding (protocol v2) ──
+/// A chain where the address owns a pass, the consume exists and the gate is open.
 fn chain_ok() -> MockChain {
     MockChain {
         owns: true,
@@ -480,6 +510,7 @@ fn chain_ok() -> MockChain {
     }
 }
 
+/// Refuses a proof made for another gateway gate or network.
 #[test]
 fn refuses_a_proof_made_for_another_gateway_gate_or_network() {
     pollster::block_on(async {
@@ -511,6 +542,7 @@ fn refuses_a_proof_made_for_another_gateway_gate_or_network() {
     });
 }
 
+/// Refuses the v1 and v2 messages and a cross mode signature.
 #[test]
 fn refuses_the_v1_and_v2_messages_and_a_cross_mode_signature() {
     pollster::block_on(async {
@@ -556,6 +588,7 @@ fn refuses_the_v1_and_v2_messages_and_a_cross_mode_signature() {
     });
 }
 
+/// Single use refuses a swapped consume digest.
 #[test]
 fn single_use_refuses_a_swapped_consume_digest() {
     pollster::block_on(async {

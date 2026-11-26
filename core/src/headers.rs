@@ -28,9 +28,11 @@ pub const VIA_TOKEN: &str = "1.1 access-gate-gateway";
 /// `protocol received-by [comment]`; a comment is not examined, so `1.1 google (access-gate-gateway)` is foreign.
 /// Foreign names (a CDN's `1.1 google`) pass.
 pub fn via_is_looped(via: &str) -> bool {
+    // Each comma-separated entry is `protocol received-by [comment]`.
     via.split(',').any(|entry| {
         entry
             .split_whitespace()
+            // The second word is the received-by name; the first is the protocol version, and a comment (the third word onwards) is ignored.
             .nth(1)
             .is_some_and(|by| by.eq_ignore_ascii_case("access-gate-gateway"))
     })
@@ -71,14 +73,19 @@ pub fn connection_named(connection: &str) -> Vec<String> {
 /// exploitable there; the retiring TypeScript Worker (`isSafePath`) lacks the check, the single
 /// implementation has it.
 pub fn is_safe_path(path: &str) -> bool {
+    // Encoded forms are matched case-insensitively (`%2F` and `%2f` are the same byte).
     let lower = path.to_ascii_lowercase();
+    // An encoded slash or backslash would let a segment hide a separator from the upstream's router.
     !(lower.contains("%2f")
         || lower.contains("%5c")
         || lower.contains("%00")
+        // An encoded `..` is as dangerous as a literal one.
         || lower.contains("%2e%2e")
         || path.contains('\\')
+        // An empty segment is refused so one path has one spelling.
         || path.contains("//")
         || path.split('/').any(|seg| seg == "..")
+        // Control characters (and DEL) never belong in a path.
         || path.bytes().any(|b| b < 0x20 || b == 0x7f))
 }
 
@@ -90,6 +97,7 @@ pub fn drop_request_header(name: &str, connection_named: &[String]) -> bool {
     HOP_BY_HOP.contains(&name)
         || connection_named.iter().any(|n| n == name)
         || REQUEST_STRIP.contains(&name)
+        // The upstream credentials are the gateway's alone: a client cannot present its own.
         || name.starts_with("cf-access-")
 }
 
@@ -98,6 +106,7 @@ pub fn drop_response_header(name: &str, connection_named: &[String]) -> bool {
     HOP_BY_HOP.contains(&name)
         || connection_named.iter().any(|n| n == name)
         || RESPONSE_STRIP.contains(&name)
+        // The upstream's CORS fields are dropped because the gateway sends its own.
         || name.starts_with("access-control-")
 }
 
@@ -108,12 +117,14 @@ pub fn extract_proof_token(
     authorization: Option<&str>,
     x_access_proof: Option<&str>,
 ) -> Option<String> {
+    // `Authorization: <scheme> <credentials>`: split at the first whitespace.
     if let Some((scheme, rest)) = authorization.and_then(|s| s.split_once(char::is_whitespace)) {
         let token = rest.trim();
         if scheme.eq_ignore_ascii_case("bearer") && !token.is_empty() {
             return Some(token.to_string());
         }
     }
+    // The fallback for clients that cannot set `Authorization`.
     x_access_proof.map(|s| s.trim().to_string())
 }
 
@@ -135,9 +146,11 @@ pub const CORS_GRANTS: [(&str, &str); 4] = [
 /// match, otherwise none (a response then carries no grant at all). Every response also carries
 /// `Vary: Origin`, and a preflight is answered before rate limits and auth.
 pub fn cors_allowed_origin<'a>(origin: Option<&'a str>, allowed: &[String]) -> Option<&'a str> {
+    // Exact string comparison, no wildcards and no suffix matching.
     origin.filter(|o| allowed.iter().any(|a| a == o))
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,6 +174,7 @@ mod tests {
         ("1.1 registry-auth-proxy", false),
     ];
 
+    /// Via loop table.
     #[test]
     fn via_loop_table() {
         for (via, looped) in VIA_TABLE {
@@ -170,11 +184,13 @@ mod tests {
         assert!(via_is_looped("1.1 google,1.1 access-gate-gateway"));
     }
 
+    /// The marker the gateway adds is the one it refuses.
     #[test]
     fn the_marker_the_gateway_adds_is_the_one_it_refuses() {
         assert!(via_is_looped(VIA_TOKEN));
     }
 
+    /// Drop predicates.
     #[test]
     fn drop_predicates() {
         let named = connection_named("X-Hop, keep-alive");
@@ -187,6 +203,7 @@ mod tests {
         assert!(!drop_response_header("etag", &[]));
     }
 
+    /// Every listed request and hop field is dropped.
     #[test]
     fn every_listed_request_and_hop_field_is_dropped() {
         let named = connection_named("x-secret-hop, close");
@@ -210,6 +227,7 @@ mod tests {
         assert!(!drop_response_header("x-relay", &[]));
     }
 
+    /// Unsafe paths are refused.
     #[test]
     fn unsafe_paths_are_refused() {
         for bad in [
@@ -239,6 +257,7 @@ mod tests {
         }
     }
 
+    /// Bearer token extraction matches the workers gateway.
     #[test]
     fn bearer_token_extraction_matches_the_workers_gateway() {
         for (auth, want) in [
@@ -272,6 +291,7 @@ mod tests {
         assert_eq!(extract_proof_token(None, None), None);
     }
 
+    /// Cors reflects only an exact allowed origin.
     #[test]
     fn cors_reflects_only_an_exact_allowed_origin() {
         let allowed = vec!["https://app.example".to_string()];

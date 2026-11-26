@@ -18,12 +18,15 @@ import { diff, headersOf, record, upstreamSaw } from './lib/transcript.mjs'
 import { baseVars, startWorker, WORKER_DIR, ALLOWED_ORIGIN, sleep } from './lib/worker.mjs'
 import { startFullnode, startUpstream, txDigest } from './lib/stubs.mjs'
 
+// The TypeScript reference Worker.
 const GW = path.resolve(WORKER_DIR, '../gateway-workers')
 // Fail at once, with the cause, instead of every scenario waiting out its start-up timeout.
 if (!fs.existsSync(path.join(GW, 'node_modules', 'wrangler'))) {
   throw new Error(`the TypeScript reference Worker has no dependencies: run \`npm ci\` in ${GW} first`)
 }
+// Both implementations, always run together.
 const KINDS = ['ts', 'rust']
+// A counter that gives each request its own client address, so rate limits never interfere.
 let ipn = 0
 const ip = () => `203.0.${113 + Math.floor(ipn / 250)}.${(ipn++ % 250) + 1}`
 
@@ -46,6 +49,7 @@ async function pair(name, vars = {}, upstreamOpts = {}) {
     return { kind, w, rpc, up, base: w.base, close: async () => { await w.stop(); await up.close(); await rpc.close() } }
   }
   // Start both; if either fails, stop the one that came up (an orphan keeps the test process, and the CI job, alive).
+  // Start both at once to save time.
   const settled = await Promise.allSettled([make('ts'), make('rust')])
   const failed = settled.find((r) => r.status === 'rejected')
   if (failed) {
@@ -63,11 +67,13 @@ async function same(p, script) {
     side.up.reset()
     results[side.kind] = await script(side)
   }
+  // Compare the two transcripts record by record; any difference is listed.
   const d = diff(results.ts, results.rust)
   assert.equal(d.length, 0, `\n${d.join('\n')}`)
   assert.ok(results.ts.length > 0)
 }
 
+// A GET that does not follow redirects and asks for no compression, so both sides' bytes are comparable.
 const get = (side, path, headers = {}, init = {}) => fetch(side.base + path, { redirect: 'manual', ...init, headers: { 'accept-encoding': 'identity', ...headers } })
 /** A gated request with raw control; returns a record plus what the upstream saw. */
 async function gatedRec(side, name, { wallet, consume = true, method = 'PUT', path = '/v1/blob-upload-relay', headers = {}, body = Buffer.from('blob'), digest, proofHeaders } = {}) {

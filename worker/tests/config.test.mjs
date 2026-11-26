@@ -6,11 +6,13 @@ import assert from 'node:assert/strict'
 import { fixture, nextIp } from './lib/fixture.mjs'
 import { ALLOWED_ORIGIN } from './lib/worker.mjs'
 
+/** Start a Worker with these variables, run `fn` against it and always stop it. */
 async function with_(vars, fn, opts = {}) {
   const f = await fixture({ name: 'cfg', vars, ...opts })
   try { await fn(f) } finally { await f.close() }
 }
 
+// What a Worker with bad configuration must answer, whatever the bad value is.
 const misconfigured = async (f, { cors = false } = {}) => {
   const res = await f.call('GET', '/v1/challenge', { origin: ALLOWED_ORIGIN, 'CF-Connecting-IP': nextIp() })
   assert.equal(res.status, 500)

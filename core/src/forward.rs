@@ -23,30 +23,38 @@ pub fn is_forwarded_method(method: &str) -> bool {
 /// A request the gateway answers itself instead of forwarding: status and client-visible reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Refusal {
+    /// The HTTP status to answer with.
     pub status: u16,
+    /// The client-visible reason (a fixed phrase, never upstream text).
     pub reason: &'static str,
 }
 
+/// Only GET, HEAD, POST and PUT are forwarded.
 pub const METHOD_NOT_ALLOWED: Refusal = Refusal {
     status: 405,
     reason: "method not allowed",
 };
+/// The path is not one the gateway will forward.
 pub const INVALID_PATH: Refusal = Refusal {
     status: 400,
     reason: "invalid path",
 };
+/// The body is over the cap.
 pub const BODY_TOO_LARGE: Refusal = Refusal {
     status: 413,
     reason: "request body too large",
 };
+/// The body did not arrive in time.
 pub const BODY_TIMED_OUT: Refusal = Refusal {
     status: 408,
     reason: "request body timed out",
 };
+/// The upstream did not answer in time.
 pub const UPSTREAM_TIMED_OUT: Refusal = Refusal {
     status: 504,
     reason: "upstream timed out",
 };
+/// The upstream failed or redirected.
 pub const UPSTREAM_ERROR: Refusal = Refusal {
     status: 502,
     reason: "upstream error",
@@ -86,10 +94,12 @@ pub fn is_redirect(status: u16) -> bool {
     (300..400).contains(&status)
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Declared length over cap is rejected up front.
     #[test]
     fn declared_length_over_cap_is_rejected_up_front() {
         assert!(declared_too_large(Some("1001"), 1000));
@@ -100,6 +110,7 @@ mod tests {
         assert!(!declared_too_large(Some("abc"), 1000));
     }
 
+    /// Preflight checks method then path then size.
     #[test]
     fn preflight_checks_method_then_path_then_size() {
         assert_eq!(preflight("POST", "/v1/x", Some("10"), 1000), Ok(()));
@@ -124,6 +135,7 @@ mod tests {
         }
     }
 
+    /// Redirects are the 3xx range.
     #[test]
     fn redirects_are_the_3xx_range() {
         assert!(is_redirect(301) && is_redirect(302) && is_redirect(399));

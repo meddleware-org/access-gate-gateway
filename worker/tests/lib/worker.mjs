@@ -8,9 +8,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { parse } from 'smol-toml'
 
+/** The worker crate's directory. */
 export const WORKER_DIR = path.resolve(import.meta.dirname, '../..')
+// The local wrangler: the tests run the same workerd the platform does.
 const WRANGLER = path.join(WORKER_DIR, 'node_modules/.bin/wrangler')
 
+/** Resolve after `ms` milliseconds. */
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // Ports handed out in this process. The OS may give the same port to two callers that probe at the same
@@ -18,6 +21,7 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 // parallel collide intermittently; never hand the same port out twice.
 const handedOut = new Set()
 
+/** A free local port that this process has not already handed out. */
 export async function freePort() {
   for (let attempt = 0; attempt < 50; attempt++) {
     const port = await new Promise((resolve, reject) => {
@@ -38,6 +42,7 @@ export async function freePort() {
 
 // Every child we spawn, so a suite that fails in a `before` hook cannot leave workerd running: an orphan
 // keeps the test process alive until the CI job times out.
+// Every child process started, so they can all be stopped.
 const live = new Set()
 const killAll = () => { for (const c of live) { try { c.kill('SIGKILL') } catch { /* gone */ } } }
 process.on('exit', killAll)
@@ -49,8 +54,11 @@ export const BUILDS = {
   hooks: path.join(WORKER_DIR, 'build-hooks'),
 }
 
+/** The gate id the stub fullnode and the golden proofs use. */
 export const GATE_ID = '0x316f1bf9764db352e925bb598aff44ea77be4ab652f0bd2eb3fdcc0a378faddc'
+/** The package id the pass type is taken from. */
 export const NFT_PKG = '0xd7ddaa94b74330979b2b618fc81206d160a264f1c9ca148a77fa2144301388c9'
+/** The one browser origin the tests put on the allow list. */
 export const ALLOWED_ORIGIN = 'https://allowed.example.com'
 
 /** The vars the suites run with on top of wrangler.toml's. */
@@ -73,6 +81,7 @@ export function baseVars(extra = {}) {
  * @param {boolean} [o.scheduled] pass --test-scheduled
  */
 export async function startWorker({ build = 'prod', vars, main, config, scheduled = false, name = 'w', dropDo = false, healthPath = '/healthz' }) {
+  // Read the real wrangler.toml so a variable added there is what the tests run with.
   const toml = parse(fs.readFileSync(config ?? path.join(WORKER_DIR, 'wrangler.toml'), 'utf8'))
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `access-gate-gateway-${name}-`))
   const cfg = {
@@ -105,6 +114,7 @@ export async function startWorker({ build = 'prod', vars, main, config, schedule
   child.stdout.on('data', onData)
   child.stderr.on('data', onData)
   const base = `http://127.0.0.1:${port}`
+  // Starting wrangler can be slow on a cold machine; two minutes before giving up.
   const deadline = Date.now() + 120_000
   for (;;) {
     if (child.exitCode !== null) { throw new Error(`wrangler dev exited (${child.exitCode}):\n${logs}`) }

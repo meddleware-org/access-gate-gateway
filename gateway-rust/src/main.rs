@@ -31,16 +31,29 @@
 //! - `chain` — the Sui RPC client for ownership / event queries.
 //! - `http` — the shared [`http_client::HttpClient`] used both by the proxy and the RPC client.
 
+/// The nonce store: in memory, or Redis/Dragonfly for a fleet.
 mod challenge;
+/// Server configuration: the shared gateway settings plus the process-only ones.
 mod config;
+/// The hyper transport behind the Sui gRPC-web client.
 mod grpc;
+/// Applying the header policy to `http` header maps.
 mod headers;
+/// The one outbound HTTP client, shared by the proxy and the RPC client.
 mod http_client;
+/// Forwarding an authorised request to the private upstream.
 mod proxy;
+/// Router tests against stub RPC nodes and upstreams (compiled for tests only).
 #[cfg(test)]
 mod router_tests;
+/// The system clock and entropy source, and the per-request state view.
 mod state;
+/// The Sui RPC client with its response cache.
 mod sui_rpc;
+/// Tests of the chain client, against a scripted node (compiled for tests only).
+#[cfg(test)]
+mod sui_rpc_tests;
+/// Protobuf builders for tests (compiled for tests only).
 #[cfg(test)]
 mod testkit;
 
@@ -114,9 +127,11 @@ impl AppState {
 /// Render a gateway-generated answer: `{"error": reason}` (plus `code`), or the challenge. The
 /// operator-only `diag` goes to the log and never to the client.
 fn render(reply: JsonReply) -> Response {
+    // The operator detail is logged and never reaches the client body.
     if let Some(diag) = &reply.diag {
         tracing::error!("{diag}");
     }
+    // A status the gateway built itself is always valid; the fallback only guards against a future mistake.
     let status = StatusCode::from_u16(reply.status).unwrap_or(StatusCode::BAD_GATEWAY);
     let mut res = (status, Json(reply.body)).into_response();
     if let Some(allow) = reply.allow {
@@ -130,16 +145,19 @@ fn render(reply: JsonReply) -> Response {
 /// `TRUSTED_PROXY_HOPS` says how many proxies to trust (never the leftmost `X-Forwarded-For` entry,
 /// which the client controls).
 fn request_head(app: &AppState, req: &Request) -> RequestHead {
+    // The TCP peer; absent only when a test builds the request without it.
     let peer = req
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .map(|c| c.0.ip());
+    // Every `X-Forwarded-For` header, kept as lists so `client_ip` can count trusted hops from the right.
     let xff: Vec<&str> = req
         .headers()
         .get_all("x-forwarded-for")
         .iter()
         .filter_map(|v| v.to_str().ok())
         .collect();
+    // A header as text, or `None` if absent or not valid UTF-8.
     let text = |name: &str| {
         req.headers()
             .get(name)
@@ -161,6 +179,7 @@ fn request_head(app: &AppState, req: &Request) -> RequestHead {
 /// render its [`Reply`]. `/healthz` and CORS preflights are answered before this point.
 async fn handle(State(app): State<Arc<AppState>>, req: Request) -> Response {
     let head = request_head(&app, &req);
+    // Borrow the shared store and rate windows for this request.
     let state = NativeState {
         store: &app.store,
         rates: &app.rates,
@@ -169,6 +188,7 @@ async fn handle(State(app): State<Arc<AppState>>, req: Request) -> Response {
         cfg: &app.cfg.gateway,
         state: &state,
         chain: &app.chain,
+        // `AppState` is itself the upstream: its `Upstream` impl forwards through the shared client.
         upstream: &*app,
     };
     match gateway.handle(&head, req).await {
@@ -195,6 +215,7 @@ async fn cors(State(state): State<Arc<AppState>>, req: Request, next: Next) -> R
     };
     let headers = resp.headers_mut();
     // Only the gateway's own CORS policy applies: nothing an inner handler set survives.
+    // Collect first, remove after: the header map cannot be changed while it is being iterated.
     let stale: Vec<_> = headers
         .keys()
         .filter(|k| k.as_str().starts_with("access-control-"))
@@ -203,10 +224,13 @@ async fn cors(State(state): State<Arc<AppState>>, req: Request, next: Next) -> R
     for k in stale {
         headers.remove(k);
     }
+    // The fixed part of the CORS answer (methods, headers, max age) is the same for every origin.
     for (name, value) in CORS_GRANTS {
         headers.insert(name, HeaderValue::from_static(value));
     }
+    // The answer depends on the request `Origin`, so caches must key on it.
     headers.append(header::VARY, HeaderValue::from_static("Origin"));
+    // Only an exact match against `ALLOWED_ORIGINS` is reflected; there is no wildcard.
     if let Some(origin) = allowed {
         headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
     }
@@ -222,35 +246,43 @@ fn deny(status: StatusCode, reason: &str) -> Response {
 /// is never shed (so probes stay truthful under load); everything else goes through the single
 /// [`handle`] fallback behind a `MAX_CONCURRENT_REQUESTS` cap that answers `503` at once when full.
 fn build_router(state: Arc<AppState>) -> Router {
+    // The cap on requests being handled at once.
     let max_in_flight = state.cfg.max_concurrent_requests;
+    // CORS wraps everything, including `/healthz` and the load-shed answer.
     let cors_layer = middleware::from_fn_with_state(state.clone(), cors);
     let gated = Router::new().fallback(any(handle)).with_state(state).layer(
         ServiceBuilder::new()
             .layer(HandleErrorLayer::new(|_: tower::BoxError| async {
                 deny(StatusCode::SERVICE_UNAVAILABLE, "gateway overloaded")
             }))
+            // When the concurrency limit is full, answer at once instead of queueing.
             .load_shed()
             .concurrency_limit(max_in_flight),
     );
     Router::new()
+        // Outside the limit so a probe stays truthful when the gateway is busy.
         .route("/healthz", get(|| async { "ok" }))
         .merge(gated)
         .layer(cors_layer)
 }
 
+/// Start the gateway: read the configuration, build the clients and the nonce store, start the background sweep and serve until a shutdown signal.
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Structured logs to stdout; `RUST_LOG` overrides the default `info` level.
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
+    // Every setting is parsed and validated here, once; a bad value stops the process before it listens, and the message names the key.
     let cfg = ServerConfig::from_env()?;
     let g = &cfg.gateway;
     // The upstream URL is deliberately not logged: it is the private origin (audit F26).
     tracing::info!(?cfg.bind_addr, nft_type = %g.nft_type, single_use = g.single_use, "starting access-gate-gateway");
 
+    // One client for everything outbound, so connections to the upstream and the RPC node are pooled.
     let http = HttpClient::new()?;
     let chain = sui_rpc::new_sui_rpc(
         http.clone(),
@@ -259,12 +291,14 @@ async fn main() -> anyhow::Result<()> {
         g.sui_rpc_auth_header.clone(),
         std::time::Duration::from_secs(g.rpc_timeout_secs),
     );
+    // Single-use with no shared store only works for one replica, and only until a restart: say so loudly when the operator opted in.
     if g.single_use && cfg.redis_url.is_none() && cfg.allow_volatile_redemptions {
         tracing::warn!(
             "SINGLE_USE with an in-memory store (ALLOW_VOLATILE_REDEMPTIONS): spent consumes are \
              forgotten on restart; use REDIS_URL outside development"
         );
     }
+    // Redis or Dragonfly when `REDIS_URL` is set (replay protection across replicas), otherwise memory (correct for one replica).
     let store = match &cfg.redis_url {
         Some(url) => {
             tracing::info!("using Redis/Dragonfly nonce store — fleet-wide replay protection");
@@ -277,9 +311,11 @@ async fn main() -> anyhow::Result<()> {
             NonceStore::in_memory(g.challenge_ttl_secs, g.nonce_max_entries)
         }
     };
+    // Copy what is needed after `cfg` moves into the shared state.
     let bind_addr = cfg.bind_addr;
     let prune_interval = cfg.nonce_prune_interval_secs.max(1);
 
+    // One state value shared by every request handler and the sweep task.
     let state = Arc::new(AppState::new(cfg, store, chain, http));
 
     // Background prune keeps the in-memory nonce map and the rate windows bounded independent of
@@ -296,15 +332,18 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Connection-level limits that axum's own `serve` has no setting for.
     let limits = ServerLimits {
         header_read_timeout: std::time::Duration::from_secs(state.cfg.header_read_timeout_secs),
         max_connections: state.cfg.max_connections,
         shutdown_grace: std::time::Duration::from_secs(state.cfg.shutdown_grace_secs),
     };
+    // The router is built last, after everything it shares exists.
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
     tracing::info!(%bind_addr, "listening");
+    // Run until SIGINT or SIGTERM, then drain in-flight requests for the grace period.
     serve(listener, app, limits, shutdown_signal()).await
 }
 
@@ -330,15 +369,19 @@ async fn serve(
     use hyper_util::service::TowerToHyperService;
     use tower::ServiceExt as _;
 
+    // One permit per open connection: when none is free, `accept` is not called and clients wait in the TCP backlog.
     let permits = Arc::new(tokio::sync::Semaphore::new(limits.max_connections));
     let mut tasks = tokio::task::JoinSet::new();
+    // `ConnectInfo` is what lets handlers see the TCP peer address for the rate limit.
     let mut make = app.into_make_service_with_connect_info::<SocketAddr>();
     tokio::pin!(shutdown);
     loop {
+        // Wait for a free connection slot, but stop waiting when shutdown starts.
         let permit = tokio::select! {
             () = &mut shutdown => break,
             p = permits.clone().acquire_owned() => p?,
         };
+        // Wait for a client, again with shutdown taking priority.
         let (stream, peer) = tokio::select! {
             () = &mut shutdown => break,
             r = listener.accept() => match r {
@@ -353,10 +396,12 @@ async fn serve(
         let Ok(service) = (&mut make).oneshot(peer).await;
         let hyper_service = TowerToHyperService::new(service);
         let header_timeout = limits.header_read_timeout;
+        // One task per connection; the permit is held until the task ends, which frees the slot.
         tasks.spawn(async move {
             let _permit = permit;
             let conn = hyper::server::conn::http1::Builder::new()
                 .timer(TokioTimer::new())
+                // A client that sends its request head slowly (slowloris) is dropped after this timeout.
                 .header_read_timeout(header_timeout)
                 .serve_connection(TokioIo::new(stream), hyper_service);
             if let Err(e) = conn.await {
@@ -370,6 +415,7 @@ async fn serve(
         grace_secs = limits.shutdown_grace.as_secs(),
         "draining connections"
     );
+    // Stop accepting new connections while the existing ones drain.
     drop(listener);
     // In-flight requests finish within the grace period; whatever remains is dropped.
     let drain = async { while tasks.join_next().await.is_some() {} };
@@ -378,6 +424,7 @@ async fn serve(
         .is_err()
     {
         tracing::warn!("shutdown grace elapsed; dropping remaining connections");
+        // Past the grace period the remaining connections are cut.
         tasks.abort_all();
     }
     Ok(())
@@ -386,15 +433,18 @@ async fn serve(
 /// Resolves on SIGINT (Ctrl-C) or SIGTERM (what Kubernetes and Docker send), triggering axum's
 /// graceful shutdown so in-flight uploads finish.
 async fn shutdown_signal() {
+    // Ctrl-C, for a developer running the binary directly.
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
     };
     #[cfg(unix)]
+    // SIGTERM, which Kubernetes and Docker send on a stop.
     let terminate = async {
         match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
             Ok(mut s) => {
                 s.recv().await;
             }
+            // If the signal handler cannot be installed, never resolve on this branch; Ctrl-C still works.
             Err(_) => std::future::pending::<()>().await,
         }
     };
@@ -419,18 +469,23 @@ pub(crate) mod tests_support {
         let env: HashMap<&str, &str> = HashMap::from([
             ("GATEWAY_ORIGIN", "https://gateway.example"),
             ("NETWORK", "testnet"),
+            // Reserved-style local names; plain `http` is allowed only because `ALLOW_INSECURE_HTTP` is set below.
             ("UPSTREAM_URL", "http://upstream"),
             ("SUI_RPC_URL", "http://rpc"),
             ("NFT_TYPE", "0x1::access_gate::AccessNFT"),
             ("GATE_ID", "0x2"),
+            // Lets the `http://` test URLs through the same validation a deployment uses.
             ("ALLOW_INSECURE_HTTP", "1"),
+            // One allowed browser origin, so the CORS tests have something to match and something to refuse.
             ("ALLOWED_ORIGINS", "https://app.example"),
+            // A small cap keeps the in-memory store light.
             ("NONCE_MAX_ENTRIES", "10000"),
         ]);
         ServerConfig::from_lookup(&|k: &str| env.get(k).map(|v| v.to_string())).unwrap()
     }
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,16 +502,19 @@ mod tests {
         );
         AppState::new(
             cfg,
+            // A tiny in-memory store: no Redis is needed in these tests.
             NonceStore::in_memory(300, 100),
             chain,
             HttpClient::new().unwrap(),
         )
     }
 
+    /// Router serves healthz and routes through the concurrency layer.
     #[tokio::test]
     async fn router_serves_healthz_and_routes_through_the_concurrency_layer() {
         use tower::ServiceExt;
         let mut cfg = tests_support::test_cfg();
+        // One slot is enough to show that `/healthz` is outside the limit and the gated route is inside it.
         cfg.max_concurrent_requests = 1;
         let app = build_router(Arc::new(test_state(cfg)));
         let get = |p: &str| {
@@ -465,16 +523,19 @@ mod tests {
                 .body(axum::body::Body::empty())
                 .unwrap()
         };
+        // The probe answers whatever the limit.
         let health = app.clone().oneshot(get("/healthz")).await.unwrap();
         assert_eq!(health.status(), StatusCode::OK);
         let challenge = app.oneshot(get("/v1/challenge")).await.unwrap();
         assert_eq!(challenge.status(), StatusCode::OK);
     }
 
+    /// The periodic sweep covers the rate windows without changing a verdict.
     #[tokio::test]
     async fn the_periodic_sweep_covers_the_rate_windows_without_changing_a_verdict() {
         use tower::ServiceExt;
         let mut cfg = tests_support::test_cfg();
+        // A budget of one request per minute, so the second challenge is refused.
         cfg.gateway.challenge_rate_limit_per_min = 1;
         let state = Arc::new(test_state(cfg));
         let app = build_router(state.clone());
@@ -488,6 +549,7 @@ mod tests {
             app.clone().oneshot(challenge()).await.unwrap().status(),
             StatusCode::OK
         );
+        // The first request created a rate window for this client.
         assert!(state.rates.key_count() >= 1, "the request opened a window");
         state.sweep(); // the window is still running: nothing to drop, and the budget stays spent
         assert!(state.rates.key_count() >= 1);
@@ -497,11 +559,14 @@ mod tests {
         );
     }
 
+    /// The full router (CORS, load shedding, handler) over the test configuration.
     fn cors_app() -> Router {
+        // The shared fixture, built by the real configuration parser.
         let cfg = tests_support::test_cfg();
         build_router(Arc::new(test_state(cfg)))
     }
 
+    /// A request with an optional `Origin` header and an empty body.
     fn with_origin(
         method: Method,
         path: &str,
@@ -514,6 +579,7 @@ mod tests {
         b.body(axum::body::Body::empty()).unwrap()
     }
 
+    /// Cors preflight is answered before auth for an allowed origin.
     #[tokio::test]
     async fn cors_preflight_is_answered_before_auth_for_an_allowed_origin() {
         use tower::ServiceExt;
@@ -525,6 +591,7 @@ mod tests {
             ))
             .await
             .unwrap();
+        // A preflight is answered with 204 before authentication or rate limiting.
         assert_eq!(resp.status(), StatusCode::NO_CONTENT);
         let h = resp.headers();
         assert_eq!(
@@ -538,11 +605,13 @@ mod tests {
         assert_eq!(h[header::VARY], "Origin");
     }
 
+    /// Cors never reflects an unlisted or absent origin.
     #[tokio::test]
     async fn cors_never_reflects_an_unlisted_or_absent_origin() {
         use tower::ServiceExt;
         for origin in [
             Some("https://evil.example"),
+            // A look-alike origin that merely starts with an allowed one must not match.
             Some("https://app.example.evil"),
             None,
         ] {
@@ -560,6 +629,7 @@ mod tests {
         }
     }
 
+    /// Cors headers are on error responses too.
     #[tokio::test]
     async fn cors_headers_are_on_error_responses_too() {
         use tower::ServiceExt;
@@ -571,6 +641,7 @@ mod tests {
             ))
             .await
             .unwrap();
+        // No proof is a 401, and the CORS headers are on it so the browser can read the error.
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(
             resp.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN],
@@ -578,6 +649,7 @@ mod tests {
         );
     }
 
+    /// Send one request through the router and return only its status.
     async fn status_of(app: Router, method: Method, path: &str, auth: Option<&str>) -> StatusCode {
         use tower::ServiceExt;
         let mut b = axum::http::Request::builder().method(method).uri(path);
@@ -590,6 +662,7 @@ mod tests {
             .status()
     }
 
+    /// Public paths are read only and gated methods are listed.
     #[tokio::test]
     async fn public_paths_are_read_only_and_gated_methods_are_listed() {
         // A body-carrying method on a public path never reaches the upstream.
@@ -609,6 +682,7 @@ mod tests {
         );
     }
 
+    /// Gated requests are rate limited per ip before verification.
     #[tokio::test]
     async fn gated_requests_are_rate_limited_per_ip_before_verification() {
         use tower::ServiceExt;
@@ -637,6 +711,7 @@ mod tests {
         );
     }
 
+    /// The server drops a client that never finishes its headers.
     #[tokio::test]
     async fn the_server_drops_a_client_that_never_finishes_its_headers() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -674,6 +749,7 @@ mod tests {
         server.await.unwrap().unwrap();
     }
 
+    /// The connection cap holds extra clients until a slot frees.
     #[tokio::test]
     async fn the_connection_cap_holds_extra_clients_until_a_slot_frees() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -721,6 +797,7 @@ mod tests {
         server.await.unwrap().unwrap();
     }
 
+    /// Shutdown gives in flight requests a bounded grace.
     #[tokio::test]
     async fn shutdown_gives_in_flight_requests_a_bounded_grace() {
         use tokio::io::AsyncWriteExt;

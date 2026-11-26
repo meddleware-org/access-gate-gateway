@@ -30,6 +30,7 @@ pub fn rate_key(ip: &str) -> String {
     }
 }
 
+/// The client address from the forwarded chain and the peer, trusting only the configured number of proxy hops.
 fn client_ip_raw(xff: &[&str], peer: Option<IpAddr>, trusted_hops: usize) -> String {
     let peer_ip = || peer.map_or_else(|| "unknown".to_string(), |p| p.to_string());
     if trusted_hops == 0 {
@@ -47,10 +48,12 @@ fn client_ip_raw(xff: &[&str], peer: Option<IpAddr>, trusted_hops: usize) -> Str
     }
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Client ip ignores forwarding headers without trusted proxies.
     #[test]
     fn client_ip_ignores_forwarding_headers_without_trusted_proxies() {
         let peer: IpAddr = "198.51.100.7".parse().unwrap();
@@ -58,6 +61,7 @@ mod tests {
         assert_eq!(client_ip(&[], None, 0), "unknown");
     }
 
+    /// Client ip takes the entry the outermost trusted proxy saw.
     #[test]
     fn client_ip_takes_the_entry_the_outermost_trusted_proxy_saw() {
         let peer: IpAddr = "10.0.0.2".parse().unwrap();
@@ -80,6 +84,7 @@ mod tests {
         assert_eq!(client_ip(&["203.0.113.9"], Some(peer), 2), "10.0.0.2");
     }
 
+    /// Ipv6 clients are keyed by their slash 64.
     #[test]
     fn ipv6_clients_are_keyed_by_their_slash_64() {
         assert_eq!(

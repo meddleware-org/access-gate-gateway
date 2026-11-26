@@ -1,3 +1,6 @@
+# The shared core: everything the gateway decides, once, with no HTTP server or async runtime, so it builds natively
+# (for gateway-rust) and for wasm32 (for the Cloudflare Worker). This is the crate that is published and that other
+# services depend on.
 [package]
 name = "access-gate-gateway-core"
 description = "The access-gate-gateway decision logic in one place: proof, Sui signature verification, gRPC-web chain reads, redemption/nonce/rate state machines, header and config policy, and the request orchestration. No hyper, no tokio; builds natively and for wasm32-unknown-unknown."
@@ -14,7 +17,9 @@ keywords = ["nft", "sui", "gateway", "access-control", "wasm"]
 categories = ["authentication", "wasm", "web-programming"]
 
 [dependencies]
+# Error type for the fallible operations.
 anyhow = "1"
+# Base64 for the proof token and signatures; hex for derived addresses and random nonces.
 base64 = "0.22"
 hex = "0.4"
 # blake2 0.11 and ed25519-consensus: the same primitives Sui validators use (ZIP-215 for ed25519).
@@ -22,8 +27,10 @@ blake2 = "0.11"
 ed25519-consensus = "2"
 k256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
 p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
+# JSON for the proof document and the gateway's own answers.
 serde_json = "1"
 
+# Needed only to build and test the crate, not by a consumer.
 [dev-dependencies]
 # Signing only (test fixtures); verification uses ed25519-consensus.
 ed25519-dalek = "3"
@@ -37,3 +44,7 @@ getrandom = { version = "0.2", features = ["js"] }
 # crypto-bigint 0.7 (k256/p256 0.14) uses getrandom 0.4, which needs the wasm_js backend (feature here, cfg in
 # .cargo/config.toml). Never called on the verify path.
 getrandom04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+
+# The workspace lint levels (including the documentation lints).
+[lints]
+workspace = true

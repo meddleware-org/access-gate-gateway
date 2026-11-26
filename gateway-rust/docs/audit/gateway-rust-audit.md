@@ -2444,3 +2444,5 @@ PROXY lens:
 - [x] F51 (2026-10-22) present in the header status, Section A (I32, I33), the B.SC-3 table, Section D (pre-testnet parity) and the log.
 - [x] New findings F49 and F50 present in the executive summary, the header status, the Section B.SC-3 table and Section D (pre-localnet test count).
 - 2026-10-24 — identifier alignment (`docs/architecture/ADR-0004-identifier-alignment.md`): the shared core verifies `access-gate-gateway:access:v3` and refuses v2 (`decision.rs`), loop marker `Via: 1.1 access-gate-gateway`; `cargo test --workspace` green; the secp256r1 test now normalises S (the verifier's low-S rule, unchanged). Undeployed.
+
+- 2026-11-26 — Part B documentation pass over the whole repository (shared with the `worker` and `gateway-workers` audits); the lens inventories (RFC, IOP, PRIV, CONF, DOCS) and the findings F67 and F68 are in [`gateway-rust-worker-audit.md`](../../../worker/docs/audit/gateway-rust-worker-audit.md). Nothing in this audit's findings changed; the chain client's tests moved to `src/sui_rpc_tests.rs`, and the configuration echo fix (F67) applies to `core/src/config.rs`, which this audit also covers.

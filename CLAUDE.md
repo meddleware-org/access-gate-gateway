@@ -65,6 +65,10 @@ CI: `node-ci.yml` (type-check, lint, vitest unit and workerd tests for `gateway-
 `-D warnings`, `cargo test --workspace`, the Redis round trip, coverage, `cargo deny`, a `core` job with the wasm32 build, an
 MSRV job, a Trivy scan of the Dockerfile). The conformance vectors run in the core's suite and the TypeScript suite.
 
+## Documentation rules (workspace documentation standard, D144)
+
+Every file has a header and every declaration a doc comment (`missing_docs` and `clippy::missing_docs_in_private_items` are `deny` in the workspace and in the Worker's own lints; the `#[durable_object]` module in `worker/src/lib.rs` is the one commented `allow`, because the macro generates items that cannot carry a doc). Comments say why. `node scripts/check-docs.mjs --report access-gate-gateway` (in the workspace repository) is the gate. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Architectural invariants
 
 - **Fail closed.** Any ambiguous state (bad signature, missing nonce, chain error) must deny.
@@ -188,7 +192,7 @@ The gateway does NOT trust:
   chain over hand-rolled gRPC-web (now `core/src/grpc.rs`) with digest-first single-use verification and the
   consumeDigest **redemption** store (the `StateStore` lease/commit/release, orchestrated by `core/src/gateway.rs`),
   at parity with `gateway-workers/`. Validated by `cargo test` + a live testnet check
-  (hermetic fixtures in `sui_rpc.rs`; the optional `--ignored live_` tests take a fresh consume from `ACCESS_GATE_GATEWAY_LIVE_*`). It is buildable/deployable but not
+  (hermetic fixtures in `sui_rpc_tests.rs`; the optional `--ignored live_` tests take a fresh consume from `ACCESS_GATE_GATEWAY_LIVE_*`). It is buildable/deployable but not
   currently deployed — the live paywall still runs on the Workers gateway.
 - **multisig / zkLogin support (audit F1):** Requires the official Sui verifier. Until then, both
   fail closed with a log warning.

@@ -54,6 +54,7 @@ impl RedisNonceStore {
     /// exponential backoff (0.5 s doubling, 6 attempts, ~16 s in total) so a gateway that starts
     /// alongside its Redis does not crash-loop; gives up with the last error after that.
     pub async fn connect(url: &str, ttl_secs: u64) -> anyhow::Result<Self> {
+        // The URL may embed a password: only the error this returns is reported, never the URL itself.
         let client = redis::Client::open(url)?;
         // Bound every command and reconnect: a store that accepts connections but stops answering
         // must fail requests closed quickly, not hold them (and their concurrency slots) forever.
@@ -294,14 +295,17 @@ impl NonceStore {
     }
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// An in-memory store with a five-minute nonce lifetime and a roomy cap.
     fn store() -> NonceStore {
         NonceStore::in_memory(300, 10_000)
     }
 
+    /// Lease `key` and return its owner token, failing the test if the lease is not granted.
     async fn lease(s: &NonceStore, key: &str, ttl: u64) -> String {
         match s.try_lease_redemption(key, ttl).await.unwrap() {
             Lease::Ok(t) => t,
@@ -309,19 +313,41 @@ mod tests {
         }
     }
 
+    /// A Redis URL that cannot be used is reported without being repeated: it can carry a password.
+    #[tokio::test]
+    async fn a_bad_redis_url_is_never_repeated_in_the_error() {
+        // Neither of these parses as a Redis URL, so `connect` fails at once (no retry loop); both hold a stand-in password.
+        for url in ["not-a-url s3cretpw", "http://user:s3cretpw@127.0.0.1:1/0"] {
+            let err = match RedisNonceStore::connect(url, 300).await {
+                Ok(_) => panic!("{url} must not connect"),
+                // Both the readable chain and the debug form, since either can end up in a log.
+                Err(e) => format!("{e:#} {e:?}"),
+            };
+            // The stand-in password must not appear anywhere in the error.
+            assert!(
+                !err.contains("s3cretpw"),
+                "the error repeats the URL: {err}"
+            );
+        }
+    }
+
+    /// Nonce valid once then used.
     #[tokio::test]
     async fn nonce_valid_once_then_used() {
         let store = store();
         let (nonce, _) = store.issue().await.unwrap();
         assert!(store.take_if_valid(&nonce).await.unwrap());
+        // A second take of the same nonce must fail: this is the replay protection.
         assert!(!store.take_if_valid(&nonce).await.unwrap()); // already used
     }
 
+    /// Unknown nonce rejected.
     #[tokio::test]
     async fn unknown_nonce_rejected() {
         assert!(!store().take_if_valid("never-issued").await.unwrap());
     }
 
+    /// Expired nonce rejected.
     #[tokio::test]
     async fn expired_nonce_rejected() {
         let store = NonceStore::in_memory(0, 10_000); // immediate expiry
@@ -329,6 +355,7 @@ mod tests {
         assert!(!store.take_if_valid(&nonce).await.unwrap());
     }
 
+    /// Hard cap bounds memory.
     #[tokio::test]
     async fn hard_cap_bounds_memory() {
         let store = NonceStore::in_memory(300, 4); // cap 4
@@ -343,6 +370,7 @@ mod tests {
         }
     }
 
+    /// Prune drops expired.
     #[tokio::test]
     async fn prune_drops_expired() {
         let store = NonceStore::in_memory(0, 10_000);
@@ -353,6 +381,7 @@ mod tests {
         }
     }
 
+    /// Redemption lease commit blocks reuse.
     #[tokio::test]
     async fn redemption_lease_commit_blocks_reuse() {
         let store = store();
@@ -373,6 +402,7 @@ mod tests {
         );
     }
 
+    /// Redemption release allows retry.
     #[tokio::test]
     async fn redemption_release_allows_retry() {
         let store = store();
@@ -381,6 +411,7 @@ mod tests {
         lease(&store, "0xd", 120).await; // retry with the same consume
     }
 
+    /// Redemption release never clears commit.
     #[tokio::test]
     async fn redemption_release_never_clears_commit() {
         let store = store();
@@ -393,6 +424,7 @@ mod tests {
         );
     }
 
+    /// Redemption expired lease is reclaimable.
     #[tokio::test]
     async fn redemption_expired_lease_is_reclaimable() {
         let store = store();
@@ -400,6 +432,7 @@ mod tests {
         lease(&store, "0xd", 120).await; // reclaimed, not stuck
     }
 
+    /// A stale holder cannot release or commit over a newer lease.
     #[tokio::test]
     async fn a_stale_holder_cannot_release_or_commit_over_a_newer_lease() {
         let store = store();
@@ -429,6 +462,7 @@ mod tests {
         );
     }
 
+    /// A commit after the lease lapsed is lost.
     #[tokio::test]
     async fn a_commit_after_the_lease_lapsed_is_lost() {
         let store = store();
@@ -443,6 +477,7 @@ mod tests {
     // Lua compare-and-set commit / compare-and-delete release (owner-bound; never erase a commit).
     // Keys are random and carry 60 s TTLs, so a shared instance is left clean. Run with:
     //   REDIS_URL=redis://:<password>@127.0.0.1:6379 cargo test -- --ignored redis_backend
+    /// Redis backend round trip.
     #[tokio::test]
     #[ignore = "needs REDIS_URL pointing at a Redis/Dragonfly instance"]
     async fn redis_backend_round_trip() {

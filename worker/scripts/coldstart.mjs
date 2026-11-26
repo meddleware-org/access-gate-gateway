@@ -18,18 +18,25 @@ import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
 
+// Arguments: which Worker to measure (`rust` or `ts`), where its bundle is, and how many fresh processes to sample.
 const [, , kind, target, samplesArg] = process.argv
 const samples = Number(samplesArg ?? 15)
+// The workerd binary: from the environment, or the one the Worker's own dev dependencies install.
 const workerd = process.env.WORKERD ?? path.resolve(import.meta.dirname, '../node_modules/@cloudflare/workerd-linux-64/bin/workerd')
+// The four verification paths the bench route times.
 const schemes = ['ed25519', 'secp256k1', 'secp256r1', 'ed25519 single-use']
+// stats: the summary of a list of timings (the median and the 90th percentile say more than the mean for a skewed sample).
 const stats = (a) => {
   const s = [...a].sort((x, y) => x - y)
   const q = (p) => s[Math.min(s.length - 1, Math.floor(p * s.length))]
   return { n: s.length, min: s[0], median: q(0.5), p90: q(0.9), max: s[s.length - 1], mean: s.reduce((x, y) => x + y, 0) / s.length }
 }
+// fmt: round every number in an object to two decimals for the printed report.
 const fmt = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, +v.toFixed(2)]))
+// sleep: wait `ms` milliseconds.
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+/** The workerd configuration for one sample (modules, the Durable Object for the Rust Worker, a loopback port). */
 function configFor(dir, port) {
   const mods = kind === 'rust'
     ? `(name = "index.js", esModule = embed "index.js"), (name = "index_bg.wasm", wasm = embed "index_bg.wasm")`
@@ -50,6 +57,7 @@ const w :Workerd.Worker = (
 `
 }
 
+/** Poll until the port accepts a connection, and return the milliseconds since `t0` (process start). */
 async function waitPort(port, t0) {
   for (;;) {
     const ok = await new Promise((res) => { const s = net.connect(port, '127.0.0.1'); s.on('connect', () => { s.destroy(); res(true) }); s.on('error', () => res(false)) })
@@ -58,13 +66,16 @@ async function waitPort(port, t0) {
   }
 }
 
+// One list of timings per measurement; each sample appends one value to each.
 const out = { listen: [], t0: [], t1: [], t2: [], first: Object.fromEntries(schemes.map((s) => [s, []])), warm: Object.fromEntries(schemes.map((s) => [s, []])) }
+// Each sample is a fresh workerd process in its own directory, so every first request is truly cold.
 for (let i = 0; i < samples; i++) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cold-'))
   if (kind === 'rust') {
     fs.symlinkSync(path.resolve(target, 'index.js'), path.join(dir, 'index.js'))
     fs.symlinkSync(path.resolve(target, 'index_bg.wasm'), path.join(dir, 'index_bg.wasm'))
   } else fs.symlinkSync(path.resolve(target), path.join(dir, 'entry.js'))
+  // A random high port, so two runs do not collide.
   const port = 20000 + Math.floor(Math.random() * 20000)
   fs.writeFileSync(path.join(dir, 'c.capnp'), configFor(dir, port))
   const t0 = performance.now()
@@ -89,9 +100,11 @@ for (let i = 0; i < samples; i++) {
     for (const r of JSON.parse((await t('/__test/bench?iters=200&warmup=20'))[1])) out.warm[r.scheme].push(r.warmMeanMs)
     out.t2.push((await t('/__test/bench?iters=1&warmup=0'))[0])
   }
+  // Stop the process and remove its directory before the next sample.
   p.kill('SIGKILL'); await new Promise((r) => p.on('exit', r))
   fs.rmSync(dir, { recursive: true, force: true })
 }
+// The report: one summary per measurement, as JSON on standard output.
 console.log(JSON.stringify({ kind, samples,
   spawnToListenMs: fmt(stats(out.listen)),
   firstRequestMs: fmt(stats(out.t0)),

@@ -1,13 +1,17 @@
+// Unit tests for the Sui chain client (src/chain.ts) of the TypeScript Workers gateway: the pure matching and parsing helpers, and
+// the client itself against a fake gRPC node (retries, deadlines, caching). The Rust twin is core/src/chain.rs.
 import { describe, it, expect } from 'vitest'
 import { SuiGrpc, isConsumedEvent, eventMatches, eventIsRecent, gateBlocksAccess, withDeadline } from '../src/chain.js'
 import { consumedEventType } from '../src/verify.js'
 
 // Pure match/parse helpers — mirror sui_rpc.rs unit tests.
 describe('chain helpers', () => {
+  // The package part of a fully qualified type.
   it('packageOf extracts the prefix', () => {
     expect(SuiGrpc.packageOf('0xabc::access_gate::AccessNFT')).toBe('0xabc')
   })
 
+  // The cache key is address, pass type and gate (or `-`), the same as the Rust client.
   it('cacheKey is stable', () => {
     expect(SuiGrpc.cacheKey('0xa', '0xt', '0xg')).toBe('0xa|0xt|0xg')
     expect(SuiGrpc.cacheKey('0xa', '0xt', undefined)).toBe('0xa|0xt|-')
@@ -15,8 +19,10 @@ describe('chain helpers', () => {
 
   // gRPC event shape: `eventType` + `sender` + `json`. eventMatches binds sender + gate only
   // (single-use is enforced by redemption tracking on the consumeDigest, not the event nonce).
+  // The consumed-event type derived from the configured pass type.
   const CONSUMED = consumedEventType('0xabc::access_gate::SoulboundAccessNFT')
 
+  // Sender and gate must both match; an unconstrained gate matches any.
   it('eventMatches on the gRPC event shape (eventType/json)', () => {
     const ev = {
       eventType: '0xabc::access_gate::AccessConsumedEvent',
@@ -39,12 +45,14 @@ describe('chain helpers', () => {
     expect(isConsumedEvent({ eventType: '0xabc::access_gate::AccessConsumedEventX' }, CONSUMED)).toBe(false)
   })
 
+  // Short and long spellings of one address are the same address.
   it('compares sender and gate ids in normalised form', () => {
     const ev = { eventType: CONSUMED, sender: `0x${'0'.repeat(59)}a11ce`, json: { gate_id: '0x06A7E' } }
     expect(eventMatches(ev, '0xA11CE', '0x6a7e')).toBe(true)
   })
 })
 
+// The gate pause check: it fails closed on any shape it does not understand.
 describe('gateBlocksAccess', () => {
   const policy = (pauseBlocksAccess: boolean) => ({
     freeze_requires_unpaused: false,
@@ -75,6 +83,7 @@ describe('gateBlocksAccess', () => {
   })
 })
 
+// The age bound that keeps a consume from becoming redeemable again once the redemption store has forgotten it.
 describe('eventIsRecent', () => {
   const NOW = 1_800_000_000_000
   const ev = (timestamp_ms: unknown) => ({ eventType: 't', sender: '0x1', json: { timestamp_ms } })
@@ -94,6 +103,7 @@ describe('eventIsRecent', () => {
   })
 })
 
+// The per-call deadline that stops a hung node from holding a request.
 describe('withDeadline', () => {
   it('rejects a call that never settles, and passes a fast one through', async () => {
     await expect(withDeadline(new Promise(() => {}), 20, 'probe')).rejects.toThrow(/probe timed out/)
@@ -102,6 +112,7 @@ describe('withDeadline', () => {
 })
 
 // The gRPC client is replaced with a fake, so these run offline.
+// The client end to end against a scripted node.
 describe('SuiGrpc against a fake client', () => {
   const PKG = '0xabc'
   const TYPE = `${PKG}::access_gate::SoulboundAccessNFT`
@@ -109,6 +120,7 @@ describe('SuiGrpc against a fake client', () => {
   const SENDER = '0xa11ce'
   const GATE = '0x6a7e'
 
+  /** A chain client over a fake node that answers with the given `core` calls, and a short deadline so the timeout cases are quick. */
   function chainWith(core: Record<string, unknown>, timeoutMs = 50): SuiGrpc {
     const c = new SuiGrpc('https://rpc.invalid', 'testnet', { cacheTtlMs: 0, timeoutMs })
     ;(c as unknown as { client: unknown }).client = { core }
@@ -137,6 +149,7 @@ describe('SuiGrpc against a fake client', () => {
     expect(await other.consumeTxValid('d', '0xbad', CONSUMED, GATE, 3600)).toBe(false)
   })
 
+  // A transaction the node has not indexed yet is retried; anything else is an error, not a retry.
   it('retries only "not found", then denies (false) instead of erroring', async () => {
     let calls = 0
     const c = chainWith({
@@ -185,6 +198,7 @@ describe('SuiGrpc against a fake client', () => {
     await expect(odd.gateAccessBlocked(GATE)).rejects.toThrow(/unrecognised shape/)
   })
 
+  // The cache has a size limit and a lifetime, so it cannot grow without bound.
   it('the ownership cache stays bounded and drops expired entries', async () => {
     let live = 0
     const core = {

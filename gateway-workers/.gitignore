@@ -1,4 +1,9 @@
+# Files the TypeScript Worker's directory must not commit.
+# Installed packages.
 node_modules/
+# Wrangler's local state and cache (a local dev run creates it).
 .wrangler/
+# Build output.
 dist/
+# Log files.
 *.log

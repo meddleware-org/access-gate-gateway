@@ -10,12 +10,15 @@ use access_gate_gateway_core::proof::{
 use base64::prelude::*;
 use libfuzzer_sys::fuzz_target;
 
+/// A canonical gate id for the signed-message builder.
 const GATE: &str = "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
 
 /// What a successful decode promises (the field grammar in the module docs).
 fn check_decoded(token: &str) {
     if let Ok(p) = decode_access_proof(token) {
+        // A token over the size limit must be refused before it is parsed.
         assert!(token.len() <= MAX_TOKEN_BYTES);
+        // The address keeps its `0x` prefix after decoding.
         let hex = p
             .address
             .strip_prefix("0x")
@@ -36,6 +39,7 @@ fn check_decoded(token: &str) {
         };
         let msg = personal_message(&ctx).expect("a decoded proof always yields a message");
         assert!(msg.is_ascii());
+        // The message has at most five lines, so a field cannot inject another line.
         assert!(msg.iter().filter(|b| **b == b'\n').count() <= 5);
     }
 }
@@ -49,10 +53,12 @@ fuzz_target!(|data: &[u8]| {
     // (b) the bytes as the JSON document inside a valid base64 wrapper, to reach the JSON layer
     check_decoded(&BASE64_STANDARD.encode(data));
     // (c) a well-formed JSON object whose four fields come from the input (split on NUL), to reach the grammar checks
+    // Split the input on NUL bytes to get independent field values.
     let parts: Vec<String> = data
         .split(|b| *b == 0)
         .map(|p| String::from_utf8_lossy(p).into_owned())
         .collect();
+    // A missing part is an empty string, which the grammar checks must refuse.
     let part = |i: usize| parts.get(i).cloned().unwrap_or_default();
     let mut obj = serde_json::json!({ "address": part(0), "nonce": part(1), "signature": part(2) });
     if parts.len() > 3 {

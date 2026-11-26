@@ -11,11 +11,14 @@ import { newWallet, proofToken, registerConsume } from './lib/proof.mjs'
 
 const scenario = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '../../core/tests/scenario.json'), 'utf8'))
 let f
+// The `hooks` build is the only one that exposes the Durable Object routes.
 before(async () => { f = await fixture({ name: 'state', build: 'hooks' }) })
 after(async () => { await f.close() })
 
+// A per-run prefix, so shards from different runs never share a Durable Object.
 const run = Math.random().toString(36).slice(2, 8)
 let n = 0
+// A fresh shard for every test: each starts from empty tables.
 const shardName = () => `t${run}x${n++}`
 /** One DO operation on `shard`; params are query parameters. */
 async function op(shard, name, params = {}) {
@@ -24,9 +27,11 @@ async function op(shard, name, params = {}) {
   assert.equal(r.status, 200, `${name}: ${await r.clone().text()}`)
   return await r.json()
 }
+// A unique consume key per call.
 const key = () => '0xdigest' + Math.random().toString(16).slice(2)
 
 describe('scenario.json against the SQLite Durable Object (same file as the pure state machines)', () => {
+  // Each section of the shared scenario file becomes one test.
   for (const section of scenario.sections) {
     it(section.name, async () => {
       const shard = shardName()
@@ -35,9 +40,11 @@ describe('scenario.json against the SQLite Durable Object (same file as the pure
         const params = {}
         for (const [k, v] of Object.entries(step)) {
           if (['op', 'expect', 'bind'].includes(k)) continue
+          // `$name` refers to a value an earlier step produced (a lease token).
           params[k] = typeof v === 'string' && v.startsWith('$') ? vars[v.slice(1)] : v
         }
         const body = await op(shard, step.op, params)
+        // Remember the token for later steps.
         if (step.bind) vars[step.bind] = body.token
         if (step.expect) {
           const got = Object.fromEntries(Object.keys(step.expect).map((k) => [k, body[k]]))
@@ -52,11 +59,13 @@ describe('atomicity (real clock): one winner under 100 concurrent callers', () =
   it('100 simultaneous takes of one nonce → exactly one true; 100 leases of one consume → one ok, then all redeemed', async () => {
     const shard = shardName()
     await op(shard, 'issue', { nonce: 'N1', ttl: 300, max: 1000 })
+    // 100 callers at once: only atomic storage lets exactly one of them win.
     const takes = await Promise.all(Array.from({ length: 100 }, () => op(shard, 'take', { nonce: 'N1' })))
     assert.equal(takes.filter((t) => t.ok).length, 1)
     const leases = await Promise.all(Array.from({ length: 100 }, () => op(shard, 'lease', { key: 'D1', ttl: 900, max: 1000 })))
     const winners = leases.filter((l) => l.status === 'ok')
     assert.equal(winners.length, 1)
+    // Everyone else sees an in-flight lease, not a second grant.
     assert.equal(leases.filter((l) => l.status === 'leased').length, 99)
     assert.equal((await op(shard, 'commit', { key: 'D1', token: winners[0].token, retention: 60 })).result, 'ok')
     const after = await Promise.all(Array.from({ length: 100 }, () => op(shard, 'lease', { key: 'D1', ttl: 900, max: 1000 })))
@@ -77,11 +86,13 @@ describe('nonce store', () => {
   })
   it('an expired nonce is rejected', async () => {
     const s = shardName()
+    // A lifetime of zero seconds is already over.
     await op(s, 'issue', { nonce: 'g.b', ttl: 0, max: 100 }) // immediate expiry
     assert.equal((await op(s, 'take', { nonce: 'g.b' })).ok, false)
   })
   it('hard cap keeps the nonce store bounded', async () => {
     const s = shardName()
+    // Twenty issues against a cap of four.
     for (let i = 0; i < 20; i++) await op(s, 'issue', { nonce: `g.${i}`, ttl: 300, max: 4 })
     const rows = (await op(s, 'sql', { q: 'SELECT COUNT(*) AS c FROM nonces' })).rows
     assert.equal(rows[0].c, 4)
@@ -91,11 +102,13 @@ describe('nonce store', () => {
 })
 
 describe('redemption store', () => {
+  // Lease a key and return the owner token, failing if the lease is not granted.
   const lease = async (s, k, ttl = 120) => {
     const r = await op(s, 'lease', { key: k, ttl, max: 10_000 })
     assert.equal(r.status, 'ok', `expected a lease, got ${r.status}`)
     return r.token
   }
+  // The state of a key, seen by asking for a lease (which never changes a live lease or a redemption).
   const status = async (s, k) => (await op(s, 'lease', { key: k, ttl: 120, max: 10_000 })).status
 
   it('leases once; a concurrent lease is rejected; commit marks it redeemed', async () => {
@@ -124,6 +137,7 @@ describe('redemption store', () => {
   })
   it('a stale holder can neither release nor commit over a newer lease', async () => {
     const s = shardName(), k = key()
+    // A lease with no time left, held by the 'stale' request.
     const stale = await lease(s, k, 0) // lapses at once
     const fresh = await lease(s, k, 120) // a newer holder
     assert.notEqual(stale, fresh)
@@ -141,6 +155,7 @@ describe('redemption store', () => {
   })
   it('the cap evicts a lease, never a committed redemption', async () => {
     const s = shardName()
+    // With a cap of two, a third key forces an eviction; the committed one must survive it.
     const t = (await op(s, 'lease', { key: 'c1', ttl: 900, max: 2 })).token
     await op(s, 'commit', { key: 'c1', token: t, retention: 900 })
     await op(s, 'lease', { key: 'c2', ttl: 900, max: 2 })
@@ -152,6 +167,7 @@ describe('redemption store', () => {
 describe('rate limiter', () => {
   it('allows up to the limit then denies, per key', async () => {
     const s = shardName(), a = '0xaaa' + Math.random().toString(16).slice(2)
+    // Three requests fit the budget of three.
     for (let i = 0; i < 3; i++) assert.equal((await op(s, 'rate', { addr: a, max: 3 })).ok, true)
     assert.equal((await op(s, 'rate', { addr: a, max: 3 })).ok, false) // 4th within the window
     assert.equal((await op(s, 'rate', { addr: '0xbbb' + Math.random().toString(16).slice(2), max: 3 })).ok, true) // independent key
@@ -163,6 +179,7 @@ describe('rate limiter', () => {
   it('windows older than a minute are swept (the table is bounded by recent keys)', async () => {
     const s = shardName()
     // Old windows at a pinned past clock, then enough calls at the real clock that the 2% sweep fires.
+    // Windows whose start is far in the past, made with a pinned clock.
     for (let i = 0; i < 30; i++) await op(s, 'rate', { addr: `old${i}`, max: 5, now: 1000 })
     for (let b = 0; b < 16; b++) await Promise.all(Array.from({ length: 50 }, (_, i) => op(s, 'rate', { addr: `new${b}-${i}`, max: 5 })))
     const rows = (await op(s, 'sql', { q: "SELECT COUNT(*) AS c FROM rate WHERE addr LIKE 'old%'" })).rows
@@ -175,6 +192,7 @@ describe('schema', () => {
   it('has the exact tables and columns the TypeScript Worker created (a deploy over the live script keeps its data)', async () => {
     const s = shardName()
     await op(s, 'migrate')
+    // The column list of a table as `name:type:notnull:pk`, so the schema is compared exactly.
     const cols = async (t) => (await op(s, 'sql', { q: `PRAGMA table_info('${t}')` })).rows.map((r) => `${r.name}:${r.type}:${r.notnull}:${r.pk}`)
     assert.deepEqual(await cols('nonces'), ['nonce:TEXT:0:1', 'expiry:INTEGER:1:0'])
     assert.deepEqual(await cols('rate'), ['addr:TEXT:0:1', 'start:INTEGER:1:0', 'count:INTEGER:1:0'])
@@ -184,11 +202,13 @@ describe('schema', () => {
   it('adds the owner-token column to a redemptions table that predates it, keeping its rows', async () => {
     const s = shardName()
     const sql = async (q) => (await op(s, 'sql', { q })).rows
+    // Recreate the table as an older deployment had it (no owner-token column) to test the upgrade.
     await sql('DROP TABLE redemptions')
     await sql('CREATE TABLE redemptions (key TEXT PRIMARY KEY, state TEXT NOT NULL, expiry INTEGER NOT NULL)')
     await sql("INSERT INTO redemptions (key, state, expiry) VALUES ('old-committed', 'committed', 9999999999999), ('old-leased', 'leased', 9999999999999)")
     assert.ok(!(await sql("PRAGMA table_info('redemptions')")).some((c) => c.name === 'token'))
     await op(s, 'migrate')
+    // Running the migration twice must change nothing the second time.
     await op(s, 'migrate') // idempotent
     assert.ok((await sql("PRAGMA table_info('redemptions')")).some((c) => c.name === 'token'))
     assert.equal((await sql('SELECT COUNT(*) AS c FROM redemptions'))[0].c, 2)
@@ -204,6 +224,7 @@ describe('shard tags', () => {
   it('a forged shard tag is refused at the gateway without touching a shard (403 nonce invalid)', async () => {
     const wallet = newWallet()
     const digest = await registerConsume(f.rpc, wallet)
+    // A forged tag must be refused without creating a shard for it.
     // Sign a proof over a nonce whose shard prefix was never issued here.
     const { buildAccessProof } = await import('./.gen/client.mjs')
     const token = await buildAccessProof({

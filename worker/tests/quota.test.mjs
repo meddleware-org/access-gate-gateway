@@ -8,6 +8,7 @@ import http from 'node:http'
 import { fixture } from './lib/fixture.mjs'
 import { freePort, sleep } from './lib/worker.mjs'
 
+// Servers to close when the file is done.
 const stubs = []
 after(async () => { for (const s of stubs) await s() })
 
@@ -28,6 +29,7 @@ async function graphql(respond) {
   stubs.push(() => new Promise((r) => server.close(r)))
   return { url: `http://127.0.0.1:${port}/graphql`, seen }
 }
+// A stub answer shaped like the analytics response, for the given usage figures.
 const gql = (w, doReq, activeTimeUs) => (_rec, res) => {
   res.setHeader('content-type', 'application/json')
   res.end(JSON.stringify({ data: { viewer: { accounts: [{
@@ -37,17 +39,21 @@ const gql = (w, doReq, activeTimeUs) => (_rec, res) => {
   }] } } }))
 }
 
+/** Run the scheduled handler once against a GraphQL stub and return what the stub received and what the Worker logged. */
 async function runGuard(vars, respond) {
   const g = await graphql(respond ?? gql({ requests: 1000, cpuTimeUs: 0 }, 0, 0))
   const f = await fixture({ name: 'quota', build: 'hooks', scheduled: true, vars: { QUOTA_GRAPHQL_URL: g.url, ...vars } })
   try {
     const r = await fetch(`${f.base}/cdn-cgi/handler/scheduled`)
     assert.equal(r.status, 200)
+    // The handler runs in the background after the 200; give it time to log.
     await sleep(800)
     return { seen: g.seen, logs: f.w.logs() }
   } finally { await f.close() }
 }
+// Today's date in UTC, `YYYY-MM-DD`.
 const todayUtc = () => new Date().toISOString().slice(0, 10)
+// The first instant of this month in UTC.
 const monthStart = () => `${new Date().toISOString().slice(0, 7)}-01T00:00:00.000Z`
 
 describe('the quota guard (scheduled handler)', () => {
@@ -58,12 +64,14 @@ describe('the quota guard (scheduled handler)', () => {
     )
     assert.equal(seen.length, 1)
     assert.equal(seen[0].method, 'POST')
+    // The token goes in the header, not the URL.
     assert.equal(seen[0].auth, 'Bearer tok')
     assert.equal(seen[0].body.variables.accountTag, 'acct')
     assert.equal(seen[0].body.variables.since, `${todayUtc()}T00:00:00.000Z`)
     assert.equal(seen[0].body.variables.sinceDate, todayUtc())
     assert.match(logs, /quota-guard: usage at 96% of a Workers Free daily limit/)
     assert.match(logs, /doRequests 96%/)
+    // The Free plan has no account-wide CPU allowance, so it is not reported.
     assert.doesNotMatch(logs, /workerCpuMs/) // not an account-wide meter on Free
   })
 

@@ -15,9 +15,12 @@ name: Origin lock
 # (workflow_dispatch) re-enables the schedule.
 
 on:
+  # Once a day, early in the morning UTC.
   schedule:
     - cron: '17 5 * * *'
+  # A manual run also re-enables the schedule if GitHub has disabled it.
   workflow_dispatch:
+  # Only a change to this check itself triggers it on a pull request.
   pull_request:
     paths:
       - '.github/workflows/origin-lock.yml'
@@ -30,23 +33,29 @@ env:
   DO_NOT_TRACK: "1"
 
 permissions:
+  # Read-only, and the check sends no secret.
   contents: read
 
 concurrency:
   group: origin-lock
+  # A newer run replaces an older one.
   cancel-in-progress: true
 
 jobs:
   origin-lock:
     name: Origin refuses direct requests
     runs-on: ubuntu-latest
+    # The check is three requests; five minutes is generous.
     timeout-minutes: 5
     steps:
+      # Check out the commit this run was triggered for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Needed to build the classifier the script calls.
       - name: Install the stable toolchain
         run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
 
+      # Cache the Cargo build output between runs; this workflow only reads the cache, so a manual run cannot overwrite it.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: ". -> target"

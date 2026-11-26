@@ -17,14 +17,19 @@ use access_gate_gateway_core::quota::{parse_workers_plan, WorkersPlan};
 /// Everything the Worker reads at startup.
 #[derive(Clone)]
 pub struct WorkerConfig {
+    /// The configuration the decision and the platform-independent code read.
     pub core: GatewayConfig,
     /// `NONCE_SHARD=global`: one shard for everything.
     pub shard_global: bool,
+    /// The public-path requests allowed per minute per client (0 disables).
     pub public_rate_limit_per_min: u32,
+    /// How long a public response may be cached, in seconds.
     pub public_cache_ttl_secs: u64,
+    /// Whether the quota guard is on (validated here so a typo fails at start-up).
     #[allow(dead_code)]
     // validated here so a typo fails at startup; the scheduled handler reads its own env
     pub quota_guard_enabled: bool,
+    /// The Workers plan the quota guard assesses usage against.
     #[allow(dead_code)] // as above
     pub workers_plan: WorkersPlan,
 }
@@ -57,11 +62,13 @@ impl WorkerConfig {
     }
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    /// The smallest valid environment (reserved `.example` hosts).
     fn base() -> HashMap<&'static str, String> {
         HashMap::from([
             ("GATEWAY_ORIGIN", "https://gw.example".to_string()),
@@ -76,6 +83,7 @@ mod tests {
         ])
     }
 
+    /// Load the Worker configuration from the base environment plus the overrides.
     fn load(extra: &[(&'static str, &str)]) -> anyhow::Result<WorkerConfig> {
         let mut env = base();
         for (k, v) in extra {
@@ -84,6 +92,7 @@ mod tests {
         WorkerConfig::load(&|k: &str| env.get(k).cloned())
     }
 
+    /// Defaults match wrangler toml semantics.
     #[test]
     fn defaults_match_wrangler_toml_semantics() {
         let c = load(&[]).unwrap();
@@ -95,6 +104,7 @@ mod tests {
         assert_eq!(c.workers_plan, WorkersPlan::Free);
     }
 
+    /// Worker only variables are strict.
     #[test]
     fn worker_only_variables_are_strict() {
         for (k, v) in [
@@ -111,12 +121,14 @@ mod tests {
         assert!(load(&[("NONCE_BACKEND", "durable-object")]).is_ok());
     }
 
+    /// The kv backend is refused with a clear message.
     #[test]
     fn the_kv_backend_is_refused_with_a_clear_message() {
         let e = load(&[("NONCE_BACKEND", "kv")]).err().unwrap().to_string();
         assert!(e.contains("not supported"), "{e}");
     }
 
+    /// The core rules apply.
     #[test]
     fn the_core_rules_apply() {
         // Loopback http needs the explicit opt-in (stricter than the TypeScript Worker).

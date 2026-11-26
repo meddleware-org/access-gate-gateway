@@ -1,9 +1,12 @@
+// Tests of the origin-lock check (scripts/origin-lock.ts and scripts/check-origin-locked.mjs): what counts as "refused by Cloudflare Access",
+// and the script run against a local stub origin.
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error — this package carries no @types/node; the unit project runs on Node and has the module
 import { spawnSync } from 'node:child_process'
 import { classifyOriginResponse } from '../scripts/origin-lock.ts'
 
 // The scheduled negative origin check (audit F32): what counts as "refused by Cloudflare Access".
+// Headers from a plain object.
 const h = (o: Record<string, string>) => new Headers(o)
 
 describe('classifyOriginResponse', () => {
@@ -36,6 +39,7 @@ describe('classifyOriginResponse', () => {
   })
 })
 
+// The script itself, run as a child process against a stub origin.
 describe('check-origin-locked.mjs', () => {
   const proc = (globalThis as unknown as { process: { execPath: string } }).process
   const run = (env: Record<string, string>): { status: number; stdout: string } =>

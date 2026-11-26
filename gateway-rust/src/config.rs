@@ -32,11 +32,13 @@ pub use access_gate_gateway_core::config::AuthHeader;
 pub struct ProcessEnv;
 
 impl Env for ProcessEnv {
+    /// Read the process environment; a value that is not valid UTF-8 counts as unset.
     fn get(&self, key: &str) -> Option<String> {
         std::env::var(key).ok()
     }
 }
 
+/// The server configuration: the shared gateway configuration plus the listener, state and limits only this platform has.
 #[derive(Clone)]
 pub struct ServerConfig {
     /// The configuration every platform shares.
@@ -52,7 +54,9 @@ pub struct ServerConfig {
     pub allow_volatile_redemptions: bool,
     /// Slow-client limits and connection cap.
     pub header_read_timeout_secs: u64,
+    /// The most connections served at once.
     pub max_connections: usize,
+    /// How long in-flight requests are given to finish after shutdown starts, in seconds.
     pub shutdown_grace_secs: u64,
     /// In-flight request cap (load-shed beyond it).
     pub max_concurrent_requests: usize,
@@ -63,6 +67,7 @@ pub struct ServerConfig {
 /// Hand-written so logs never carry credentials: the Redis URL (which may embed a password) is
 /// redacted, and the shared part redacts its own.
 impl std::fmt::Debug for ServerConfig {
+    /// Print the settings that are safe to show; the Redis URL is replaced by a marker.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ServerConfig")
             .field("gateway", &self.gateway)
@@ -88,19 +93,24 @@ impl ServerConfig {
     /// [`from_env`](Self::from_env) over an arbitrary variable lookup (so tests need no process env).
     pub fn from_lookup(env: &dyn Env) -> anyhow::Result<Self> {
         let gateway = GatewayConfig::from_env(env)?;
+        // Listen on every interface by default: the container's network policy, not the bind address, decides who can connect.
         let bind_addr: SocketAddr = env
             .get("BIND_ADDR")
             .unwrap_or_else(|| "0.0.0.0:8080".to_string())
             .parse()
+            // The parse error describes the syntax problem and does not repeat the value.
             .map_err(|e| anyhow::anyhow!("invalid BIND_ADDR: {e}"))?;
+        // An empty value means "not set": the in-memory store is used.
         let redis_url = env.get("REDIS_URL").filter(|s| !s.is_empty());
         let allow_volatile_redemptions = boolean(env, "ALLOW_VOLATILE_REDEMPTIONS", false)?;
+        // Single use without a shared, persistent store would let a restart re-sell a spent consume, so it must be asked for by name.
         if gateway.single_use && redis_url.is_none() && !allow_volatile_redemptions {
             anyhow::bail!(
                 "SINGLE_USE=true requires REDIS_URL: an in-memory store forgets spent consumes on restart \
                  (set ALLOW_VOLATILE_REDEMPTIONS=true for development)"
             );
         }
+        // Every limit has a default and a range, checked as it is read.
         Ok(Self {
             gateway,
             bind_addr,
@@ -116,11 +126,13 @@ impl ServerConfig {
     }
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    /// The smallest valid environment (reserved `.example.com` hosts).
     fn base() -> HashMap<&'static str, String> {
         HashMap::from([
             ("GATEWAY_ORIGIN", "https://gateway.example.com".to_string()),
@@ -138,6 +150,7 @@ mod tests {
         ])
     }
 
+    /// Load the server configuration from the base environment plus the overrides; `<unset>` removes a key.
     fn load(extra: &[(&'static str, &str)]) -> anyhow::Result<ServerConfig> {
         let mut env = base();
         for (k, v) in extra {
@@ -150,10 +163,12 @@ mod tests {
         ServerConfig::from_lookup(&|k: &str| env.get(k).cloned())
     }
 
+    /// The error message a bad environment produces.
     fn err(extra: &[(&'static str, &str)]) -> String {
         load(extra).err().unwrap().to_string()
     }
 
+    /// Defaults load.
     #[test]
     fn defaults_load() {
         let cfg = load(&[]).unwrap();
@@ -164,12 +179,14 @@ mod tests {
         assert_eq!(cfg.gateway.network, "testnet");
     }
 
+    /// Shared validation still applies to the server.
     #[test]
     fn shared_validation_still_applies_to_the_server() {
         assert!(err(&[("GATEWAY_ORIGIN", "<unset>")]).contains("GATEWAY_ORIGIN"));
         assert!(err(&[("SINGLE_USE", "yes")]).contains("SINGLE_USE"));
     }
 
+    /// A typo in a native variable never selects a weaker mode.
     #[test]
     fn a_typo_in_a_native_variable_never_selects_a_weaker_mode() {
         for (key, bad) in [
@@ -187,6 +204,7 @@ mod tests {
         }
     }
 
+    /// Single use needs a durable store.
     #[test]
     fn single_use_needs_a_durable_store() {
         assert!(err(&[("SINGLE_USE", "true")]).contains("REDIS_URL"));
@@ -200,6 +218,7 @@ mod tests {
         assert!(err(&[("SINGLE_USE", "true"), ("REDIS_URL", "")]).contains("REDIS_URL"));
     }
 
+    /// Debug redacts credentials.
     #[test]
     fn debug_redacts_credentials() {
         let cfg = load(&[("REDIS_URL", "redis://:hunter2@redis:6379")]).unwrap();

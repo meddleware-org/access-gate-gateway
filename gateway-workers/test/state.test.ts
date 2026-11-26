@@ -1,3 +1,5 @@
+// Tests of the nonce and redemption stores (src/state) of the TypeScript Workers gateway, run against the real Durable Object (and, where the
+// semantics are the same, the KV backend) in workerd. The Rust Worker's twin is worker/tests/state.test.mjs.
 import { describe, it, expect } from 'vitest'
 import { env } from 'cloudflare:test'
 import { DurableObjectBackend } from '../src/state/durable_object.js'
@@ -6,15 +8,18 @@ import type { NonceRateState } from '../src/state/durable_object.js'
 import type { NonceBackend, RedemptionStore } from '../src/state/types.js'
 import { shardOfNonce } from '../src/state/types.js'
 
+/** The two bindings these tests use. */
 interface TestEnv {
   NONCE_STATE: DurableObjectNamespace<NonceRateState>
   NONCE_KV: KVNamespace
 }
 const e = env as unknown as TestEnv
 
+/** A nonce backend over the Durable Object, with a cap on entries. */
 function doBackend(max = 10_000): DurableObjectBackend {
   return new DurableObjectBackend(e.NONCE_STATE, 'global', max)
 }
+/** A nonce backend over KV. */
 function kvBackend(): NonceBackend {
   return new KvBackend(e.NONCE_KV)
 }
@@ -45,6 +50,7 @@ describe.each([
 
 // Single-use redemption: the consumeDigest is the one-time token. Durable Object only: the KV
 // backend no longer implements redemptions (SINGLE_USE=true is refused with it).
+// Lease, commit and release against the real Durable Object.
 describe('redemption store: durable-object', () => {
   const store = (): RedemptionStore => doBackend()
   const key = () => '0xdigest' + Math.random().toString(16).slice(2)
@@ -108,6 +114,7 @@ describe('redemption store: durable-object', () => {
   })
 })
 
+// The fixed window per key.
 describe('durable-object rate limiter', () => {
   it('allows up to the limit then denies, per address', async () => {
     const store = doBackend()
@@ -142,6 +149,7 @@ describe('durable-object rate limiter', () => {
   })
 })
 
+// The shard a nonce was issued by is part of the nonce.
 describe('nonce shard tags', () => {
   it('routes only known continent shards and the global shard', () => {
     expect(shardOfNonce('eu.abc')).toBe('eu')

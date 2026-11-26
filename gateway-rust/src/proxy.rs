@@ -119,13 +119,17 @@ pub async fn forward(app: &AppState, req: Request) -> Response {
 
 /// The native gateway forwards through its shared hyper client.
 impl Upstream for AppState {
+    /// The axum request the router hands over.
     type Request = Request;
+    /// The axum response sent back to the client.
     type Response = Response;
 
+    /// Forward through the shared client; the public and gated kinds differ only in the Worker, so the kind is unused here.
     async fn forward(&self, req: Request, _kind: ForwardKind) -> Response {
         forward(self, req).await
     }
 
+    /// The numeric status of the answer.
     fn status(&self, resp: &Response) -> u16 {
         resp.status().as_u16()
     }

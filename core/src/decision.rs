@@ -10,15 +10,22 @@ use crate::state::StateStore;
 /// The configuration the decision reads (a subset of [`GatewayConfig`]).
 #[derive(Debug, Clone)]
 pub struct VerifyParams {
+    /// Whether the gate spends one use per redemption (a consume transaction is required).
     pub single_use: bool,
+    /// The gateway's public origin, bound into the signed message so a proof cannot be replayed at another gateway.
     pub gateway_origin: String,
+    /// The gate whose pass the request must hold.
     pub gate_id: String,
+    /// The Sui network the proof must name.
     pub network: String,
+    /// The Move type of the pass.
     pub nft_type: String,
+    /// How old a consume event may be, in seconds.
     pub consume_max_age_secs: u64,
 }
 
 impl From<&GatewayConfig> for VerifyParams {
+    /// Copy the six settings the decision needs, so it cannot read anything else from the configuration.
     fn from(cfg: &GatewayConfig) -> Self {
         Self {
             single_use: cfg.single_use,
@@ -35,10 +42,12 @@ impl From<&GatewayConfig> for VerifyParams {
 /// store failed (→ `Denied::StateUnavailable`, 503).
 #[allow(async_fn_in_trait)]
 pub trait NonceTake {
+    /// Consume the nonce: true only when it was issued, unexpired and not used before.
     async fn take_if_valid(&self, nonce: &str) -> anyhow::Result<bool>;
 }
 
 impl<T: StateStore + ?Sized> NonceTake for T {
+    /// Any state store is a nonce store: taking a nonce is the store's `take_nonce`.
     async fn take_if_valid(&self, nonce: &str) -> anyhow::Result<bool> {
         self.take_nonce(nonce).await
     }
@@ -120,7 +129,9 @@ impl Denied {
 /// the dispatcher leases/commits so a use is only spent on a successful upload.
 #[derive(Debug)]
 pub struct Verified {
+    /// The Sui address recovered from the signature.
     pub address: String,
+    /// The single-use redemption key (the consume digest), when the gate is single-use.
     pub redemption_key: Option<String>,
 }
 

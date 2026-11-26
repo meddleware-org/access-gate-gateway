@@ -1,25 +1,31 @@
 # Build context of gateway-rust/Dockerfile is the repository root: keep it to the Cargo workspace
 # (Cargo.toml, Cargo.lock, core/, gateway-rust/ and the manifests + sources of the other members, which
 # Cargo needs to resolve the workspace) and drop everything else.
+# Build output and dependencies are rebuilt inside the image, never copied from the host.
 **/target/
 **/node_modules/
+# Repository metadata, CI configuration and ignore files have no place in an image.
 .git/
 .github/
 .gitignore
 .dockerignore
+# Anything that can hold a secret stays out of the build context.
 .env
 .env.*
 *.pem
 *.key
+# Documentation, the shared test vectors and the other implementations are not needed to build the gateway.
 **/*.md
 conformance/
 docs/
 **/docs/
 gateway-workers/
+# The Rust Worker's test harness, scripts and deploy configuration belong to the Worker, not the gateway image.
 worker/tests/
 worker/scripts/
 worker/build*/
 worker/package.json
 worker/package-lock.json
 worker/wrangler.toml
+# Repository scripts (version checks, origin lock) run in CI, not in the image.
 scripts/

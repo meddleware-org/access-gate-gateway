@@ -19,6 +19,7 @@ use access_gate_gateway_ci::{
 };
 use std::process::ExitCode;
 
+/// The value after `--name` in the arguments.
 fn flag(args: &[String], name: &str) -> Option<String> {
     args.iter()
         .position(|a| a == name)
@@ -26,17 +27,20 @@ fn flag(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
+/// Read a file, or standard input when no path is given.
 fn read(path: Option<String>) -> String {
     path.and_then(|p| std::fs::read_to_string(p).ok())
         .unwrap_or_default()
 }
 
+/// Parse the HTTP status the workflow passes in.
 fn status(args: &[String]) -> Result<u16, String> {
     flag(args, "--status")
         .and_then(|s| s.trim().parse().ok())
         .ok_or_else(|| "--status N is required".to_string())
 }
 
+/// The host of a URL, for the diagnostics (never the whole URL).
 fn host_of(url: &str) -> String {
     url.split("://")
         .nth(1)
@@ -47,6 +51,7 @@ fn host_of(url: &str) -> String {
         .to_string()
 }
 
+/// Write the file with mode 0600 because it holds the service-token headers. A file that already exists is truncated and rewritten, and keeps the mode it has.
 #[cfg(unix)]
 fn write_private(path: &str, body: &str) -> std::io::Result<()> {
     use std::io::Write;
@@ -60,13 +65,16 @@ fn write_private(path: &str, body: &str) -> std::io::Result<()> {
     f.write_all(body.as_bytes())
 }
 
+/// Write the file with the platform's default permissions: there is no owner-only mode to request without Unix permissions.
 #[cfg(not(unix))]
 fn write_private(path: &str, body: &str) -> std::io::Result<()> {
     std::fs::write(path, body)
 }
 
+/// Run one subcommand; `Ok(true)` is a pass, `Ok(false)` a failed check, `Err` a usage error.
 fn run(args: &[String]) -> Result<bool, String> {
     match args.first().map(String::as_str) {
+        // Validate the secret and, when asked, write the curl config the later steps use.
         Some("check-upstream-auth") => {
             let raw = std::env::var("UPSTREAM_AUTH_HEADERS").ok();
             let check = check_upstream_auth(raw.as_deref()).map_err(|e| e.to_string())?;
@@ -85,6 +93,7 @@ fn run(args: &[String]) -> Result<bool, String> {
             }
             Ok(true)
         }
+        // Explain a rejected deploy-time probe (who rejected it) and decide whether to fail the deploy.
         Some("report-origin-check") => {
             let url = flag(args, "--url").ok_or("--url is required")?;
             let headers = parse_header_dump(&read(flag(args, "--headers")));
@@ -99,6 +108,7 @@ fn run(args: &[String]) -> Result<bool, String> {
             }
             Ok(!fail)
         }
+        // Print `locked|open|inconclusive` for the scheduled negative check; the workflow decides what to do with the word, so this always exits 0.
         Some("classify-origin") => {
             let headers = parse_header_dump(&read(flag(args, "--headers")));
             let (state, detail) = classify_origin_response(status(args)?, &headers);
@@ -112,6 +122,7 @@ fn run(args: &[String]) -> Result<bool, String> {
     }
 }
 
+/// Run the subcommand and turn the outcome into the exit code the workflow step reads: 0 pass, 1 failed check or usage error.
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match run(&args) {

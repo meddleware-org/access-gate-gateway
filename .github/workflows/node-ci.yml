@@ -7,6 +7,7 @@ on:
   push:
     branches: ["main"]
   pull_request:
+  # Reusable: the Workers deploy and the npm release run this file as their check.
   workflow_call:
 
 # Privacy by default: no tool in this workflow reports usage to its vendor (Wrangler metrics, the DO_NOT_TRACK convention).
@@ -15,39 +16,50 @@ env:
   DO_NOT_TRACK: "1"
 
 permissions:
+  # The token can only read the repository.
   contents: read
 
 jobs:
+  # The one job: everything the TypeScript Worker needs to pass.
   workers-ci:
     name: Workers gateway (gateway-workers)
     runs-on: ubuntu-latest
+    # Steps run in `gateway-workers/` unless one says otherwise.
     defaults:
       run:
         working-directory: gateway-workers
     steps:
+      # Check out the commit this run was triggered for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The npm package, the crates and the tag must carry one version.
       - name: Versions aligned (npm == crate == tag)
         working-directory: .
         run: bash scripts/check-versions.sh
 
+      # The Node version the Worker tooling is built and tested with.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26'
 
+      # Install from the lock file.
       - name: Install dependencies
         run: npm ci
 
+      # Fail on a known high or critical advisory in the dependencies.
       - name: Audit dependencies
         run: npm audit --audit-level=high
 
+      # The shared vectors in this repository must equal the published protocol package's.
       - name: Conformance vectors match the published protocol package
         working-directory: .
         run: node scripts/sync-vectors.mjs --check
 
+      # TypeScript is checked without emitting anything.
       - name: Type-check
         run: npm run type-check
 
+      # The shared lint rules.
       - name: Lint
         run: npm run lint
 

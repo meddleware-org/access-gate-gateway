@@ -3,6 +3,7 @@ import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519'
 import { buildAccessProof } from '../.gen/client.mjs'
 import { GATE_ID } from './worker.mjs'
 
+/** A fresh Ed25519 wallet and its Sui address. */
 export function newWallet() {
   const kp = Ed25519Keypair.generate()
   return { kp, address: kp.toSuiAddress() }

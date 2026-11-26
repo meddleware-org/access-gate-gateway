@@ -1,7 +1,10 @@
+// Unit tests for configuration loading (src/config.ts) of the TypeScript Workers gateway: every variable is parsed strictly and a bad value
+// fails with a message that names the key and never repeats a credential. The Rust twin is core/src/config.rs.
 import { describe, it, expect } from 'vitest'
 import { loadConfig } from '../src/config.js'
 import type { Env } from '../src/config.js'
 
+// The smallest valid environment (reserved `.example.com` hosts); each test changes one value.
 const baseEnv: Env = {
   UPSTREAM_URL: 'https://relay-origin.example.com',
   SUI_RPC_URL: 'https://fullnode.testnet.sui.io:443',
@@ -11,6 +14,7 @@ const baseEnv: Env = {
   GATE_ID: '0x2',
 }
 
+// The upstream credentials: a JSON list, with every other form refused.
 describe('loadConfig — UPSTREAM_AUTH_HEADERS', () => {
   it('defaults to empty array when env var is absent', () => {
     const cfg = loadConfig(baseEnv)
@@ -22,6 +26,7 @@ describe('loadConfig — UPSTREAM_AUTH_HEADERS', () => {
     expect(cfg.upstreamAuthHeaders).toEqual([])
   })
 
+  // A value containing a comma or a colon is carried through unchanged, which a delimiter format could not do.
   it('parses the JSON array format (CF Access service token)', () => {
     const cfg = loadConfig({
       ...baseEnv,
@@ -36,6 +41,7 @@ describe('loadConfig — UPSTREAM_AUTH_HEADERS', () => {
     ])
   })
 
+  // The old format is an error rather than silently ignored, so a stale secret cannot disable the upstream credentials.
   it('fails closed on the retired "Name: value" format', () => {
     expect(() => loadConfig({ ...baseEnv, UPSTREAM_AUTH_HEADERS: 'CF-Access-Client-Id: abc123' })).toThrow(
       /JSON array/,
@@ -53,6 +59,7 @@ describe('loadConfig — UPSTREAM_AUTH_HEADERS', () => {
   })
 })
 
+// The browser origins that may call the gateway: none by default.
 describe('loadConfig — ALLOWED_ORIGINS', () => {
   it('defaults to no cross-origin access (fail closed, like the Rust gateway)', () => {
     expect(loadConfig(baseEnv).allowedOrigins).toEqual([])
@@ -71,7 +78,9 @@ describe('loadConfig — ALLOWED_ORIGINS', () => {
   })
 })
 
+// Values that are signed into every proof, so a wrong one would reject every request.
 describe('loadConfig — audience binding (GATEWAY_ORIGIN, NETWORK)', () => {
+  // These two values are signed into every proof.
   it('requires a canonical https origin and a known network', () => {
     expect(loadConfig(baseEnv)).toMatchObject({ gatewayOrigin: 'https://gateway.example.com', network: 'testnet' })
     for (const bad of ['', 'gateway.example.com', 'http://gateway.example.com', 'https://gateway.example.com/', 'https://Gateway.example.com']) {
@@ -86,13 +95,16 @@ describe('loadConfig — audience binding (GATEWAY_ORIGIN, NETWORK)', () => {
   })
 })
 
+// Anything that is not exactly the documented spelling is an error, never a default.
 describe('loadConfig — strict values (a typo must not select a weaker mode)', () => {
   it('SINGLE_USE and QUOTA_GUARD_ENABLED are exactly true or false', () => {
     expect(loadConfig({ ...baseEnv, SINGLE_USE: 'true' }).singleUse).toBe(true)
     expect(loadConfig({ ...baseEnv, SINGLE_USE: 'false' }).singleUse).toBe(false)
+    // Case, other truthy words, whitespace and empty are all refused.
     for (const bad of ['TRUE', '1', 'yes', 'true ', '']) {
       expect(() => loadConfig({ ...baseEnv, SINGLE_USE: bad })).toThrow(/SINGLE_USE/)
     }
+    // The message names the key.
     expect(() => loadConfig({ ...baseEnv, QUOTA_GUARD_ENABLED: 'on' })).toThrow(/QUOTA_GUARD_ENABLED/)
   })
 
@@ -100,11 +112,13 @@ describe('loadConfig — strict values (a typo must not select a weaker mode)', 
     expect(loadConfig(baseEnv).workersPlan).toBe('free')
     expect(loadConfig({ ...baseEnv, WORKERS_PLAN: 'free' }).workersPlan).toBe('free')
     expect(loadConfig({ ...baseEnv, WORKERS_PLAN: 'paid' }).workersPlan).toBe('paid')
+    // Only the two documented plan names are accepted.
     for (const bad of ['Paid', 'pro', 'standard', '']) {
       expect(() => loadConfig({ ...baseEnv, WORKERS_PLAN: bad })).toThrow(/WORKERS_PLAN/)
     }
   })
 
+  // Each number has a range; a negative, a fraction and a word are refused.
   it('numbers are integers within bounds', () => {
     for (const [key, bad] of [
       ['MAX_BODY_BYTES', '0'],
@@ -142,6 +156,7 @@ describe('loadConfig — strict values (a typo must not select a weaker mode)', 
   })
 })
 
+// Settings that only make sense together, checked at start-up.
 describe('loadConfig — single-use invariants', () => {
   it('refuses the KV backend, whose lease cannot be atomic', () => {
     expect(() => loadConfig({ ...baseEnv, SINGLE_USE: 'true', NONCE_BACKEND: 'kv' })).toThrow(/durable-object/)
@@ -158,6 +173,7 @@ describe('loadConfig — single-use invariants', () => {
   })
 })
 
+// The credential header for the RPC node.
 describe('loadConfig — SUI_RPC_AUTH_HEADER', () => {
   it('parses "Name: value" and refuses anything else', () => {
     expect(loadConfig({ ...baseEnv, SUI_RPC_AUTH_HEADER: 'Authorization: Bearer tok' }).suiRpcAuthHeader).toEqual({
@@ -170,6 +186,7 @@ describe('loadConfig — SUI_RPC_AUTH_HEADER', () => {
   })
 })
 
+// Only a pass type of the access_gate package can open a gate.
 describe('loadConfig — NFT_TYPE and GATE_ID validation', () => {
   it('accepts both access_gate pass types', () => {
     expect(loadConfig(baseEnv).nftType).toBe('0x1::access_gate::AccessNFT')
@@ -190,6 +207,34 @@ describe('loadConfig — NFT_TYPE and GATE_ID validation', () => {
   })
 })
 
+// A rejected value that could carry a credential is never repeated in the error (CONF lens): the message names the key.
+describe('loadConfig — rejected values are never echoed', () => {
+  it('names the key and never repeats the value', () => {
+    // Each case is a stand-in secret inside a value the loader refuses.
+    const cases: Array<[keyof Env, string]> = [
+      ['ALLOWED_ORIGINS', 'https://user:s3cretpw@app.example'],
+      ['ALLOWED_ORIGINS', 'not an origin s3cretpw'],
+      ['PUBLIC_PATHS', '/v1/x?key=s3cretpw'],
+      ['UPSTREAM_URL', 'https://user:s3cretpw@relay.example'],
+      ['SUI_RPC_URL', 'http://rpc.example/s3cretpw'],
+      ['SUI_RPC_AUTH_HEADER', 'bad header name s3cretpw'],
+      ['UPSTREAM_AUTH_HEADERS', '[{"name":"bad name","value":"s3cretpw"}]'],
+    ]
+    for (const [key, bad] of cases) {
+      let message = ''
+      try {
+        loadConfig({ ...baseEnv, [key]: bad })
+      } catch (e) {
+        message = (e as Error).message
+      }
+      expect(message, `${key} must be refused`).not.toBe('')
+      expect(message).not.toContain('s3cretpw')
+      expect(message).toContain(key)
+    }
+  })
+})
+
+// The default matches the Rust gateway.
 describe('loadConfig — CHALLENGE_RATE_LIMIT_PER_MIN', () => {
   it('defaults to 30 per IP per minute (parity with the Rust gateway)', () => {
     expect(loadConfig(baseEnv).challengeRateLimitPerMin).toBe(30)
@@ -197,6 +242,7 @@ describe('loadConfig — CHALLENGE_RATE_LIMIT_PER_MIN', () => {
   })
 })
 
+// The deploy scripts import this file directly, so it must not import anything.
 describe('config.ts stays loadable by plain Node scripts', () => {
   it('has no imports (scripts/check-upstream-auth.mjs imports it with type stripping, which node_modules packages do not support)', async () => {
     // @ts-expect-error vite's `?raw` import: the module's own source text

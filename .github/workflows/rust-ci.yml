@@ -9,6 +9,7 @@ on:
   push:
     branches: ["main"]
   pull_request:
+  # Reusable: the release and deploy workflows run this whole file as their verification step.
   workflow_call:
 
 # Privacy by default: no tool in this workflow reports usage to its vendor (Wrangler metrics, the DO_NOT_TRACK convention).
@@ -17,9 +18,11 @@ env:
   DO_NOT_TRACK: "1"
 
 permissions:
+  # The token can only read the repository: CI never writes to it.
   contents: read
 
 jobs:
+  # Job 1: the native workspace: format, lint, tests, a Redis round trip, coverage and the dependency policy.
   rust-ci:
     name: Rust workspace (core + gateway-rust + worker + ci)
     runs-on: ubuntu-latest
@@ -32,6 +35,7 @@ jobs:
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
+      # Check out the commit this run was triggered for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Versions aligned (npm == crate == tag)
@@ -40,8 +44,10 @@ jobs:
       # rustup ships on the runner image; using it directly leaves no third-party toolchain action
       # (which publishes no releases, only a moving branch) to pin.
       - name: Install the stable toolchain
+        # Install the components the steps below need (formatter, linter, coverage tooling) and make stable the default.
         run: rustup toolchain install stable --profile minimal --component rustfmt,clippy,llvm-tools --no-self-update && rustup default stable
 
+      # Cache the Cargo build output between runs; only pushes to main write it, so pull requests cannot fill the cache.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: ". -> target"
@@ -49,18 +55,22 @@ jobs:
           # GitHub Actions cache upload bandwidth on every PR run.
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      # Formatting is checked, not applied: a diff here means the author forgot `cargo fmt`.
       - name: Format check
         run: cargo fmt --check
 
+      # Every lint is an error (`-D warnings`), across every target including tests, with the lock file honoured.
       - name: Clippy
         run: cargo clippy --all-targets --locked --workspace -- -D warnings
 
       - name: Test
+        # Every test in the workspace, with exactly the dependency versions in Cargo.lock.
         run: cargo test --locked --workspace
 
       - name: Redis backend round trip
         env:
           REDIS_URL: redis://127.0.0.1:6379
+        # The Redis-backed tests are ignored by default; run them here against the service container above.
         run: cargo test --locked -p access-gate-gateway -- --ignored redis_backend
 
       # Coverage figure (RUST lens): printed to the job summary; informational, not a gate.
@@ -97,16 +107,20 @@ jobs:
     name: access-gate-gateway-core (native tests + wasm32 build)
     runs-on: ubuntu-latest
     steps:
+      # Check out the commit this run was triggered for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install the stable toolchain with the wasm32 target
         run: rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown --no-self-update && rustup default stable
+      # Cache the Cargo build output between runs; only pushes to main write it, so pull requests cannot fill the cache.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: ". -> target"
           key: core
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # `-p` builds only the core, so a dependency another crate enables cannot hide a missing feature.
       - name: Test (native, core alone)
         run: cargo test --locked -p access-gate-gateway-core
+      # The Worker runs as wasm32: a native-only dependency in the core would fail here.
       - name: Build for the Worker target
         run: cargo build --locked -p access-gate-gateway-core --target wasm32-unknown-unknown
 
@@ -117,11 +131,13 @@ jobs:
     name: Rust Worker (build, size gate, workerd suites, differential)
     runs-on: ubuntu-latest
     steps:
+      # Check out the commit this run was triggered for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install the stable toolchain with the wasm32 target
         run: rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown --no-self-update && rustup default stable
 
+      # Cache the Cargo build output between runs; only pushes to main write it, so pull requests cannot fill the cache.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: ". -> target"
@@ -138,26 +154,32 @@ jobs:
           cargo clippy --locked -p access-gate-gateway-worker --lib --target wasm32-unknown-unknown -- -D warnings
           cargo clippy --locked -p access-gate-gateway-worker --lib --target wasm32-unknown-unknown --features test-hooks -- -D warnings
 
+      # A throw-away file that breaks every panic lint must make clippy fail: this catches a lint that was quietly weakened.
       - name: Lint canary (the panic lints are enforced)
         run: bash worker/scripts/lint-canary.sh
 
+      # The Worker's native tests and the CI helper's tests.
       - name: Native unit tests (Worker glue, CI helper)
         run: cargo test --locked -p access-gate-gateway-worker -p access-gate-gateway-ci
 
+      # `worker-build` assembles the wasm bundle; its version must match the wasm-bindgen crate, so it is pinned.
       - name: Install worker-build (pinned)
         run: command -v worker-build >/dev/null && worker-build --version | grep -q '0.8.7' || cargo install worker-build --version 0.8.7 --locked
 
       - name: Fetch the pinned build tools (wasm-bindgen, wasm-opt, esbuild; SHA-256 verified)
         run: bash worker/scripts/fetch-build-tools.sh
 
+      # Node for the harness (the Worker's tests and wrangler).
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26'
 
+      # The black-box suites are Node scripts (wrangler and the Sui SDK for signing proofs).
       - name: Install the harness dependencies
         working-directory: worker
         run: npm ci
 
+      # Two builds: the one that ships, and one with the test-only routes the suites need.
       - name: Build (deployed variant and test-hooks variant)
         run: bash worker/scripts/build.sh all
 
@@ -169,10 +191,12 @@ jobs:
           bash scripts/assert-prod-build.sh build
           bash scripts/assert-prod-build.sh --self-test build-hooks
 
+      # The compressed bundle must stay within the platform's size limit with room to spare (1536 KiB here).
       - name: Size gate (wrangler deploy --dry-run, gzip total <= 1.5 MiB)
         working-directory: worker
         run: bash scripts/size-gate.sh 1536
 
+      # The black-box suites run the built wasm under workerd, the runtime the platform uses.
       - name: workerd suites (router, proxy, redemption, state, quota, conformance, config, stream, panic)
         working-directory: worker
         timeout-minutes: 20
@@ -188,20 +212,24 @@ jobs:
         timeout-minutes: 15
         run: npm run test:diff
 
+  # Job 4: the oldest Rust the native crates declare they support.
   msrv:
     name: MSRV (rust-version in Cargo.toml)
     runs-on: ubuntu-latest
     steps:
+      # Check out the commit this run was triggered for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install the declared minimum toolchain
         run: rustup toolchain install 1.88 --profile minimal --no-self-update && rustup default 1.88
       - name: Check on the declared minimum toolchain
         run: cargo check --locked -p access-gate-gateway-core -p access-gate-gateway
 
+  # Job 5: scan the Dockerfile for misconfiguration and committed secrets.
   trivy-scan:
     name: Trivy (gateway-rust Dockerfile)
     runs-on: ubuntu-latest
     steps:
+      # Check out the commit this run was triggered for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Scan Dockerfile
@@ -221,14 +249,17 @@ jobs:
     name: Third-party licence notices (gateway-rust image stage)
     runs-on: ubuntu-latest
     steps:
+      # Check out the commit this run was triggered for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Build only the stage of the Dockerfile that collects the notices.
       - name: Build the notices stage
         run: docker build --file gateway-rust/Dockerfile --target notices --tag access-gate-gateway:notices .
 
       - name: The notices cover the linked crates
         run: |
           docker run --rm --entrypoint cat access-gate-gateway:notices /out/THIRD_PARTY_LICENSES.txt > THIRD_PARTY_LICENSES.txt
+          # The file exists and is not empty, and carries the expected licence text and heading.
           test -s THIRD_PARTY_LICENSES.txt
           grep -q 'Apache License' THIRD_PARTY_LICENSES.txt
           grep -q '^Third-party software in the access-gate-gateway image' THIRD_PARTY_LICENSES.txt

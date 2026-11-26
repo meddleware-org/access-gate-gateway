@@ -9,6 +9,7 @@ import vectors from '../../conformance/vectors.json'
 import { verifyPersonalMessageSignature } from '../src/verify.js'
 import { personalMessage } from '../src/wire.js'
 
+/** The timings of one signature scheme. */
 export interface BenchResult {
   scheme: string
   /** The first verification of this scheme in this isolate (includes lazy curve set-up). */
@@ -21,6 +22,7 @@ export interface BenchResult {
 /** Free plan CPU limit per HTTP request (Cloudflare docs, 2026-10-19). */
 export const FREE_CPU_MS_PER_REQUEST = 10
 
+/** Time verification of every scheme in the shared vectors: the first call, then the warm mean. */
 export function benchSchemes(clockMs: () => number, iterations = 200, warmup = 20): BenchResult[] {
   return vectors.signatures.map((sig) => {
     const message = personalMessage(sig.context as Parameters<typeof personalMessage>[0])
@@ -37,6 +39,7 @@ export function benchSchemes(clockMs: () => number, iterations = 200, warmup = 2
   })
 }
 
+/** Print one line per scheme. */
 export function report(label: string, results: BenchResult[]): void {
   for (const r of results) {
     console.log(

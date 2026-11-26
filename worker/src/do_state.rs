@@ -11,34 +11,49 @@
 use serde::Deserialize;
 use worker::*;
 
+/// The Durable Object that holds the nonces, redemptions and rate windows of one shard in its SQL storage.
 #[durable_object]
 pub struct NonceRateState {
+    /// The SQLite storage of the object.
     sql: SqlStorage,
 }
 
+/// A row holding only an expiry time.
 #[derive(Deserialize)]
 struct Expiry {
+    /// When the row expires, in epoch milliseconds.
     expiry: f64,
 }
+/// A rate window row.
 #[derive(Deserialize)]
 struct RateRow {
+    /// When the window started, in epoch milliseconds.
     start: f64,
+    /// Requests counted in it.
     count: f64,
 }
+/// A single count returned by a `SELECT count(*)`.
 #[derive(Deserialize)]
 struct Count {
+    /// The count.
     c: f64,
 }
+/// A redemption row: its state and expiry.
 #[derive(Deserialize)]
 struct RedRow {
+    /// `leased` or `committed`.
     state: String,
+    /// When the lease (or the retained commit) expires, in epoch milliseconds.
     expiry: f64,
 }
+/// A column name from `PRAGMA table_info`, for the schema upgrade check.
 #[derive(Deserialize)]
 struct ColName {
+    /// The column's name.
     name: String,
 }
 
+/// Wrap a value as a SQL storage value.
 fn sv<T: Into<SqlStorageValue>>(v: T) -> SqlStorageValue {
     v.into()
 }
@@ -52,16 +67,21 @@ fn random_token() -> Result<String> {
 
 /// What a lease attempt returned.
 enum LeaseOutcome {
+    /// The lease was granted: the owner token follows.
     Ok(String),
+    /// Someone else holds the lease.
     Leased,
+    /// Already redeemed.
     Redeemed,
 }
 
 impl NonceRateState {
+    /// Run a statement with bound values.
     fn exec(&self, q: &str, b: Vec<SqlStorageValue>) -> Result<SqlCursor> {
         self.sql.exec(q, b)
     }
 
+    /// Run a statement that returns one count.
     fn count(&self, q: &str) -> Result<i64> {
         let c: Count = self.exec(q, vec![])?.one()?;
         Ok(c.c as i64)
@@ -71,7 +91,9 @@ impl NonceRateState {
     fn issue(&self, nonce: &str, now: i64, ttl_secs: i64, max_entries: i64) -> Result<i64> {
         let expiry = now.saturating_add(ttl_secs.saturating_mul(1000));
         // Prune expired first (bounded growth independent of issue cadence).
+        // Expired nonces are dropped on every issue, which bounds the table without a timer.
         self.exec("DELETE FROM nonces WHERE expiry <= ?", vec![sv(now)])?;
+        // At the cap: drop the nonce that would expire soonest to make room.
         if self.count("SELECT COUNT(*) AS c FROM nonces")? >= max_entries.max(1) {
             self.exec(
                 "DELETE FROM nonces WHERE nonce = (SELECT nonce FROM nonces ORDER BY expiry ASC LIMIT 1)",
@@ -79,6 +101,7 @@ impl NonceRateState {
             )?;
         }
         self.exec(
+            // A nonce is random, so a collision is not expected; replace keeps the statement total.
             "INSERT OR REPLACE INTO nonces (nonce, expiry) VALUES (?, ?)",
             vec![sv(nonce), sv(expiry)],
         )?;
@@ -90,19 +113,23 @@ impl NonceRateState {
         let rows: Vec<Expiry> = self
             .exec("SELECT expiry FROM nonces WHERE nonce = ?", vec![sv(nonce)])?
             .to_array()?;
+        // An unknown nonce is simply not valid.
         let Some(r) = rows.first() else {
             return Ok(false);
         };
         // Consume unconditionally (present means gone), so it can never be replayed.
+        // Delete before answering, so even an expired nonce cannot be tried again.
         self.exec("DELETE FROM nonces WHERE nonce = ?", vec![sv(nonce)])?;
         Ok(r.expiry as i64 > now)
     }
 
     /// Fixed 60 s window per key; `max_per_min == 0` disables limiting.
     fn rate_check(&self, addr: &str, max_per_min: i64, now: i64) -> Result<bool> {
+        // A budget of zero means no limit, as in the core.
         if max_per_min == 0 {
             return Ok(true);
         }
+        // The current window for this key, if there is one.
         let rows: Vec<RateRow> = self
             .exec(
                 "SELECT start, count FROM rate WHERE addr = ?",
@@ -231,6 +258,7 @@ impl NonceRateState {
         Ok(())
     }
 
+    /// Route one operation name to its handler.
     fn dispatch(
         &self,
         op: &str,
@@ -280,6 +308,7 @@ impl NonceRateState {
 }
 
 impl DurableObject for NonceRateState {
+    /// Open the object's SQLite storage and create or upgrade its tables.
     fn new(state: State, _env: Env) -> Self {
         let this = Self {
             sql: state.storage().sql(),
@@ -292,9 +321,11 @@ impl DurableObject for NonceRateState {
         this
     }
 
+    /// Run one operation (the path) with its parameters (the query) and answer with JSON.
     async fn fetch(&self, req: Request) -> Result<Response> {
         let url = req.url()?;
         let q: std::collections::HashMap<String, String> = url.query_pairs().into_owned().collect();
+        // The path is the operation name: `issue`, `take`, `rate`, `lease`, `commit` or `release`.
         let op = url.path().trim_start_matches('/');
         // The clock is the platform's. Only the test-hooks build lets a scenario pin it.
         #[cfg(feature = "test-hooks")]

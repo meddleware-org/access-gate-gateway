@@ -26,17 +26,31 @@
     )
 )]
 
+/// Worker-only variables on top of the shared configuration.
 mod config;
+/// The CORS grants every response carries.
 mod cors;
+// The `#[durable_object]` macro in this module generates a constructor and a `fetch` method that cannot carry a doc comment, so the doc lints are
+// relaxed for it; every item written by hand in it is documented (check-docs measures that).
+/// The Durable Object that holds nonces, rate windows and redemptions.
+#[allow(missing_docs, clippy::missing_docs_in_private_items)]
 mod do_state;
+/// Test-only routes, compiled only with the `test-hooks` feature.
 #[cfg(feature = "test-hooks")]
 mod hooks;
+/// Rendering of the gateway's own JSON answers.
 mod json;
+/// The response type the Worker assembles before CORS is applied.
 mod out;
+/// The scheduled check of Workers usage against the plan's allowances.
 mod quota_guard;
+/// Which Durable Object shard a request uses.
 mod region;
+/// The `StateStore` over the Durable Object.
 mod state;
+/// The gRPC-web transport over `fetch`.
 mod transport;
+/// The upstream over streamed `fetch`.
 mod upstream;
 
 pub use do_state::NonceRateState;
@@ -60,6 +74,7 @@ use worker::{console_error, event, Context, Env, Result, ScheduleContext, Schedu
 struct WorkerEnv<'a>(&'a Env);
 
 impl CoreEnv for WorkerEnv<'_> {
+    /// A variable or secret by name; one that is unset, or not a string, is `None`.
     fn get(&self, key: &str) -> Option<String> {
         js_sys::Reflect::get(self.0, &JsValue::from_str(key))
             .ok()
@@ -69,22 +84,29 @@ impl CoreEnv for WorkerEnv<'_> {
 
 /// Configuration and the Sui client, built once per isolate.
 struct Shared {
+    /// The configuration.
     cfg: WorkerConfig,
+    /// The Sui client.
     chain: SuiRpc<WorkerTransport>,
 }
 
 thread_local! {
+    /// The cached configuration and client for this isolate (a Worker isolate runs one thread, so a thread-local is enough).
     static SHARED: RefCell<Option<Rc<Shared>>> = const { RefCell::new(None) };
 }
 
+/// Build the shared configuration and client for this isolate from the environment.
 fn shared(env: &Env) -> anyhow::Result<Rc<Shared>> {
+    // Build once per isolate: later requests reuse the parsed configuration and the cache inside the chain client.
     if let Some(s) = SHARED.with(|c| c.borrow().clone()) {
         return Ok(s);
     }
+    // Validated here, on the first request; a bad value is then a 500 for every request (fail closed) rather than a half-working gateway.
     let cfg = WorkerConfig::load(&WorkerEnv(env))?;
     let chain = SuiRpc::new(
         WorkerTransport {
             auth: cfg.core.sui_rpc_auth_header.clone(),
+            // `fetch` takes the timeout as a 32-bit number of milliseconds.
             timeout_ms: u32::try_from(cfg.core.rpc_timeout_secs.saturating_mul(1000))
                 .unwrap_or(u32::MAX),
         },
@@ -97,6 +119,7 @@ fn shared(env: &Env) -> anyhow::Result<Rc<Shared>> {
     Ok(s)
 }
 
+/// A request header value, if present.
 fn header(req: &web_sys::Request, name: &str) -> Option<String> {
     req.headers().get(name).ok().flatten()
 }
@@ -115,6 +138,7 @@ fn client_ip(req: &web_sys::Request) -> String {
     header(req, "cf-connecting-ip").map_or_else(|| "unknown".to_string(), |ip| rate_key(&ip))
 }
 
+/// Convert a gateway reply to the response type.
 fn json_out(r: JsonReply) -> std::result::Result<Out, JsValue> {
     if let Some(d) = &r.diag {
         console_error!("{d}");
@@ -133,6 +157,7 @@ async fn route(
     let path = url.path().to_string();
     let method = req.method();
 
+    // Answered first, before any configuration or state is touched, so the probe works even when the gateway is misconfigured.
     if path == "/healthz" {
         return Out::text(200, "ok");
     }
@@ -154,11 +179,13 @@ async fn route(
         }
     };
     let cfg = &shared.cfg;
+    // The binding is part of the deployment; without it nothing can be rate limited or redeemed.
     let Ok(ns) = env.durable_object("NONCE_STATE") else {
         console_error!("gateway misconfigured: the NONCE_STATE Durable Object binding is missing");
         return Out::error(500, "gateway misconfigured");
     };
 
+    // The fields of the request the shared pipeline reads.
     let head = RequestHead {
         method: method.clone(),
         path: path.clone(),
@@ -169,6 +196,7 @@ async fn route(
     };
     let state = DoState {
         ns,
+        // The shard is chosen by continent (or one global shard), so state stays near the caller.
         region: region::region_of(cfg.shard_global, continent(req).as_deref()),
         challenge_ttl_secs: cfg.core.challenge_ttl_secs,
         max_entries: cfg.core.nonce_max_entries,
@@ -181,6 +209,7 @@ async fn route(
         #[cfg(feature = "test-hooks")]
         fail: WorkerEnv(env).get("TEST_FAIL_STATE"),
     };
+    // `ctx` lets the upstream keep working after the response is returned (cache writes).
     let upstream = WorkerUpstream { cfg, ctx };
     let gateway = Gateway {
         cfg: &cfg.core,
@@ -189,8 +218,10 @@ async fn route(
         upstream: &upstream,
     };
     let proxy_req = ProxyRequest {
+        // The request object is cloned because its body can be read only once.
         req: Clone::clone(req),
         path,
+        // The query string is forwarded as it came, with its `?`.
         search: url.query().map(|q| format!("?{q}")).unwrap_or_default(),
     };
     match gateway.handle(&head, proxy_req).await {
@@ -199,7 +230,9 @@ async fn route(
     }
 }
 
+/// Handle one request: rate limits and verification are in the gateway, this only builds its ports.
 async fn respond(req: web_sys::Request, env: Env, ctx: Context) -> Result<web_sys::Response> {
+    // Read before the request is consumed: CORS is applied to every answer, errors included.
     let origin = header(&req, "origin");
     let shared = shared(&env);
     let out = match route(&req, &env, &ctx, &shared).await {
@@ -210,14 +243,17 @@ async fn respond(req: web_sys::Request, env: Env, ctx: Context) -> Result<web_sy
             Out::error(502, "bad gateway").map_err(|e| worker::Error::JsError(format!("{e:?}")))?
         }
     };
+    // With no valid configuration there is no allow list, so no origin is reflected.
     let allowed = shared.as_ref().ok().and_then(|s| {
         cors_allowed_origin(origin.as_deref(), &s.cfg.core.allowed_origins).map(str::to_string)
     });
     finish(out, allowed.as_deref()).map_err(|e| worker::Error::JsError(format!("{e:?}")))
 }
 
+/// The Worker entry point for HTTP requests.
 #[event(fetch)]
 async fn fetch(req: web_sys::Request, env: Env, ctx: Context) -> Result<web_sys::Response> {
+    // A panic is a trap on wasm32; this at least writes the message to the Worker log first.
     console_error_panic_hook::set_once();
     #[cfg(feature = "test-hooks")]
     if let Some(r) = hooks::route(&req, &env).await {
@@ -226,6 +262,7 @@ async fn fetch(req: web_sys::Request, env: Env, ctx: Context) -> Result<web_sys:
     respond(req, env, ctx).await
 }
 
+/// The scheduled entry point (the quota guard).
 #[event(scheduled)]
 async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     quota_guard::run(&env).await;

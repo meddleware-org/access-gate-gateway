@@ -238,6 +238,7 @@ impl Stub {
 }
 
 impl Drop for Stub {
+    /// Stop the server task when the stub goes out of scope, so a test never leaves a listener running.
     fn drop(&mut self) {
         self.task.abort();
     }

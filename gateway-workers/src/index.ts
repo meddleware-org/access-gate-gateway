@@ -100,6 +100,7 @@ function guardBackend(backend: NonceBackend): NonceBackend {
   }
 }
 
+/** The redemption store with each call wrapped, so a store failure is reported as the gateway's own unavailable answer. */
 function guardRedemptions(store: RedemptionStore): RedemptionStore {
   return {
     tryLeaseRedemption: wrapStore(store.tryLeaseRedemption.bind(store)),

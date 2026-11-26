@@ -1,19 +1,28 @@
+// TypeScript settings for the Workers gateway (type-check only: wrangler bundles the code, nothing is emitted).
 {
   "compilerOptions": {
+    // Modern JavaScript, as the Workers runtime supports it, with ES modules.
     "target": "ES2022",
     "module": "ESNext",
+    // The resolution a bundler (wrangler's esbuild) performs, so imports type-check the way they bundle.
     "moduleResolution": "bundler",
     "lib": ["ES2022"],
+    // The Workers runtime's own types (fetch, Durable Objects, bindings), not the DOM's.
     "types": ["@cloudflare/workers-types"],
+    // The strict family, plus index access that may be undefined.
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    // The sources import each other with their .ts extension.
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": false,
+    // Type-check only: the bundler produces the output.
     "noEmit": true,
+    // The shared conformance vectors are imported as JSON.
     "resolveJsonModule": true
   },
+  // The Worker's sources and tests, and the shared vectors they import.
   "include": ["src/**/*.ts", "test/**/*.ts", "../conformance/**/*.json"]
 }

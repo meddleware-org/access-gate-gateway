@@ -1,6 +1,10 @@
+# Files the Rust Worker's directory must not commit.
+# Generated client code the black-box suites import (bundled by tests/prepare.mjs before `npm test`).
 tests/.gen/
+# The two build variants (deployed and test-hooks), and installed packages.
 build/
 build-hooks/
 node_modules/
+# Wrangler's local state, and the shadow-deploy configuration the workflow generates.
 .wrangler/
 wrangler.shadow.toml

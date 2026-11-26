@@ -8,15 +8,19 @@
 // Anything else that reaches the origin or is refused by something other than Access means the lock
 // is not what the audit records.
 
+/** The three verdicts: Access refused the request, the origin answered it, or the answer proves nothing. */
 export type OriginLockState = 'locked' | 'open' | 'inconclusive'
 
+/** A verdict with the sentence that explains it. */
 export interface OriginLockVerdict {
   state: OriginLockState
   detail: string
 }
 
+/** Anything that can read a header by name (a `Headers` object, or a stub in a test). */
 type HeaderReader = { get(name: string): string | null }
 
+/** Classify an origin's answer to a request made without the service token (the same rules as `classify_origin_response` in the Rust CI helper). */
 export function classifyOriginResponse(status: number, headers: HeaderReader): OriginLockVerdict {
   // Bot Fight Mode can challenge a CI runner before Access sees it. That proves nothing either way.
   if (headers.get('cf-mitigated') === 'challenge') {

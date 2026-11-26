@@ -227,12 +227,15 @@ pub fn decode_access_proof(token: &str) -> anyhow::Result<AccessProof> {
     })
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A fixed base58 transaction digest for the single-use cases.
     const DIGEST: &str = "5Wq9tE4gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL";
 
+    /// A message context for a fixed example gateway, gate and network.
     fn ctx<'a>(nonce: &'a str, digest: Option<&'a str>) -> MessageContext<'a> {
         MessageContext {
             origin: "https://gateway.example",
@@ -243,10 +246,12 @@ mod tests {
         }
     }
 
+    /// The wire form of a proof: base64 of its JSON.
     fn token(json: &str) -> String {
         BASE64_STANDARD.encode(json)
     }
 
+    /// Personal message is the documented multi line ascii.
     #[test]
     fn personal_message_is_the_documented_multi_line_ascii() {
         let m =
@@ -264,6 +269,7 @@ mod tests {
             .ends_with(&format!("\nconsume:{DIGEST}")));
     }
 
+    /// Tx digest is base58 that decodes to 32 bytes.
     #[test]
     fn tx_digest_is_base58_that_decodes_to_32_bytes() {
         assert!(is_tx_digest(DIGEST));
@@ -285,11 +291,13 @@ mod tests {
 
     proptest::proptest! {
         // The decoder agrees with an independent big-integer encoding of 32 random bytes.
+        /// Every 32 byte value round trips.
         #[test]
         fn every_32_byte_value_round_trips(bytes in proptest::collection::vec(proptest::prelude::any::<u8>(), 32)) {
             proptest::prop_assert!(is_tx_digest(&encode_base58(&bytes)));
         }
 
+        /// Other lengths are refused.
         #[test]
         fn other_lengths_are_refused(n in 0usize..=40, fill in proptest::prelude::any::<u8>()) {
             proptest::prop_assume!(n != 32);
@@ -316,6 +324,7 @@ mod tests {
         out
     }
 
+    /// Personal message refuses non canonical fields.
     #[test]
     fn personal_message_refuses_non_canonical_fields() {
         assert!(personal_message(&ctx("n\nconsume:x", None)).is_err());
@@ -329,6 +338,7 @@ mod tests {
         assert!(personal_message(&c).is_err());
     }
 
+    /// Decodes with and without consume digest.
     #[test]
     fn decodes_with_and_without_consume_digest() {
         let p = decode_access_proof(&token(&format!(
@@ -344,6 +354,7 @@ mod tests {
         assert!(p.consume_digest.is_none());
     }
 
+    /// Rejects an oversized token before decoding.
     #[test]
     fn rejects_an_oversized_token_before_decoding() {
         let err = decode_access_proof(&"A".repeat(MAX_TOKEN_BYTES + 1))
@@ -352,6 +363,7 @@ mod tests {
         assert!(err.contains("too large"), "{err}");
     }
 
+    /// Rejects everything outside the field grammar.
     #[test]
     fn rejects_everything_outside_the_field_grammar() {
         for json in [

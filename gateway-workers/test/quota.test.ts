@@ -1,3 +1,5 @@
+// Tests of the quota guard (src/quota.ts) of the TypeScript Workers gateway: the plan allowances, the usage window, the assessment and the
+// scheduled handler against a stubbed analytics API. The Rust twin is core/src/quota.rs.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Env } from '../src/config.js'
 import {
@@ -10,6 +12,7 @@ import {
   type Usage,
 } from '../src/quota.js'
 
+// A usage window with nothing used.
 const zero: Usage = { workerRequests: 0, workerCpuMs: 0, doRequests: 0, doGbSeconds: 0 }
 
 describe('plan allowances (Cloudflare docs, 2026-10-19)', () => {
@@ -34,6 +37,7 @@ describe('plan allowances (Cloudflare docs, 2026-10-19)', () => {
   })
 })
 
+// `free` by default; only `free` or `paid` are accepted.
 describe('parseWorkersPlan', () => {
   it('defaults to free and accepts exactly free or paid', () => {
     expect(parseWorkersPlan(undefined)).toBe('free')
@@ -43,6 +47,7 @@ describe('parseWorkersPlan', () => {
   })
 })
 
+// The Free plan's window is the day; the paid plan's is the month.
 describe('windowStart', () => {
   const now = new Date('2026-10-19T17:42:05.123Z')
   it('Free: today 00:00 UTC', () => {
@@ -53,6 +58,7 @@ describe('windowStart', () => {
   })
 })
 
+// Usage against the allowances: which meters apply to which plan, and when a warning is due.
 describe('assessUsage', () => {
   it('Free: Worker and DO requests are separate meters (not summed)', () => {
     const a = assessUsage({ ...zero, workerRequests: 60_000, doRequests: 60_000 }, 'free')
@@ -61,16 +67,22 @@ describe('assessUsage', () => {
     expect(a.warn).toBe(false)
     expect(a.degrade).toBe(false)
   })
+  // The Free plan's CPU allowance is per request, which the analytics cannot meter.
   it('Free: CPU is not an account-wide meter', () => {
     const a = assessUsage({ ...zero, workerCpuMs: 1e12 }, 'free')
     expect(a.ratios.workerCpuMs).toBeUndefined()
     expect(a.worst).toBe(0)
   })
+  // Two thresholds: a warning, then a switch to the cheaper nonce path.
   it('Free: warns at 80% and degrades at 95% of any meter', () => {
+    // 10,400 of 13,000 GB-s is 80 %.
     expect(assessUsage({ ...zero, doGbSeconds: 10_400 }, 'free')).toMatchObject({ warn: true, degrade: false })
+    // 95,000 of 100,000 requests is 95 %.
     expect(assessUsage({ ...zero, doRequests: 95_000 }, 'free')).toMatchObject({ warn: true, degrade: true })
   })
+  // On the paid plan going over costs money but breaks nothing, so there is nothing to degrade to.
   it('Paid: meters CPU, warns, and never degrades (overage is billed, nothing fails)', () => {
+    // 29 million of the 30 million CPU milliseconds included.
     const a = assessUsage({ ...zero, workerCpuMs: 29_000_000 }, 'paid')
     expect(a.ratios.workerCpuMs).toBeCloseTo(29 / 30)
     expect(a.warn).toBe(true)
@@ -81,6 +93,7 @@ describe('assessUsage', () => {
 
 /** A GraphQL response with one row per dataset. */
 function gql(w: { requests: number; cpuTimeUs: number }, doReq: number, activeTimeUs: number): Response {
+  // A response shaped like Cloudflare's analytics API.
   return Response.json({
     data: {
       viewer: {
@@ -96,14 +109,19 @@ function gql(w: { requests: number; cpuTimeUs: number }, doReq: number, activeTi
   })
 }
 
+/** A KV binding that records its writes. */
 function kvSpy() {
+  // The guard's only write is the degrade flag in KV.
   return { put: vi.fn(async () => undefined), delete: vi.fn(async () => undefined), get: vi.fn() }
 }
 
+/** The test environment with these values added. */
 function env(extra: Partial<Env>): Env {
+  // Placeholder credentials: the analytics API is a stub.
   return { CF_ANALYTICS_TOKEN: 't', CF_ACCOUNT_ID: 'a', ...extra } as unknown as Env
 }
 
+// The scheduled handler end to end, with a stubbed analytics API.
 describe('runQuotaGuard', () => {
   afterEach(() => {
     vi.unstubAllGlobals()

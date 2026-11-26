@@ -30,6 +30,7 @@ const probes = [
   { label: 'unknown token, check path', url: checkUrl, headers: bogusToken },
 ]
 
+/** One probe: up to three attempts at a GET without a service token, returning the verdict for the first answer that arrives. */
 async function probe({ url, headers }) {
   let lastError
   for (let attempt = 1; attempt <= 3; attempt++) {

@@ -7,13 +7,19 @@ use base64::prelude::*;
 use blake2::digest::consts::U32;
 use blake2::{Blake2b, Digest};
 
+/// BLAKE2b with a 256-bit output, the hash Sui signs personal messages with.
 type Blake2b256 = Blake2b<U32>;
 
 // Sui signature-scheme flag bytes (first byte of a serialized signature).
+/// The ed25519 signature scheme.
 pub const FLAG_ED25519: u8 = 0x00;
+/// The secp256k1 scheme.
 pub const FLAG_SECP256K1: u8 = 0x01;
+/// The secp256r1 scheme.
 pub const FLAG_SECP256R1: u8 = 0x02;
+/// The multisig scheme.
 pub const FLAG_MULTISIG: u8 = 0x03;
+/// The zkLogin scheme.
 pub const FLAG_ZKLOGIN: u8 = 0x05;
 
 /// Compute the 32-byte Blake2b-256 digest of `data`.

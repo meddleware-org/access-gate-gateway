@@ -11,7 +11,10 @@ accepted = [
     "Unicode-3.0",
     "Unlicense",
 ]
+# The platforms the image is built for, so only the crates linked there are counted.
 targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+# Build-time and test-only dependencies are not in the shipped binary, so they are not listed in the notices.
 ignore-build-dependencies = true
 ignore-dev-dependencies = true
+# `ring` has a custom licence text that cargo-about needs a built-in workaround for.
 workarounds = ["ring"]

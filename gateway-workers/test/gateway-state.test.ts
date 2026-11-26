@@ -1,3 +1,5 @@
+// Router-level tests of the TypeScript Workers gateway that depend on per-isolate state or on a failing binding: rate limits, the cache,
+// the quota-degrade flag and a store outage. Order matters; see the note below.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { env, createExecutionContext } from 'cloudflare:test'
 import type { Env } from '../src/config.js'
@@ -15,17 +17,21 @@ import worker, { clientIp } from '../src/index.js'
 const base = env as unknown as Env
 const ALLOWED_ORIGIN = 'https://allowed.example.com'
 
+/** The Worker's `fetch` entry point, as the tests call it. */
 type Worker = { fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> }
 
+/** Load a fresh copy of the Worker module, so its per-isolate state starts empty. */
 async function freshWorker(): Promise<Worker> {
   vi.resetModules()
   return (await import('../src/index.js')).default as unknown as Worker
 }
 
+/** A request to the test gateway. */
 function req(path: string, headers?: Record<string, string>, method = 'GET'): Request {
   return new Request('https://gw.example.com' + path, { method, headers })
 }
 
+/** The names of the KV keys with this prefix. */
 async function kvKeys(prefix: string): Promise<string[]> {
   return (await base.NONCE_KV!.list({ prefix })).keys.map((k) => k.name)
 }
@@ -80,6 +86,7 @@ describe('rate limits (F9, F30)', () => {
   })
 })
 
+// A gated answer belongs to one caller and must never be served from the edge cache.
 describe('gated responses are never cached (F30)', () => {
   it('forwarding a gated request neither reads nor writes the edge cache', async () => {
     const cache = (caches as unknown as { default: Cache }).default
@@ -122,6 +129,7 @@ describe('quota-degrade flag in ownership mode (F2, F30)', () => {
   })
 })
 
+// A failing binding must still produce the JSON answer and the CORS headers.
 describe('store outage (F30)', () => {
   it('answers a JSON 503 with CORS when the Durable Object binding throws', async () => {
     const fresh = await freshWorker()

@@ -11,9 +11,11 @@ const KEY_ORDER: [&str; 4] = ["error", "code", "nonce", "expiresAt"];
 
 /// `value` as compact JSON, with an object's keys in [`KEY_ORDER`] first.
 pub fn render(value: &Value) -> String {
+    // Only objects have key order; anything else renders as it is.
     let Value::Object(map) = value else {
         return value.to_string();
     };
+    // Sort by position in `KEY_ORDER`, then alphabetically for keys that are not in it.
     let mut keys: Vec<&String> = map.keys().collect();
     keys.sort_by(|a, b| {
         let rank = |k: &String| {
@@ -29,21 +31,25 @@ pub fn render(value: &Value) -> String {
         if i > 0 {
             out.push(',');
         }
+        // Serialising the key as a JSON string handles the escaping.
         out.push_str(&Value::String((*k).clone()).to_string());
         out.push(':');
         if let Some(v) = map.get(*k) {
             out.push_str(&v.to_string());
         }
     }
+    // The closing brace of the hand-rendered object.
     out.push('}');
     out
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Keys keep the typescript order.
     #[test]
     fn keys_keep_the_typescript_order() {
         assert_eq!(
@@ -57,6 +63,7 @@ mod tests {
         assert_eq!(render(&json!({"error": "x"})), r#"{"error":"x"}"#);
     }
 
+    /// Unknown keys follow sorted and strings are escaped.
     #[test]
     fn unknown_keys_follow_sorted_and_strings_are_escaped() {
         assert_eq!(

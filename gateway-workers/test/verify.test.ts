@@ -1,3 +1,5 @@
+// Tests of signature verification and the access decision (src/verify.ts) of the TypeScript Workers gateway, with real signatures for every
+// supported scheme. The Rust twin is core/tests/decision.rs.
 import { describe, it, expect } from 'vitest'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { secp256k1 } from '@noble/curves/secp256k1.js'
@@ -29,10 +31,12 @@ function msgFor(nonce: string, consumeDigest?: string): Uint8Array {
 }
 
 // ── helpers to build real signed proof tokens (mirrors verify.rs test helpers) ──────────────
+/** The wire form of a proof: base64 of its JSON. */
 function tokenB64(obj: Record<string, unknown>): string {
   return bytesToBase64(new TextEncoder().encode(JSON.stringify(obj)))
 }
 
+/** A real ed25519 proof for `nonce` (and `consumeDigest`), signed over the message for the test gateway unless `signedMessage` says otherwise. */
 function ed25519Token(seed: number, nonce: string, consumeDigest?: string, signedMessage?: Uint8Array) {
   const priv = new Uint8Array(32).fill(seed)
   const pub = ed25519.getPublicKey(priv)
@@ -45,6 +49,7 @@ function ed25519Token(seed: number, nonce: string, consumeDigest?: string, signe
 }
 
 // ── FakeBackend + MockChain (mirror the Rust in-memory store + MockChain) ────────────────────
+/** A nonce backend that knows exactly the nonces a test issued, each valid once. */
 class FakeBackend implements NonceBackend {
   private nonces = new Map<string, { expiry: number; used: boolean }>()
   constructor(private ttlSecs = 300) {}
@@ -69,6 +74,7 @@ class FakeBackend implements NonceBackend {
   }
 }
 
+/** A scripted chain: each flag answers one question the decision asks. */
 class MockChain implements ChainQuery {
   constructor(
     private owns: boolean,
@@ -93,6 +99,7 @@ class MockChain implements ChainQuery {
   }
 }
 
+/** The test gateway's configuration, with single-use on or off. */
 function cfg(singleUse: boolean): Config {
   return {
     upstreamUrl: 'http://upstream',
@@ -126,11 +133,13 @@ function cfg(singleUse: boolean): Config {
   }
 }
 
+// Each supported scheme verifies, and the unsupported ones fail closed.
 describe('signature verification (all schemes)', () => {
   it('ed25519 verifies and recovers the address', () => {
     const { address, signature } = ed25519Token(7, 'nonce-1')
     const msg = msgFor('nonce-1')
     expect(verifyPersonalMessageSignature(address, msg, signature)).toBe(true)
+    // A signature only proves the address derived from its own public key.
     expect(verifyPersonalMessageSignature('0xdead', msg, signature)).toBe(false) // wrong addr
     const other = msgFor('nonce-2')
     expect(verifyPersonalMessageSignature(address, other, signature)).toBe(false) // tampered
@@ -138,10 +147,12 @@ describe('signature verification (all schemes)', () => {
 
   it('secp256k1 verifies and recovers the address', () => {
     const priv = new Uint8Array(32).fill(9)
+    // Sui carries the compressed form of the public key in the serialised signature.
     const pub = secp256k1.getPublicKey(priv, true) // 33-byte compressed
     const address = deriveAddress(FLAG_SECP256K1, pub)
     const msg = msgFor('k1-nonce')
     // noble v2: sign() returns compact Uint8Array directly (no .toCompactRawBytes())
+    // Wallets produce low-S signatures, and the verifier refuses a high-S one.
     const sig = secp256k1.sign(signingDigest(msg), priv, { lowS: true })
     const signature = bytesToBase64(concatBytes(Uint8Array.of(FLAG_SECP256K1), sig, pub))
     expect(verifyPersonalMessageSignature(address, msg, signature)).toBe(true)
@@ -150,6 +161,7 @@ describe('signature verification (all schemes)', () => {
 
   it('secp256r1 verifies and recovers the address', () => {
     const priv = new Uint8Array(32).fill(11)
+    // The secp256r1 scheme, with the same layout as secp256k1.
     const pub = p256.getPublicKey(priv, true)
     const address = deriveAddress(FLAG_SECP256R1, pub)
     const msg = msgFor('r1-nonce')
@@ -162,6 +174,7 @@ describe('signature verification (all schemes)', () => {
 
   it('multisig and zkLogin flags fail closed', () => {
     const msg = msgFor('n')
+    // Multisig and zkLogin are not supported: a signature with their flag must fail closed.
     const ms = bytesToBase64(concatBytes(Uint8Array.of(FLAG_MULTISIG), new Uint8Array(96)))
     const zk = bytesToBase64(concatBytes(Uint8Array.of(FLAG_ZKLOGIN), new Uint8Array(96)))
     expect(verifyPersonalMessageSignature('0x1', msg, ms)).toBe(false)
@@ -169,9 +182,11 @@ describe('signature verification (all schemes)', () => {
   })
 })
 
+// The decision: proof, nonce, ownership, consume and pause, in that order.
 describe('verifyAccessRequest decision', () => {
   it('allows an owner with a valid proof', async () => {
     const store = new FakeBackend()
+    // The store knows this nonce, as if the gateway had issued it.
     store.issueSpecific('real-nonce')
     const built = ed25519Token(7, 'real-nonce')
     const res = await verifyAccessRequest(cfg(false), store, built.token, new MockChain(true, false))
@@ -182,6 +197,7 @@ describe('verifyAccessRequest decision', () => {
     const store = new FakeBackend()
     store.issueSpecific('n2')
     const built = ed25519Token(7, 'n2')
+    // The chain says the address does not hold the pass.
     const res = await verifyAccessRequest(cfg(false), store, built.token, new MockChain(false, false))
     expect(res).toEqual({ ok: false, denied: 'NotOwner' })
   })
@@ -190,6 +206,7 @@ describe('verifyAccessRequest decision', () => {
     const store = new FakeBackend()
     store.issueSpecific('n3')
     const built = ed25519Token(7, 'n3')
+    // The first use of the nonce succeeds.
     const first = await verifyAccessRequest(cfg(false), store, built.token, new MockChain(true, false))
     expect(first.ok).toBe(true)
     const again = await verifyAccessRequest(cfg(false), store, built.token, new MockChain(true, false))
@@ -199,6 +216,7 @@ describe('verifyAccessRequest decision', () => {
   it('denies a bad signature (nonce claim mismatched from the signed nonce)', async () => {
     const store = new FakeBackend()
     store.issueSpecific('n4')
+    // The signature covers a different nonce than the one the token claims.
     const built = ed25519Token(7, 'OTHER') // signature is over OTHER
     const tampered = tokenB64({ address: built.address, nonce: 'n4', signature: built.signature })
     const res = await verifyAccessRequest(cfg(false), store, tampered, new MockChain(true, false))
@@ -270,7 +288,9 @@ describe('verifyAccessRequest decision', () => {
   })
 })
 
+// A proof made for another origin, gate, network or nonce is refused.
 describe('audience binding (protocol v2)', () => {
+  /** Run the decision for a configuration and a proof and return its outcome. */
   async function decide(configure: (c: Config) => Config, tokenOf: () => string, singleUse = false) {
     const store = new FakeBackend()
     store.issueSpecific('aud-nonce')

@@ -7,13 +7,16 @@ name: Fuzz (manual)
 # core/fuzz/seeds/.
 
 on:
+  # Manual only: a fuzz run is long and needs a nightly toolchain.
   workflow_dispatch:
     inputs:
+      # Which target to run: all three, or one.
       target:
         description: "fuzz target"
         type: choice
         options: [all, grpc, proof, sig]
         default: all
+      # Time per target; validated below because it comes from a person.
       seconds:
         description: "seconds per target (10-3600)"
         type: string
@@ -25,16 +28,20 @@ env:
   DO_NOT_TRACK: "1"
 
 permissions:
+  # Read-only: the run only reads the repository.
   contents: read
 
 jobs:
   fuzz:
     name: cargo fuzz
     runs-on: ubuntu-latest
+    # A 90-minute ceiling: enough for the default run. Three targets at the longest allowed time (3 x 3600 s) would exceed it, so use a shorter time when running all.
     timeout-minutes: 90
     steps:
+      # Check out the commit this run was triggered for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The number is used in a command, so it must be digits in range before it is used.
       - name: Validate inputs
         env:
           SECONDS_PER_TARGET: ${{ inputs.seconds }}
@@ -43,6 +50,7 @@ jobs:
           [[ "$SECONDS_PER_TARGET" =~ ^[0-9]+$ ]] && [ "$SECONDS_PER_TARGET" -ge 10 ] && [ "$SECONDS_PER_TARGET" -le 3600 ] \
             || { echo "::error::seconds must be an integer from 10 to 3600"; exit 1; }
 
+      # libFuzzer needs a nightly compiler for the sanitizer flags.
       - name: Install the nightly toolchain
         run: rustup toolchain install nightly --profile minimal --no-self-update && rustup default nightly
 
@@ -52,9 +60,11 @@ jobs:
           key: fuzz
           save-if: false
 
+      # Pinned so a new release cannot change the run.
       - name: Install cargo-fuzz (pinned)
         run: cargo install cargo-fuzz --version 0.13.2 --locked
 
+      # Run each chosen target on its corpus, seeds and dictionary when they exist, for the given time.
       - name: Fuzz
         working-directory: core
         env:
@@ -64,6 +74,7 @@ jobs:
           set -euo pipefail
           targets="$TARGET"; [ "$targets" = all ] && targets="grpc proof sig"
           for t in $targets; do
+            # The corpus is created on the runner and not kept: a crash is read from the log.
             mkdir -p "fuzz/corpus/$t"
             dict=(); [ -f "fuzz/dictionaries/$t.dict" ] && dict=("-dict=fuzz/dictionaries/$t.dict")
             seeds=(); [ -d "fuzz/seeds/$t" ] && seeds=("fuzz/seeds/$t")

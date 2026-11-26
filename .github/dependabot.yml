@@ -1,36 +1,48 @@
+# Dependabot configuration version 2.
 version: 2
 updates:
   - package-ecosystem: npm
+    # The TypeScript Worker.
     directory: /gateway-workers
     schedule:
+      # Check for updates once a week.
       interval: weekly
+    # At most five open pull requests per ecosystem, so updates arrive at a pace that can be reviewed.
     open-pull-requests-limit: 5
     ignore:
       - dependency-name: "typescript"
+        # Major versions are not proposed automatically: they are taken by hand.
         update-types: ["version-update:semver-major"]
+    # Minor and patch updates are grouped into one pull request each week.
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
+  # The Rust Worker's test harness has its own package.json, so it needs its own entry.
   - package-ecosystem: npm
     directory: /worker # the Rust Worker's test harness and wrangler (pinned exactly; test/deploy tooling only)
     schedule:
+      # Check for updates once a week.
       interval: weekly
     open-pull-requests-limit: 5
     groups:
       npm-worker-harness:
         update-types: [minor, patch]
+  # The Rust crates.
   - package-ecosystem: cargo
     directory: / # the Cargo workspace: core + gateway-rust + worker + ci
     schedule:
+      # Check for updates once a week.
       interval: weekly
     open-pull-requests-limit: 5
     ignore:
       - dependency-name: "axum"
         update-types: ["version-update:semver-major"]
+      # Same for the Redis client, and for base64 below.
       - dependency-name: "redis"
         update-types: ["version-update:semver-major"]
       - dependency-name: "base64"
         update-types: ["version-update:semver-major"]
+      # A minor version of a 0.x crate can change its API (semver), so the signature crates' minor updates are taken by hand as well.
       - dependency-name: "k256"
         update-types: ["version-update:semver-minor"]
       - dependency-name: "p256"
@@ -49,27 +61,31 @@ updates:
   - package-ecosystem: cargo
     directory: /core/fuzz # its own Cargo workspace (libfuzzer-sys, arbitrary): not covered by the root entry
     schedule:
+      # Check for updates once a week.
       interval: weekly
     open-pull-requests-limit: 5
     groups:
       cargo-fuzz-minor-patch:
         update-types: [minor, patch]
+  # The Dockerfile's base images (the Rust builder and the distroless runtime), both pinned by digest.
   - package-ecosystem: docker
     directory: /gateway-rust
     schedule:
+      # Check for updates once a week.
       interval: weekly
     open-pull-requests-limit: 5
-    ignore:
-      - dependency-name: "golang"
-        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+    # All base-image updates arrive in one pull request.
     groups:
       docker:
         patterns: ['*']
+  # The pinned actions in the workflows.
   - package-ecosystem: github-actions
     directory: /
     schedule:
+      # Check for updates once a week.
       interval: weekly
     open-pull-requests-limit: 5
+    # All action updates arrive in one pull request.
     groups:
       github-actions:
         patterns: ['*']

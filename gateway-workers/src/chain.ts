@@ -21,6 +21,7 @@ import type { ChainQuery } from './verify.js'
 import { normalizeAddress, normalizeMoveType } from './verify.js'
 import type { SuiNetwork } from './config.js'
 
+/** A JSON value whose shape is not known until it is checked. */
 type Json = unknown
 
 /**

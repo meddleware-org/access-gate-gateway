@@ -1,2 +1,5 @@
+# Files this crate's directory must not commit.
+# Cargo build output for this crate only; the workspace root ignores its own `target/`.
 /target
+# Backup files that rustfmt (older versions) leaves next to a file it rewrote.
 **/*.rs.bk

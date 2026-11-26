@@ -20,11 +20,13 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 /// Milliseconds since the Unix epoch. Must never go backwards within a process (a wall clock that
 /// can step is anchored to a monotonic one by the platform), because expiries are compared to it.
 pub trait Clock {
+    /// The current time in milliseconds.
     fn now_ms(&self) -> u64;
 }
 
 /// A cryptographically secure random source (OS entropy natively, `crypto.getRandomValues` in a Worker).
 pub trait Rng {
+    /// Fill the buffer with secure random bytes.
     fn fill(&self, buf: &mut [u8]);
 }
 
@@ -80,6 +82,7 @@ pub trait StateStore {
     async fn release_redemption(&self, key: &str, token: &str);
 }
 
+/// Lock a mutex, recovering the data if another thread panicked while holding it.
 fn locked<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     // A panic while holding the lock cannot leave a table half-updated (each operation is a few
     // plain map calls), so the data behind a poisoned lock is still consistent.
@@ -89,11 +92,17 @@ fn locked<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// Nonces and redemptions in process memory: the pure tables of [`crate::redemption`] behind a lock.
 /// Correct at one replica only; a second replica has its own tables.
 pub struct MemoryStore<C: Clock, R: Rng> {
+    /// The clock.
     clock: C,
+    /// The random source.
     rng: R,
+    /// How long an issued nonce is valid.
     challenge_ttl_secs: u64,
+    /// The cap on live nonces and redemptions.
     max_entries: usize,
+    /// The nonce table.
     nonces: Mutex<NonceTable>,
+    /// The redemption table.
     redemptions: Mutex<RedemptionTable>,
 }
 
@@ -111,6 +120,7 @@ impl<C: Clock, R: Rng> MemoryStore<C, R> {
         }
     }
 
+    /// Issue a fresh nonce and return it with its expiry.
     pub fn issue_nonce(&self) -> (String, u64) {
         let nonce = random_hex24(&self.rng);
         let now = self.clock.now_ms();
@@ -123,10 +133,12 @@ impl<C: Clock, R: Rng> MemoryStore<C, R> {
         (nonce, expires_at)
     }
 
+    /// Take a nonce once.
     pub fn take_nonce(&self, nonce: &str) -> bool {
         locked(&self.nonces).take_if_valid(nonce, self.clock.now_ms())
     }
 
+    /// Lease a redemption key.
     pub fn try_lease_redemption(&self, key: &str, lease_ttl_secs: u64) -> Lease {
         let token = random_hex24(&self.rng);
         locked(&self.redemptions).try_lease(
@@ -138,10 +150,12 @@ impl<C: Clock, R: Rng> MemoryStore<C, R> {
         )
     }
 
+    /// Commit a leased redemption.
     pub fn commit_redemption(&self, key: &str, token: &str, retention_secs: u64) -> Commit {
         locked(&self.redemptions).commit(key, token, self.clock.now_ms(), retention_secs)
     }
 
+    /// Release a leased redemption.
     pub fn release_redemption(&self, key: &str, token: &str) {
         locked(&self.redemptions).release(key, token);
     }
@@ -177,11 +191,17 @@ pub const DEFAULT_RATE_MAX_KEYS: usize = 100_000;
 /// (run periodically by the platform) drops ended windows, and a table that is full evicts before it
 /// grows (see [`RateTable::check_capped`]).
 pub struct MemoryRates<C: Clock> {
+    /// The clock.
     clock: C,
+    /// The per-minute budgets.
     budgets: RateBudgets,
+    /// The cap on windows per table.
     max_keys: usize,
+    /// Windows keyed by client address (challenge and public requests).
     ip: Mutex<RateTable>,
+    /// Windows for gated requests before authentication.
     preauth: Mutex<RateTable>,
+    /// Windows keyed by the verified address.
     address: Mutex<RateTable>,
 }
 
@@ -233,11 +253,14 @@ impl<C: Clock> MemoryRates<C> {
 
 /// The whole [`StateStore`] in memory: what a single-replica gateway runs and what tests use.
 pub struct MemoryState<C: Clock + Clone, R: Rng> {
+    /// The nonce and redemption store.
     pub store: MemoryStore<C, R>,
+    /// The rate tables.
     pub rates: MemoryRates<C>,
 }
 
 impl<C: Clock + Clone, R: Rng> MemoryState<C, R> {
+    /// Build the whole state.
     pub fn new(
         clock: C,
         rng: R,
@@ -253,22 +276,27 @@ impl<C: Clock + Clone, R: Rng> MemoryState<C, R> {
 }
 
 impl<C: Clock + Clone, R: Rng> StateStore for MemoryState<C, R> {
+    /// Issue a challenge nonce and its expiry (epoch seconds) from the in-memory store.
     async fn issue_nonce(&self) -> anyhow::Result<(String, u64)> {
         Ok(self.store.issue_nonce())
     }
 
+    /// Take a nonce exactly once: `true` only for the first take of a live nonce.
     async fn take_nonce(&self, nonce: &str) -> anyhow::Result<bool> {
         Ok(self.store.take_nonce(nonce))
     }
 
+    /// Count one request against the budget for `scope` and `key`: `false` when the budget is spent.
     async fn rate_check(&self, scope: RateScope, key: &str) -> anyhow::Result<bool> {
         Ok(self.rates.check(scope, key))
     }
 
+    /// Try to lease the single-use redemption `key` for `lease_ttl_secs`: a fresh lease, or "already leased" or "already redeemed".
     async fn try_lease_redemption(&self, key: &str, lease_ttl_secs: u64) -> anyhow::Result<Lease> {
         Ok(self.store.try_lease_redemption(key, lease_ttl_secs))
     }
 
+    /// Turn the lease held with `token` into a permanent redemption kept for `retention_secs`; `Lost` if the lease is no longer ours.
     async fn commit_redemption(
         &self,
         key: &str,
@@ -278,11 +306,13 @@ impl<C: Clock + Clone, R: Rng> StateStore for MemoryState<C, R> {
         Ok(self.store.commit_redemption(key, token, retention_secs))
     }
 
+    /// Give a lease back after a failed upload; a stale token releases nothing.
     async fn release_redemption(&self, key: &str, token: &str) {
         self.store.release_redemption(key, token);
     }
 }
 
+/// Test doubles for the clock and the random source, shared by the state tests in this crate.
 #[cfg(test)]
 pub(crate) mod testing {
     use super::*;
@@ -294,12 +324,14 @@ pub(crate) mod testing {
     pub struct ManualClock(pub Rc<Cell<u64>>);
 
     impl ManualClock {
+        /// Move the clock forward by `ms`.
         pub fn advance(&self, ms: u64) {
             self.0.set(self.0.get() + ms);
         }
     }
 
     impl Clock for ManualClock {
+        /// The clock reads whatever the test last set.
         fn now_ms(&self) -> u64 {
             self.0.get()
         }
@@ -310,6 +342,7 @@ pub(crate) mod testing {
     pub struct CountingRng(pub Cell<u8>);
 
     impl Rng for CountingRng {
+        /// Fill the buffer with one repeated byte that changes on every call, so each token differs and is predictable.
         fn fill(&self, buf: &mut [u8]) {
             let n = self.0.get().wrapping_add(1);
             self.0.set(n);
@@ -318,17 +351,20 @@ pub(crate) mod testing {
     }
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::testing::*;
     use super::*;
 
+    /// A store on a manual clock and a counting source, with the given nonce lifetime and capacity.
     fn store(ttl: u64, cap: usize) -> (ManualClock, MemoryStore<ManualClock, CountingRng>) {
         let clock = ManualClock::default();
         let s = MemoryStore::new(clock.clone(), CountingRng::default(), ttl, cap);
         (clock, s)
     }
 
+    /// Nonce valid once then used.
     #[test]
     fn nonce_valid_once_then_used() {
         let (_, s) = store(300, 100);
@@ -339,6 +375,7 @@ mod tests {
         assert!(!s.take_nonce("never-issued"));
     }
 
+    /// Nonce expires and reports its expiry.
     #[test]
     fn nonce_expires_and_reports_its_expiry() {
         let (clock, s) = store(1, 100);
@@ -351,6 +388,7 @@ mod tests {
         assert!(!store(0, 100).1.take_nonce(&zero));
     }
 
+    /// Hard cap bounds memory and prune drops expired.
     #[test]
     fn hard_cap_bounds_memory_and_prune_drops_expired() {
         let (_, s) = store(300, 4);
@@ -368,6 +406,7 @@ mod tests {
         assert_eq!(s.nonce_count(), 0);
     }
 
+    /// Lease `key` and return the token, failing the test if the lease is not granted.
     fn lease(s: &MemoryStore<ManualClock, CountingRng>, key: &str, ttl: u64) -> String {
         match s.try_lease_redemption(key, ttl) {
             Lease::Ok(t) => t,
@@ -375,6 +414,7 @@ mod tests {
         }
     }
 
+    /// Redemption lease commit blocks reuse.
     #[test]
     fn redemption_lease_commit_blocks_reuse() {
         let (_, s) = store(300, 100);
@@ -384,6 +424,7 @@ mod tests {
         assert_eq!(s.try_lease_redemption("0xd", 120), Lease::Redeemed);
     }
 
+    /// Redemption release allows retry and never clears a commit.
     #[test]
     fn redemption_release_allows_retry_and_never_clears_a_commit() {
         let (_, s) = store(300, 100);
@@ -395,6 +436,7 @@ mod tests {
         assert_eq!(s.try_lease_redemption("0xd", 120), Lease::Redeemed);
     }
 
+    /// An expired lease is reclaimable and its stale holder loses.
     #[test]
     fn an_expired_lease_is_reclaimable_and_its_stale_holder_loses() {
         let (clock, s) = store(300, 100);
@@ -412,6 +454,7 @@ mod tests {
         assert_eq!(s.commit_redemption("0xe", &token, 3600), Commit::Lost);
     }
 
+    /// Rate windows are per scope and zero disables.
     #[test]
     fn rate_windows_are_per_scope_and_zero_disables() {
         let clock = ManualClock::default();
@@ -437,6 +480,7 @@ mod tests {
         assert!(rates.check(RateScope::Challenge, "a")); // a new window
     }
 
+    /// Prune sweeps ended windows and the cap bounds each table.
     #[test]
     fn prune_sweeps_ended_windows_and_the_cap_bounds_each_table() {
         let clock = ManualClock::default();
@@ -463,6 +507,7 @@ mod tests {
         assert_eq!(DEFAULT_RATE_MAX_KEYS, 100_000);
     }
 
+    /// Memory state is a state store.
     #[test]
     fn memory_state_is_a_state_store() {
         let state = MemoryState::new(

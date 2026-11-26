@@ -19,14 +19,17 @@ const MAX_VALUE_DEPTH: usize = 32;
 /// A minimal protobuf message writer (only the wire types the gateway emits).
 #[derive(Default)]
 pub struct ProtoWriter {
+    /// The encoded bytes so far.
     buf: Vec<u8>,
 }
 
 impl ProtoWriter {
+    /// An empty message.
     pub fn new() -> Self {
         Self { buf: Vec::new() }
     }
 
+    /// Append a base-128 varint.
     fn varint(&mut self, mut n: u64) {
         loop {
             let b = (n & 0x7f) as u8;
@@ -40,6 +43,7 @@ impl ProtoWriter {
         }
     }
 
+    /// Append a field key: the field number and the wire type.
     fn tag(&mut self, field: u32, wire: u8) {
         self.varint(((field as u64) << 3) | wire as u64);
     }
@@ -62,35 +66,44 @@ impl ProtoWriter {
         self.varint(val);
     }
 
+    /// The encoded message.
     pub fn into_bytes(self) -> Vec<u8> {
         self.buf
     }
 }
 
-/// A borrowed protobuf field parsed from a message. Fixed-width fields are surfaced only so the
-/// cursor advances past them; their numbers/values are never read by the gateway.
 // A general-purpose codec surface: the gateway's two callers only read `Len` fields, but the other
 // variants complete the reader (and are exercised by tests), so unread payloads are expected.
+/// A borrowed protobuf field parsed from a message. Fixed-width fields are surfaced only so the
+/// cursor advances past them; their numbers/values are never read by the gateway.
 #[allow(dead_code)]
 pub enum Field<'a> {
+    /// A varint field: number and value.
     Varint(u32, u64),
+    /// A length-delimited field: number and bytes (strings, bytes and nested messages).
     Len(u32, &'a [u8]),
+    /// A 64-bit fixed field (skipped).
     Fixed64,
+    /// A 32-bit fixed field (skipped).
     Fixed32,
 }
 
 /// A cursor that yields a message's top-level fields in order (a repeated field appears multiple
 /// times). Malformed input simply ends iteration, so callers fail closed.
 pub struct ProtoReader<'a> {
+    /// The message being read.
     buf: &'a [u8],
+    /// The read position.
     pos: usize,
 }
 
 impl<'a> ProtoReader<'a> {
+    /// Read the fields of a message from its start.
     pub fn new(buf: &'a [u8]) -> Self {
         Self { buf, pos: 0 }
     }
 
+    /// Read a varint; `None` on truncation or an overlong one.
     fn read_varint(&mut self) -> Option<u64> {
         let mut shift = 0u32;
         let mut out = 0u64;
@@ -110,8 +123,10 @@ impl<'a> ProtoReader<'a> {
 }
 
 impl<'a> Iterator for ProtoReader<'a> {
+    /// Each step yields one decoded field.
     type Item = Field<'a>;
 
+    /// Read the next field, or `None` at the end of the buffer or at the first malformed byte (a reader must never panic on bad input).
     fn next(&mut self) -> Option<Field<'a>> {
         if self.pos >= self.buf.len() {
             return None;
@@ -175,13 +190,21 @@ pub fn field_str(msg: &[u8], field: u32) -> Option<&str> {
 // top-level `gate_id` (the event json) and one nested under `data` (the NFT json), order- and
 // depth-independent, so it never assumes BCS field order.
 
+/// `google.protobuf.Value.string_value` (field 3).
 const VALUE_STRING: u32 = 3;
+/// `Value.bool_value` (field 4).
 const VALUE_BOOL: u32 = 4;
+/// `Value.struct_value` (field 5).
 const VALUE_STRUCT: u32 = 5;
+/// `Value.list_value` (field 6).
 const VALUE_LIST: u32 = 6;
+/// `Struct.fields` (field 1).
 const STRUCT_FIELDS: u32 = 1;
+/// A `Struct` map entry's key (field 1).
 const ENTRY_KEY: u32 = 1;
+/// A map entry's value (field 2).
 const ENTRY_VALUE: u32 = 2;
+/// `ListValue.values` (field 1).
 const LIST_VALUES: u32 = 1;
 
 /// Find the `string_value` of the first field named `key` anywhere within a `google.protobuf.Value`
@@ -190,6 +213,7 @@ pub fn value_find_string(value: &[u8], key: &str) -> Option<String> {
     value_find_string_at(value, key, 0)
 }
 
+/// Find the first string under `key` anywhere inside a `Value`, to a bounded depth.
 fn value_find_string_at(value: &[u8], key: &str, depth: usize) -> Option<String> {
     if depth >= MAX_VALUE_DEPTH {
         return None;
@@ -216,6 +240,7 @@ fn value_find_string_at(value: &[u8], key: &str, depth: usize) -> Option<String>
     None
 }
 
+/// The same search inside a `Struct`.
 fn struct_find_string(s: &[u8], key: &str, depth: usize) -> Option<String> {
     for f in ProtoReader::new(s) {
         if let Field::Len(STRUCT_FIELDS, entry) = f {
@@ -347,6 +372,7 @@ pub struct GrpcStatus(pub i64);
 pub const GRPC_NOT_FOUND: i64 = 5;
 
 impl std::fmt::Display for GrpcStatus {
+    /// Show the numeric gRPC status.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "gRPC status {}", self.0)
     }
@@ -375,11 +401,14 @@ pub trait Transport {
 
 /// gRPC-web client bound to one Sui full-node base URL, generic over the platform [`Transport`].
 pub struct GrpcWeb<T: Transport> {
+    /// The platform transport.
     transport: T,
+    /// The node base URL, without a trailing slash.
     base_url: String,
 }
 
 impl<T: Transport> GrpcWeb<T> {
+    /// A client for one node.
     pub fn new(transport: T, base_url: String) -> Self {
         Self {
             transport,
@@ -387,6 +416,7 @@ impl<T: Transport> GrpcWeb<T> {
         }
     }
 
+    /// The transport, for the clock and sleep.
     pub fn transport(&self) -> &T {
         &self.transport
     }
@@ -400,6 +430,7 @@ impl<T: Transport> GrpcWeb<T> {
     }
 }
 
+/// Property tests: arbitrary bytes never panic the readers and every field stays in bounds.
 #[cfg(test)]
 mod proptests {
     use super::*;
@@ -407,6 +438,7 @@ mod proptests {
 
     proptest! {
         // Arbitrary bytes never panic the readers, and every yielded field stays in bounds.
+        /// Proto reader never panics.
         #[test]
         fn proto_reader_never_panics(buf in proptest::collection::vec(any::<u8>(), 0..512)) {
             for f in ProtoReader::new(&buf) {
@@ -416,6 +448,7 @@ mod proptests {
             }
         }
 
+        /// Value lookup never panics.
         #[test]
         fn value_lookup_never_panics(buf in proptest::collection::vec(any::<u8>(), 0..512)) {
             let _ = value_find_string(&buf, "gate_id");
@@ -423,6 +456,7 @@ mod proptests {
         }
 
         // Trailer frames with arbitrary text (including multi-byte and invalid UTF-8) never panic (audit F58).
+        /// Trailer frames never panic.
         #[test]
         fn trailer_frames_never_panic(
             payload in proptest::collection::vec(any::<u8>(), 0..64),
@@ -440,6 +474,7 @@ mod proptests {
             let _ = unframe(None, &body);
         }
 
+        /// Unframe never panics and respects the cap.
         #[test]
         fn unframe_never_panics_and_respects_the_cap(buf in proptest::collection::vec(any::<u8>(), 0..512)) {
             if let Ok(msg) = unframe(None, &buf) {
@@ -449,6 +484,7 @@ mod proptests {
         }
 
         // Anything the writer produces reads back identically.
+        /// Writer reader round trip any.
         #[test]
         fn writer_reader_round_trip_any(field in 1u32..536_870_911, data in proptest::collection::vec(any::<u8>(), 0..256)) {
             let mut w = ProtoWriter::new();
@@ -459,10 +495,12 @@ mod proptests {
     }
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Writer reader round trip.
     #[test]
     fn writer_reader_round_trip() {
         let mut w = ProtoWriter::new();
@@ -480,6 +518,7 @@ mod tests {
         assert_eq!(v, Some(300));
     }
 
+    /// Frame unframe round trip.
     #[test]
     fn frame_unframe_round_trip() {
         let msg = b"\x08\x96\x01"; // arbitrary protobuf bytes
@@ -494,12 +533,14 @@ mod tests {
         assert_eq!(unframe(None, &body).unwrap(), msg);
     }
 
+    /// Unframe fails closed without a status.
     #[test]
     fn unframe_fails_closed_without_a_status() {
         // A data frame with no trailer and no grpc-status header is not a complete response.
         assert!(unframe(None, &frame(b"msg")).is_err());
     }
 
+    /// A gRPC-web trailer frame (flag `0x80`, a four-byte big-endian length, then the payload).
     fn trailer_frame(payload: &[u8]) -> Vec<u8> {
         let mut body = vec![0x80];
         body.extend_from_slice(&(payload.len() as u32).to_be_bytes());
@@ -564,12 +605,14 @@ mod tests {
         );
     }
 
+    /// Unframe reads trailers only status from headers.
     #[test]
     fn unframe_reads_trailers_only_status_from_headers() {
         assert!(unframe(Some("5"), &[]).is_err()); // NOT_FOUND, empty body
         assert_eq!(unframe(Some("0"), &[]).unwrap(), Vec::<u8>::new());
     }
 
+    /// Unframe rejects truncated and compressed frames.
     #[test]
     fn unframe_rejects_truncated_and_compressed_frames() {
         let ok_status = Some("0");
@@ -581,6 +624,7 @@ mod tests {
         assert!(unframe(ok_status, &compressed).is_err());
     }
 
+    /// Value find string stops at the depth limit.
     #[test]
     fn value_find_string_stops_at_the_depth_limit() {
         // Wrap a {gate_id} struct in 40 list levels: deeper than MAX_VALUE_DEPTH, so not found.
@@ -595,6 +639,7 @@ mod tests {
         assert_eq!(value_find_string(&v, "gate_id"), None);
     }
 
+    /// Unframe rejects nonzero status.
     #[test]
     fn unframe_rejects_nonzero_status() {
         let mut body = frame(b"partial");
@@ -621,6 +666,7 @@ mod tests {
         value.into_bytes()
     }
 
+    /// Value find string top level.
     #[test]
     fn value_find_string_top_level() {
         let v = struct_value(&[("gate_id", "0xGATE"), ("nft_id", "0xNFT")]);
@@ -628,6 +674,7 @@ mod tests {
         assert_eq!(value_find_string(&v, "missing"), None);
     }
 
+    /// Value find string nested under data.
     #[test]
     fn value_find_string_nested_under_data() {
         // Outer struct: { data: { gate_id: "0xGATE" } } — mirrors the NFT json shape.

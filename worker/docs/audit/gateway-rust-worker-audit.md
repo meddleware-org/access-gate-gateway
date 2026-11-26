@@ -8,6 +8,8 @@
 **Template:** AUDIT_TEMPLATE.md (2026-11-01) + AUDIT_TEMPLATE_RUST.md (2026-10-08) + AUDIT_TEMPLATE_WORKERS.md (2026-10-02) +
   AUDIT_TEMPLATE_SUI_CLIENT.md (2026-10-08) + AUDIT_TEMPLATE_WALRUS.md (2026-09-30) + AUDIT_TEMPLATE_AUTH.md (2026-10-08) +
   AUDIT_TEMPLATE_PROXY.md (2026-10-08)
+  - **Added 2026-11-26 (Part B documentation pass):** AUDIT_TEMPLATE_DOCS.md (2026-11-20); AUDIT_TEMPLATE_RFC.md (2026-11-19), ●: HTTP, JSON, ed25519 and the Sui signature schemes, CORS; AUDIT_TEMPLATE_IOP.md (2026-11-19), ●: the gateway as a
+    contract, the dependencies; AUDIT_TEMPLATE_PRIV.md (2026-11-20), ●: what the Worker keys, stores and logs; AUDIT_TEMPLATE_CONF.md (2026-11-26), ●: the variables and the URLs they hold.
 **Deployment status:**
 
 - **Live on testnet** under the Worker name `access-gate-gateway` (route `sui-walrus-storage-relay-testnet.meddleware.dev/*`, zone `meddleware.dev`
@@ -28,8 +30,8 @@
 **Reviewer:** Internal review
 **Severity ceiling:** High — the Worker is the only paywall in front of the operator's Walrus relay: a verification bypass gives unpaid uploads at the operator's
   cost, and a redemption flaw lets one paid consume buy many uploads. It holds no user funds and signs nothing on-chain, so nothing reaches Critical.
-**Status:** first pass 2026-11-07 — 14 findings dispositioned (**3 RESOLVED**: F58, F60, F62; **6 MITIGATED**: F51, F53, F54, F55, F57, F59; **1 ACCEPTED-RISK**: F52;
-  **4 DEFERRED**: F61, F63, F64, F65) plus **2 Positive** (F56, F66) — 16 findings, F51–F66. Items that need Cloudflare or the maintainer are follow-ups FU-0029 to FU-0037.
+**Status:** first pass 2026-11-07, Part B pass 2026-11-26 — 16 findings dispositioned (**5 RESOLVED**: F58, F60, F62, F67, F68; **6 MITIGATED**: F51, F53, F54, F55, F57, F59; **1 ACCEPTED-RISK**: F52;
+  **4 DEFERRED**: F61, F63, F64, F65) plus **2 Positive** (F56, F66) — 18 findings, F51–F68. Items that need Cloudflare or the maintainer are follow-ups FU-0029 to FU-0037.
 
 **Toolchain:** `rust-version = "1.91"` for the Worker crate (workers-rs needs it); core and gateway-rust stay at 1.88 (the `msrv` job checks those two)
   **Edition:** 2021
@@ -100,6 +102,8 @@ Sui-client, Walrus, Auth and Proxy lenses to the Worker as it is.
   Worker as live and the Rust Worker as not deployed.
 - **Open, Low:** the Sui RPC response is buffered before its size check (F63), a `304` from the relay becomes a `502` (F65, not shown to occur), and grants and denials are
   not logged (F64, a decision).
+
+- **Part B documentation pass, 2026-11-26 (F67, F68, both Low, RESOLVED).** Two rejected `ALLOWED_ORIGINS` / `PUBLIC_PATHS` entries were repeated in the start-up error (core and TypeScript Worker); an exported core function had no caller; Dependabot carried a rule for an image the Dockerfile does not use. Every file of the repository is now annotated to the documentation standard.
 
 **What holds (Section A):** one decision implementation for both platforms; ZIP-215 ed25519 and explicit low-S on both ECDSA curves; proofs bound to audience; atomic,
 owner-bound redemption in the Durable Object with a startup-checked lease; streamed byte cap with abort; redirects never followed; fail-closed errors; strict
@@ -445,6 +449,68 @@ Whether the relay emits `ETag`/`Last-Modified` for that path was **not verified 
   the ZIP-215 conformance signature verifies for every message and for no other address).
 - Runs of this pass (Section C.1): `grpc` 184 inputs to the F58 crash, then 1,276,933 inputs / 111 s clean; `proof` 617,523 / 101 s clean; `sig` 57,921 / 101 s clean (each ECDSA verification is slow).
 - The manual workflow `fuzz.yml` (`workflow_dispatch` only) reruns them; nothing in the default CI depends on the fuzz crate.
+
+
+### Part B documentation pass (2026-11-26)
+
+Scope: every tracked file of the repository (the core, the native gateway, the Rust Worker, the CI helper, the fuzz crate, the TypeScript Worker, the scripts and the workflows; 195 files, 169 measured, 8 excluded) read against the workspace's
+`docs/operations/DOCUMENTATION_STANDARD.md` and annotated (Part B Phase 1, the twenty-eighth repository, the third Rust one); the DOCS, RFC, IOP, PRIV and CONF lenses applied for the first time. It covers this audit, the `gateway-rust` audit and the `gateway-workers` audit, which share the code.
+Before editing: the baseline is the audit's last recorded figure (233 passed, 2026-11-07); it was not re-run separately before the first edit. After: `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` and the Worker's wasm32 clippy (with and without `test-hooks`) with `missing_docs` and `clippy::missing_docs_in_private_items` now
+**denied**, `cargo test --workspace` (235 passed, 3 ignored; the two echo tests below are among them), and the TypeScript type-check, lint and `npm run test:all` (303 passed). The Rust diff is comment-only apart from F67, F68 and the move of the chain client's tests to `gateway-rust/src/sui_rpc_tests.rs` (compared with comment lines stripped).
+**Not run here:** the workerd suites and the differential run (the harness needs `npm ci` and the wasm build with downloaded, checksummed tools; the changes to those files are comments, checked with `node --check`), the image build, `cargo deny`, `cargo llvm-cov`, the fuzz targets.
+
+#### B.RFC-1 Standards inventory
+
+| Standard | Where | Evidence |
+| --- | --- | --- |
+| HTTP semantics, RFC 9110: methods, status codes (a `405` names `Allow`, §15.5.6), `Via` as the loop marker (§7.6.3), hop-by-hop fields and `Connection` (§7.6.1) | `core/src/headers.rs`, `forward.rs`, `gateway.rs` | `via_loop_table` (shared with the TypeScript Worker), the header tests, the workerd proxy suite |
+| `Authorization: Bearer` (the RFC 6750 form; the token is a signed access proof, not an OAuth token) and the `X-Access-Proof` fallback | `core/src/headers.rs` | `extract_proof_token` tests |
+| HTTP caching, RFC 9111: the public-path edge cache and `Cache-Control` | `worker/src/upstream.rs` | the workerd router suite (cache hit, query dropped from the key) |
+| JSON, RFC 8259, for the gateway's own answers (`{ "error", "code" }`) | `core/src/gateway.rs`, `worker/src/json.rs` | the response vectors in `conformance/vectors.json` |
+| Base64, RFC 4648, for the proof token and the serialised signature | `core/src/proof.rs`, `sig.rs` | the conformance vectors |
+| EdDSA (ed25519), RFC 8032, verified with the ZIP-215 rule Sui validators apply; secp256k1 and secp256r1 ECDSA with explicit low-S, in the Sui serialised-signature layout and the personal-message intent | `core/src/sig.rs` | the `zip215` and `negativeSignatures` vectors, the `sig` fuzz target |
+| CORS (the WHATWG Fetch standard): exact allow-list match, `Vary: Origin`, preflight before auth | `core/src/headers.rs` | the router suites in both Workers |
+| gRPC-web over HTTP and Protocol Buffers, to the Sui full nodes (the nodes' own interface; gRPC-web has no IETF document) | `core/src/grpc.rs` | the `grpc` fuzz target, the scripted-transport tests |
+| OCI image and distribution specifications, Sigstore keyless signing, SPDX SBOM | `.github/workflows/docker-publish.yml` | the publish run |
+
+**B.RFC-2 Non-final standards:** none on the request path other than the Sui node interface (SC lens). **B.RFC-3 Deviations:** the gateway's error body is `{ "error": … }`, not RFC 9457 problem details; the shape is the platform's public contract (the shared response vectors) and changing it is a breaking change for every client,
+so it is recorded as a deviation, not a defect. The proof scheme itself is this project's (`access-gate-gateway:access:v3`), documented in the README and pinned by the vectors.
+
+#### B.IOP Interoperability, portability and exit
+
+- **Portability and exit:** the gateway holds no data a person put in. Its state is short-lived (nonces, rate windows) and the redemption record, which is keyed by a public on-chain digest. Leaving costs a caller nothing; a successor runs the same code: the core is published to crates.io, the image to three registries, the Worker source to npm, all 0BSD, and the README documents both quickstarts.
+- **Open API and compatible competition:** the wire protocol (README, "Wire protocol") and the conformance vectors are published in `@meddleware/access-gate-gateway-client`; the Rust and TypeScript implementations are held equal by the vectors and by the differential run. Nothing here gives our own clients special access.
+- **Dependencies (exit register):** Cloudflare Workers, Durable Objects, the zone and Access (the origin lock; its replacement is Part F, ADR-0015/0016), Sui full nodes, Redis or Dragonfly (the native gateway), quay.io, Docker Hub, the self-hosted registry, GitHub Actions, npm, crates.io, Sigstore, Trivy and Dependabot.
+  One notice from this pass: `@cloudflare/vitest-pool-workers` (the TypeScript Worker's test pool) has been renamed `@cloudflare/vitest-plugin`; it is moot once `gateway-workers` is retired (FU-0204).
+- **Incentives:** no telemetry (`WRANGLER_SEND_METRICS=false`, `DO_NOT_TRACK=1` in every workflow), no ads, no tracking.
+
+#### B.PRIV Privacy honoured
+
+- **Browser storage:** none. The gateway sets no cookie, removes `Cookie` from the request it forwards and `Set-Cookie` from the upstream's answer (`REQUEST_STRIP`, `RESPONSE_STRIP`; tested in the proxy suites), and adds `Vary: Origin` only.
+- **What it keys and stores about a caller:** a rate window per client address (the IPv4 address or the IPv6 /64 the platform reports) or per verified Sui address, kept for at most the 60-second window and swept after it; a nonce (random, no caller data) until it is used or expires; a redemption row keyed by the consume digest (public chain data) for `REDEMPTION_RETENTION_SECS` (30 days by default). The Workers platform itself logs request metadata, which is the platform's and is covered by the platform audit.
+- **Logs:** an operator diagnostic names the failed operation and the store's error, never a proof, an address, an IP or a credential; a granted or denied request is not logged (F64, a decision).
+
+#### B.CONF Configuration and values
+
+- **Configuration surface:** `core/src/config.rs` (its module docs list every variable, default and range) with `gateway-rust/src/config.rs` and `worker/src/config.rs` adding the platform-only ones; the TypeScript twin is `gateway-workers/src/config.ts`. Each value is parsed once, at start-up (the Worker: on the first request), into a typed value, and a bad one fails naming the key.
+- **Values that can carry a credential:** `UPSTREAM_URL` (the private origin), `SUI_RPC_URL` (a node URL may carry a key), `UPSTREAM_AUTH_HEADERS`, `SUI_RPC_AUTH_HEADER`, `REDIS_URL` (a password), and the Worker secrets `CF_ANALYTICS_TOKEN` and `CF_ACCOUNT_ID`.
+- **Echo sweep (2026-11-26):** every `format!`, `bail!`, `anyhow!`, `tracing` and `console_*` call that takes a configured or caller-supplied value read. `GatewayConfig`'s `Debug` redacts the URLs and prints header names only; `check_scheme` names the variable and never the URL; the auth-header parsers name an entry by position; the HTTP client's errors carry the failure class, not the URL; the quota guard logs variable names and the HTTP status.
+  One real echo class was found: a rejected `ALLOWED_ORIGINS` or `PUBLIC_PATHS` entry was repeated whole in the start-up error, in both the core and the TypeScript Worker (F67). Two tests now pin the rule, `a_rejected_value_is_never_repeated_in_the_error` (core) and `a_bad_redis_url_is_never_repeated_in_the_error` (native gateway), with a TypeScript twin in `config.test.ts`.
+- **Duplicated literals (B.CONF-3):** the version in five manifests (kept equal by `scripts/check-versions.sh`); the CORS grants and the header lists in the core and in `gateway-workers/src` (kept equal by the tests and the differential run); the testnet gate and package ids in `worker/tests/lib/worker.mjs` and `conformance.test.mjs` (public on-chain ids, taken from the vectors).
+- **Secrets apart from settings:** the upstream credentials and the RPC header are secrets (`wrangler secret put`, or GitHub secrets applied at deploy through standard input); `PUBLIC_PATHS`, the allow-list and the limits are plain variables. Examples and tests use `.example` hosts and fixed test addresses.
+
+### F67 — A rejected `ALLOWED_ORIGINS` or `PUBLIC_PATHS` entry was repeated in the start-up error
+**Severity:** Low   **Disposition:** RESOLVED (2026-11-26, unreleased)
+**Where:** `core/src/config.rs` (`parse_allowed_origins`, `parse_public_paths`) and `gateway-workers/src/config.ts` (`parseAllowedOrigins`, `parsePublicPaths`).
+**Issue:** the error said which entry was wrong by repeating it. An entry pasted with a user name, a password or a key in its query string (a misplaced credential, or a URL copied from the wrong place) would reach the process log or the Workers log.
+**Impact:** a credential in a log; small, because the values are operator-set and the entries are meant to be public origins and paths.
+**Remediation / evidence:** the errors name the entry by its position (`ALLOWED_ORIGINS entry 2 is not a canonical https origin`). `a_rejected_value_is_never_repeated_in_the_error` (core) and `names the key and never repeats the value` (TypeScript) feed a stand-in password through every value that can carry one and assert it never appears and the key does.
+
+### F68 — Drift: an unused exported function, a dead Dependabot rule and missing documents
+**Severity:** Low   **Disposition:** RESOLVED (2026-11-26, unreleased)
+**Where:** `core/src/chain.rs` exported `_unused_now_ms`, which returned zero and had no caller anywhere in the workspace; `.github/dependabot.yml` ignored the `golang` image, which `gateway-rust/Dockerfile` does not use; there was no `CHANGELOG.md` or `CONTRIBUTING.md` at the repository root, no doc lints, and most items and fields had no doc comment.
+**Remediation / evidence:** the function and the rule are removed (the build, clippy and all tests pass); the two documents are written; `missing_docs` and `clippy::missing_docs_in_private_items` are denied in the workspace and the Worker's own lints, every item is documented (the one commented `allow` is the `#[durable_object]` module, whose macro generates items that cannot carry a doc), and the sources, scripts, manifests and workflows carry line-level comments.
+The chain client's tests moved to their own file beside `router_tests.rs`; no test changed.
 
 ---
 
@@ -793,3 +859,7 @@ SC-M1 N/A (no call targets); SC-M2 holds (full normalised type string); SC-M3 ho
   - **Counts:** 3 RESOLVED (F58, F60, F62), 6 MITIGATED (F51, F53, F54, F55, F57, F59), 1 ACCEPTED-RISK (F52), 4 DEFERRED (F61, F63, F64, F65), 2 Positive (F56, F66); 16 findings.
   - **Not done / not verified here:** the workerd suites, the differential run, `cargo llvm-cov`, a wasm32 build of the Worker or a wasm32 test run, any Cloudflare read (edge CPU, token scope, Access policy, plan), the secret-versus-variable origin comparison, on-chain re-reads of the IDs. Follow-ups: FU-0029 to FU-0037.
   - **I27 of the `gateway-rust` audit (origin lock):** closed as far as the repository allows — the daily negative check, the positive deploy check and the classifier tests exist and the run history is green; the remainder is live (FU-0035).
+
+- 2026-11-26 — Part B documentation pass and first application of the DOCS, RFC, IOP, PRIV and CONF lenses (above, "Part B documentation pass"). Baseline: the last recorded 233 passed (not re-run before the first edit). Every tracked file annotated to the documentation standard; the doc lints denied; `CHANGELOG.md` and `CONTRIBUTING.md` added.
+  Found and fixed **F67** (rejected configuration entries repeated in an error) and **F68** (drift). Re-run after editing: `cargo fmt --check`, clippy `-D warnings` (native and wasm32, with and without `test-hooks`), `cargo test --workspace` (235 passed, 3 ignored), and the TypeScript type-check, lint and `npm run test:all` (303 passed, 3 skipped). Not run: the workerd suites, the differential run, the image build, `cargo deny`.
+  Counts: 5 RESOLVED (F58, F60, F62, F67, F68), 6 MITIGATED, 1 ACCEPTED-RISK, 4 DEFERRED, 2 Positive; 18 findings, F51–F68.

@@ -8,6 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# The version in the npm package is the reference for the comparisons below.
 npm_version="$(node -p "require('./gateway-workers/package.json').version")"
 crate_version="$(sed -n '/^\[workspace\.package\]/,/^\[/{s/^version = "\(.*\)"$/\1/p}' Cargo.toml | head -n 1)"
 

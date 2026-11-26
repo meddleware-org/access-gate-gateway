@@ -23,7 +23,9 @@ const vars = {
   CHALLENGE_RATE_LIMIT_PER_MIN: '0',
 }
 let f
+// A second Worker built with the test hooks, to inject a store failure.
 let h // test-hooks build with fault injection
+// The wallet whose consumes the stub node knows.
 const wallet = newWallet()
 
 before(async () => {
@@ -33,6 +35,7 @@ before(async () => {
     upstream: {
       respond: (req, res) => {
         res.setHeader('content-type', 'application/json')
+        // A slow upload keeps the lease held long enough for a second request to find it.
         if (req.url.startsWith('/v1/slow')) return setTimeout(() => res.end('{"stored":true}'), 600)
         res.end('{"stored":true}')
       },

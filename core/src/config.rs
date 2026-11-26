@@ -67,6 +67,7 @@ pub trait Env {
 }
 
 impl<F: Fn(&str) -> Option<String>> Env for F {
+    /// Call the closure, so any `Fn(&str) -> Option<String>` is a source of configuration.
     fn get(&self, key: &str) -> Option<String> {
         self(key)
     }
@@ -75,7 +76,9 @@ impl<F: Fn(&str) -> Option<String>> Env for F {
 /// An extra header the gateway sends (credentials for the upstream or the RPC).
 #[derive(Clone)]
 pub struct AuthHeader {
+    /// The header name.
     pub name: String,
+    /// The header value (a credential: never logged or shown).
     pub value: String,
 }
 
@@ -142,6 +145,7 @@ pub struct GatewayConfig {
 /// Hand-written so logs never carry credentials or the private origin: header values, the upstream URL
 /// and the RPC URL are redacted.
 impl std::fmt::Debug for GatewayConfig {
+    /// Print only names and counts: header values, the upstream URL and the RPC URL are never shown.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let names: Vec<&str> = self
             .upstream_auth_headers
@@ -184,20 +188,24 @@ pub fn parse_upstream_auth_headers(raw: Option<&str>) -> anyhow::Result<Vec<Auth
     let Some(raw) = raw.filter(|s| !s.trim().is_empty()) else {
         return Ok(Vec::new());
     };
+    // One error for every malformed shape, so the message cannot leak which part of a secret was wrong.
     let err = || {
         anyhow::anyhow!(
             "UPSTREAM_AUTH_HEADERS must be a JSON array of {{\"name\",\"value\"}} objects"
         )
     };
+    // The parser's own message is dropped: it can quote the input, which holds credentials.
     let v: serde_json::Value = serde_json::from_str(raw).map_err(|_| err())?;
     let items = v.as_array().ok_or_else(err)?;
     items
         .iter()
         .enumerate()
         .map(|(i, h)| {
+            // A name must be a valid HTTP token.
             let name = h["name"].as_str().filter(|n| is_header_name(n));
             let value = h["value"]
                 .as_str()
+                // A line break in a value would let it add another header (header injection).
                 .filter(|v| !v.contains('\r') && !v.contains('\n'));
             match (name, value) {
                 (Some(name), Some(value)) => Ok(AuthHeader {
@@ -205,6 +213,7 @@ pub fn parse_upstream_auth_headers(raw: Option<&str>) -> anyhow::Result<Vec<Auth
                     value: value.to_string(),
                 }),
                 _ => Err(anyhow::anyhow!(
+                    // The error names the entry by position only, never by value.
                     "UPSTREAM_AUTH_HEADERS[{i}] must be {{\"name\": <header name>, \"value\": <string>}}"
                 )),
             }
@@ -218,6 +227,7 @@ pub fn parse_rpc_auth_header(raw: Option<&str>) -> anyhow::Result<Option<AuthHea
     let Some(raw) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
         return Ok(None);
     };
+    // Split at the first colon only: the value may itself contain colons.
     match raw.split_once(':') {
         Some((n, v))
             if is_header_name(n.trim())
@@ -238,7 +248,9 @@ pub fn parse_rpc_auth_header(raw: Option<&str>) -> anyhow::Result<Option<AuthHea
 /// credentials in the URL (userinfo: they have their own redacted channels, `UPSTREAM_AUTH_HEADERS`
 /// and `SUI_RPC_AUTH_HEADER`), an empty host, and whitespace, control characters or backslashes.
 pub fn check_scheme(var: &str, url: &str, allow_http: bool) -> anyhow::Result<()> {
+    // Only https, or http when the operator allowed it for a local or in-cluster address.
     if url.starts_with("https://") || (allow_http && url.starts_with("http://")) {
+        // The authority starts after the scheme.
         let after = url.find("://").map_or(0, |i| i + 3);
         let authority = url
             .get(after..)
@@ -246,6 +258,7 @@ pub fn check_scheme(var: &str, url: &str, allow_http: bool) -> anyhow::Result<()
             .split(['/', '?', '#'])
             .next()
             .unwrap_or("");
+        // Userinfo (`user:pass@host`) would put a credential in a value that is logged and echoed; credentials have their own variables.
         if authority.contains('@') {
             anyhow::bail!("{var} must not carry credentials (use the auth header variables)");
         }
@@ -253,6 +266,7 @@ pub fn check_scheme(var: &str, url: &str, allow_http: bool) -> anyhow::Result<()
             anyhow::bail!("{var} must be a valid http(s) URL");
         }
         Ok(())
+    // Say what to change for the common mistake, without repeating the URL.
     } else if url.starts_with("http://") {
         anyhow::bail!("{var} must use https:// (set ALLOW_INSECURE_HTTP=1 for localnet or an in-cluster upstream)")
     } else {
@@ -265,6 +279,7 @@ pub fn required(env: &dyn Env, key: &str) -> anyhow::Result<String> {
     env.get(key)
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
+        // Every message names the key and never the value.
         .ok_or_else(|| anyhow::anyhow!("{key} is required"))
 }
 
@@ -279,6 +294,7 @@ where
     };
     let raw = raw.trim();
     let bad = || anyhow::anyhow!("{key} must be an integer in [{min}, {max}]");
+    // Digits only: no sign, no exponent, no spaces and no `0x`.
     if raw.is_empty() || !raw.bytes().all(|b| b.is_ascii_digit()) {
         return Err(bad());
     }
@@ -295,6 +311,7 @@ pub fn boolean(env: &dyn Env, key: &str, default: bool) -> anyhow::Result<bool> 
         None => Ok(default),
         Some("true") => Ok(true),
         Some("false") => Ok(false),
+        // Any other spelling (`1`, `yes`) is an error rather than a guess.
         Some(_) => anyhow::bail!("{key} must be \"true\" or \"false\""),
     }
 }
@@ -304,7 +321,9 @@ fn parse_public_paths(raw: &str) -> anyhow::Result<Vec<String>> {
     raw.split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(|p| {
+        .enumerate()
+        .map(|(i, p)| {
+            // Only characters that need no escaping, so a path has one spelling.
             let plain = p.starts_with('/')
                 && p.bytes().all(|b| {
                     b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'~' | b'-' | b'/')
@@ -313,7 +332,7 @@ fn parse_public_paths(raw: &str) -> anyhow::Result<Vec<String>> {
             if plain {
                 Ok(p.to_string())
             } else {
-                anyhow::bail!("PUBLIC_PATHS entry is not a plain absolute path: {p}")
+                anyhow::bail!("PUBLIC_PATHS entry {} is not a plain absolute path", i + 1)
             }
         })
         .collect()
@@ -324,11 +343,15 @@ fn parse_allowed_origins(raw: &str, allow_http: bool) -> anyhow::Result<Vec<Stri
     raw.split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(|o| {
+        .enumerate()
+        .map(|(i, o)| {
             if is_canonical_origin(o) && (allow_http || o.starts_with("https://")) {
                 Ok(o.to_string())
             } else {
-                anyhow::bail!("ALLOWED_ORIGINS entry is not a canonical https origin: {o}")
+                anyhow::bail!(
+                    "ALLOWED_ORIGINS entry {} is not a canonical https origin",
+                    i + 1
+                )
             }
         })
         .collect()
@@ -337,6 +360,7 @@ fn parse_allowed_origins(raw: &str, allow_http: bool) -> anyhow::Result<Vec<Stri
 /// `ALLOW_INSECURE_HTTP`: `1` (or `0` / empty / unset for off); anything else is an error.
 pub fn allow_insecure_http(env: &dyn Env) -> anyhow::Result<bool> {
     match env.get("ALLOW_INSECURE_HTTP").as_deref() {
+        // Off by default, and `0` or empty also means off.
         None | Some("") | Some("0") => Ok(false),
         Some("1") => Ok(true),
         Some(_) => anyhow::bail!("ALLOW_INSECURE_HTTP must be 1 (or unset)"),
@@ -351,6 +375,7 @@ impl GatewayConfig {
     /// Returns an error if any required variable is absent or invalid, or any optional one is
     /// malformed or out of range (see the module docs).
     pub fn from_env(env: &dyn Env) -> anyhow::Result<Self> {
+        // Read first: it changes what the URL checks below accept.
         let allow_http = allow_insecure_http(env)?;
 
         let gateway_origin = required(env, "GATEWAY_ORIGIN")?;
@@ -361,11 +386,13 @@ impl GatewayConfig {
                 "GATEWAY_ORIGIN must be a canonical https origin (https://host, no path)"
             );
         }
+        // The network is part of the signed message, so a wrong value would fail every proof.
         let network = required(env, "NETWORK")?;
         if !NETWORKS.contains(&network.as_str()) {
             anyhow::bail!("NETWORK must be one of {}", NETWORKS.join(", "));
         }
         let upstream_url = required(env, "UPSTREAM_URL")?
+            // A trailing slash is dropped so the path is appended once.
             .trim_end_matches('/')
             .to_string();
         let sui_rpc_url = required(env, "SUI_RPC_URL")?;
@@ -376,6 +403,7 @@ impl GatewayConfig {
         if normalized_origin(&upstream_url) == gateway_origin {
             anyhow::bail!("UPSTREAM_URL must not be this gateway (request loop)");
         }
+        // Only a pass type of the access_gate package can open a gate.
         let nft_type = required(env, "NFT_TYPE")?;
         if !is_access_gate_pass_type(&nft_type) {
             anyhow::bail!(
@@ -387,6 +415,7 @@ impl GatewayConfig {
             anyhow::bail!("GATE_ID must be a 0x-prefixed object ID");
         }
 
+        // Ownership mode by default; single use is an explicit choice.
         let single_use = boolean(env, "SINGLE_USE", false)?;
 
         let upstream_timeout_secs: u64 = int(env, "UPSTREAM_TIMEOUT_SECS", 600, 1, 3600)?;
@@ -409,6 +438,7 @@ impl GatewayConfig {
             3600,
             31_536_000,
         )?;
+        // Five days by default, inside what public full nodes still hold.
         let consume_max_age_secs: u64 = int(env, "CONSUME_MAX_AGE_SECS", 432_000, 60, 31_536_000)?;
         if consume_max_age_secs > redemption_retention_secs {
             anyhow::bail!(
@@ -416,10 +446,12 @@ impl GatewayConfig {
             );
         }
 
+        // Parsed last: they are the only values that carry credentials, and the parsers never echo them.
         let upstream_auth_headers =
             parse_upstream_auth_headers(env.get("UPSTREAM_AUTH_HEADERS").as_deref())?;
         let sui_rpc_auth_header = parse_rpc_auth_header(env.get("SUI_RPC_AUTH_HEADER").as_deref())?;
 
+        // Everything above was validated; the remaining numbers are checked as they are read, each against its own range.
         Ok(Self {
             gateway_origin,
             network,
@@ -454,6 +486,7 @@ impl GatewayConfig {
             )?,
             max_body_bytes: int(env, "MAX_BODY_BYTES", 262_144, 1, 1_073_741_824)?,
             nonce_max_entries: int(env, "NONCE_MAX_ENTRIES", 1_000_000, 1, 100_000_000)?,
+            // Off by default: a wallet that has just bought a pass is admitted at once.
             ownership_cache_ttl_ms: int(env, "OWNERSHIP_CACHE_TTL_MS", 0, 0, 3_600_000)?,
             redemption_lease_ttl_secs,
             redemption_retention_secs,
@@ -478,6 +511,7 @@ impl GatewayConfig {
 /// `0x` followed by 1–64 hex digits.
 pub fn is_object_id(s: &str) -> bool {
     match s.strip_prefix("0x") {
+        // An object id is up to 64 hex digits after `0x`.
         Some(h) => !h.is_empty() && h.len() <= 64 && h.bytes().all(|b| b.is_ascii_hexdigit()),
         None => false,
     }
@@ -488,17 +522,20 @@ pub fn is_object_id(s: &str) -> bool {
 /// sold, so it is rejected at startup.
 pub fn is_access_gate_pass_type(s: &str) -> bool {
     let parts: Vec<&str> = s.split("::").collect();
+    // `<package>::access_gate::<Name>`, nothing more.
     parts.len() == 3
         && is_object_id(parts[0])
         && parts[1] == "access_gate"
         && (parts[2] == "AccessNFT" || parts[2] == "SoulboundAccessNFT")
 }
 
+/// Unit tests for this module.
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    /// Accepts only access gate pass types.
     #[test]
     fn accepts_only_access_gate_pass_types() {
         assert!(is_access_gate_pass_type("0x1::access_gate::AccessNFT"));
@@ -516,6 +553,7 @@ mod tests {
         }
     }
 
+    /// Upstream auth headers are json only.
     #[test]
     fn upstream_auth_headers_are_json_only() {
         assert!(parse_upstream_auth_headers(None).unwrap().is_empty());
@@ -546,6 +584,7 @@ mod tests {
             .contains("UPSTREAM_AUTH_HEADERS[0]"));
     }
 
+    /// Rpc auth header forms.
     #[test]
     fn rpc_auth_header_forms() {
         let h = parse_rpc_auth_header(Some("X-Api-Key: k:1"))
@@ -571,6 +610,7 @@ mod tests {
         }
     }
 
+    /// Urls must be https unless allowed.
     #[test]
     fn urls_must_be_https_unless_allowed() {
         assert!(check_scheme("U", "https://x", false).is_ok());
@@ -580,6 +620,7 @@ mod tests {
         assert!(check_scheme("U", "x.example", true).is_err());
     }
 
+    /// Urls must not carry credentials.
     #[test]
     fn urls_must_not_carry_credentials() {
         for bad in [
@@ -595,6 +636,7 @@ mod tests {
         assert!(check_scheme("U", "https://x.example/a@b?c=d@e", false).is_ok());
     }
 
+    /// Urls must have a host and no whitespace.
     #[test]
     fn urls_must_have_a_host_and_no_whitespace() {
         // The TypeScript `new URL(...)` refused these; the single implementation does too.
@@ -610,6 +652,7 @@ mod tests {
         }
     }
 
+    /// Debug redacts credentials.
     #[test]
     fn debug_redacts_credentials() {
         let mut env = base();
@@ -633,6 +676,7 @@ mod tests {
         );
     }
 
+    /// Object ids are 0x hex.
     #[test]
     fn object_ids_are_0x_hex() {
         assert!(is_object_id("0x2"));
@@ -642,6 +686,7 @@ mod tests {
         assert!(!is_object_id(&format!("0x{}", "a".repeat(65))));
     }
 
+    /// The smallest valid environment: only the required keys, with reserved `.example.com` hosts.
     fn base() -> HashMap<&'static str, String> {
         HashMap::from([
             ("GATEWAY_ORIGIN", "https://gateway.example.com".to_string()),
@@ -659,6 +704,7 @@ mod tests {
         ])
     }
 
+    /// Load a configuration from the base environment with the given overrides; the value `<unset>` removes a key.
     fn load(extra: &[(&'static str, &str)]) -> anyhow::Result<GatewayConfig> {
         let mut env = base();
         for (k, v) in extra {
@@ -671,10 +717,41 @@ mod tests {
         GatewayConfig::from_env(&|k: &str| env.get(k).cloned())
     }
 
+    /// The error message a bad environment produces (the test fails if it loads).
     fn err(extra: &[(&'static str, &str)]) -> String {
         load(extra).unwrap_err().to_string()
     }
 
+    /// A rejected value that could carry a credential is never repeated in the error (CONF lens: every key names itself, or its position).
+    #[test]
+    fn a_rejected_value_is_never_repeated_in_the_error() {
+        // Each case is a stand-in secret inside a value the loader refuses.
+        for (key, bad) in [
+            ("ALLOWED_ORIGINS", "https://user:s3cretpw@app.example"),
+            ("ALLOWED_ORIGINS", "not an origin s3cretpw"),
+            ("PUBLIC_PATHS", "/v1/x?key=s3cretpw"),
+            ("UPSTREAM_URL", "https://user:s3cretpw@relay.example"),
+            ("UPSTREAM_URL", "http://relay.example/s3cretpw"),
+            ("SUI_RPC_URL", "https://rpc.example/ s3cretpw"),
+            ("SUI_RPC_AUTH_HEADER", "bad header name s3cretpw"),
+            (
+                "UPSTREAM_AUTH_HEADERS",
+                "[{\"name\":\"bad name\",\"value\":\"s3cretpw\"}]",
+            ),
+        ] {
+            // Load with this one bad value and take the error text.
+            let message = err(&[(key, bad)]);
+            // The stand-in secret must not appear anywhere in the message.
+            assert!(!message.contains("s3cretpw"), "{key}: {message}");
+            // The operator can still tell which key to fix.
+            assert!(
+                message.contains(key),
+                "the message names the key: {message}"
+            );
+        }
+    }
+
+    /// Defaults load and are self consistent.
     #[test]
     fn defaults_load_and_are_self_consistent() {
         let cfg = load(&[]).unwrap();
@@ -701,6 +778,7 @@ mod tests {
         );
     }
 
+    /// Audience binding inputs are required and canonical.
     #[test]
     fn audience_binding_inputs_are_required_and_canonical() {
         assert!(err(&[("GATEWAY_ORIGIN", "<unset>")]).contains("GATEWAY_ORIGIN"));
@@ -722,6 +800,7 @@ mod tests {
         assert!(err(&[("NETWORK", "<unset>")]).contains("NETWORK"));
     }
 
+    /// An upstream that is the gateway is a request loop however it is spelled.
     #[test]
     fn an_upstream_that_is_the_gateway_is_a_request_loop_however_it_is_spelled() {
         for same in [
@@ -743,6 +822,7 @@ mod tests {
         }
     }
 
+    /// A typo never selects a weaker mode.
     #[test]
     fn a_typo_never_selects_a_weaker_mode() {
         for bad in ["TRUE", "1", "yes", "true ", ""] {
@@ -779,6 +859,7 @@ mod tests {
         }
     }
 
+    /// Upstream and rpc urls must be https unless insecure is allowed.
     #[test]
     fn upstream_and_rpc_urls_must_be_https_unless_insecure_is_allowed() {
         assert!(err(&[("UPSTREAM_URL", "http://relay.example.com")]).contains("UPSTREAM_URL"));
@@ -796,6 +877,7 @@ mod tests {
         assert!(cfg.allow_insecure_http);
     }
 
+    /// Origins and public paths are validated.
     #[test]
     fn origins_and_public_paths_are_validated() {
         assert_eq!(
@@ -854,6 +936,7 @@ mod tests {
         }
     }
 
+    /// Single use windows must be consistent.
     #[test]
     fn single_use_windows_must_be_consistent() {
         assert!(err(&[
@@ -888,6 +971,7 @@ mod tests {
         .contains("CONSUME_MAX_AGE_SECS"));
     }
 
+    /// Nft type and gate id are validated.
     #[test]
     fn nft_type_and_gate_id_are_validated() {
         assert_eq!(
@@ -909,6 +993,7 @@ mod tests {
         assert!(err(&[("GATE_ID", "<unset>")]).contains("GATE_ID"));
     }
 
+    /// Public path matching.
     #[test]
     fn public_path_matching() {
         let cfg = load(&[]).unwrap();
@@ -916,6 +1001,7 @@ mod tests {
         assert!(!cfg.is_public_path("/v1/blob-upload"));
     }
 
+    /// Env is any lookup.
     #[test]
     fn env_is_any_lookup() {
         let env: &dyn Env = &|k: &str| (k == "X").then(|| "1".to_string());

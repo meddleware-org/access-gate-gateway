@@ -15,6 +15,13 @@ rust-version = "1.88"
 license = "0BSD"
 repository = "https://github.com/meddleware-org/access-gate-gateway"
 
+# Every item has a doc comment, private ones and fields included (the workspace documentation standard, D144).
+[workspace.lints.rust]
+missing_docs = "deny"
+
+[workspace.lints.clippy]
+missing_docs_in_private_items = "deny"
+
 [profile.release]
 # Arithmetic overflow aborts instead of wrapping silently, even in release builds.
 overflow-checks = true

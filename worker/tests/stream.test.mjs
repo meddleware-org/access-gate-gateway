@@ -7,7 +7,9 @@ import { fixture, nextIp } from './lib/fixture.mjs'
 import { chunked, rawRequest } from './lib/http.mjs'
 import { newWallet, proofToken } from './lib/proof.mjs'
 
+// A 100 MB cap, the size the product allows.
 const CAP = 100_000_000
+// One mebibyte.
 const MIB = 1024 * 1024
 let f
 const wallet = newWallet()
@@ -22,7 +24,9 @@ before(async () => {
 })
 after(async () => { await f.close() })
 
+// The size of the wasm linear memory right now, from the test route.
 const wasm = async () => (await (await fetch(`${f.base}/__test/mem`)).json()).wasmMemoryBytes
+/** A gated PUT with a fresh proof, with a long timeout for the large bodies. */
 async function put(body, headers = {}) {
   const token = await proofToken({ base: f.base, wallet })
   return await rawRequest(f.base, { method: 'PUT', path: '/v1/blob-upload-relay', headers: { authorization: `Bearer ${token}`, 'CF-Connecting-IP': nextIp(), ...headers }, body, timeoutMs: 120_000 })
@@ -31,6 +35,7 @@ async function put(body, headers = {}) {
 describe('streaming proxy', () => {
   it('streams 90 MiB through (chunked and Content-Length framed) with flat wasm memory', async () => {
     const total = 90 * MIB
+    // Memory before the upload, to compare with memory after: it must not grow with the body.
     const before = await wasm()
     f.up.reset()
     const a = await put(chunked(total, MIB))

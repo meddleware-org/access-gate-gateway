@@ -16,9 +16,11 @@ env:
   DO_NOT_TRACK: "1"
 
 permissions:
+  # Read-only by default; the publish job adds the OIDC permission it needs.
   contents: read
 
 jobs:
+  # A self-contained check of the tagged commit; nothing publishes if it fails.
   verify:
     name: Verify (gateway-workers type-check + test)
     runs-on: ubuntu-latest
@@ -26,11 +28,13 @@ jobs:
       run:
         working-directory: gateway-workers
     steps:
+      # Check out the commit this run was triggered for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Versions aligned (npm == crate == tag)
         working-directory: .
         run: bash scripts/check-versions.sh
+      # The Node version the Worker tooling is built and tested with.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26'
@@ -61,13 +65,16 @@ jobs:
     needs: verify
     permissions:
       contents: read
+      # Needed for the OIDC exchange with npmjs (trusted publishing).
       id-token: write   # required for OIDC trusted publisher exchange
     defaults:
       run:
         working-directory: gateway-workers
     steps:
+      # Check out the commit this run was triggered for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The Node version the Worker tooling is built and tested with.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26'
@@ -88,12 +95,15 @@ jobs:
         env:
           NPM_PUBLISH: ${{ vars.NPM_PUBLISH }}
         run: |
+          # Opt-in: nothing is published unless the repository variable says so.
           if [ "${NPM_PUBLISH}" != "true" ]; then
             echo "::warning::npm publishing not configured — set repository variable NPM_PUBLISH=true and configure an npmjs trusted publisher to enable it. Skipping npm publication."
             exit 0
           fi
+          # The name and version being published, from package.json.
           VERSION=$(node -p "require('./package.json').version")
           NAME=$(node -p "require('./package.json').name")
+          # The scoped name is URL-encoded for the registry API.
           ENC=$(printf '%s' "$NAME" | sed 's#/#%2f#')
           # Check the registry directly — `npm view` can transiently miss a freshly
           # first-published version and then attempt a re-publish. A 200 means it's live.

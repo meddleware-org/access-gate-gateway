@@ -7,6 +7,7 @@ use std::time::Duration;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
+/// The gRPC-web transport over the Worker's `fetch`.
 pub struct WorkerTransport {
     /// `SUI_RPC_AUTH_HEADER`, sent with every call.
     pub auth: Option<AuthHeader>,
@@ -14,16 +15,19 @@ pub struct WorkerTransport {
     pub timeout_ms: u32,
 }
 
+/// Convert a JavaScript error to a Rust one.
 fn js(e: JsValue) -> anyhow::Error {
     anyhow::anyhow!("{}", e.as_string().unwrap_or_else(|| format!("{e:?}")))
 }
 
 impl Transport for WorkerTransport {
+    /// POST one gRPC-web frame with `fetch`, bounded in time and in size, and return the `grpc-status` header with the body.
     async fn post_grpc_web(
         &self,
         url: &str,
         body: Vec<u8>,
     ) -> anyhow::Result<(Option<String>, Vec<u8>)> {
+        // Build the gRPC-web request by hand over `fetch`: both content types name the gRPC-web protobuf encoding.
         let headers = web_sys::Headers::new().map_err(js)?;
         headers
             .set("content-type", "application/grpc-web+proto")
@@ -31,17 +35,20 @@ impl Transport for WorkerTransport {
         headers
             .set("accept", "application/grpc-web+proto")
             .map_err(js)?;
+        // The RPC credential, when configured, is sent as a header and never as part of the URL.
         if let Some(h) = &self.auth {
             headers.set(&h.name, &h.value).map_err(js)?;
         }
         let init = web_sys::RequestInit::new();
         init.set_method("POST");
         init.set_headers(&headers);
+        // The framed request is a plain byte string.
         init.set_body(&js_sys::Uint8Array::from(body.as_slice()));
         // The fetch is aborted by the timeout OR by this controller, which the body read triggers when the response is over the size limit:
         // cancelling the reader alone leaves the connection open (workerd drains it), so the request would only end at the timeout.
         let controller = web_sys::AbortController::new().map_err(js)?;
         let timeout = web_sys::AbortSignal::timeout_with_u32(self.timeout_ms);
+        // Either signal ends the fetch: the timeout, or our own abort when the body grows past the limit.
         let signals = js_sys::Array::of2(&timeout, &controller.signal());
         let signal_ctor =
             js_sys::Reflect::get(&js_sys::global(), &"AbortSignal".into()).map_err(js)?;
@@ -53,14 +60,17 @@ impl Transport for WorkerTransport {
             .unchecked_into();
         init.set_signal(Some(&either));
         let req = web_sys::Request::new_with_str_and_init(url, &init).map_err(js)?;
+        // `fetch` is called on the worker global scope: there is no `window` in a Worker.
         let global: web_sys::WorkerGlobalScope = js_sys::global().unchecked_into();
         let resp: web_sys::Response = JsFuture::from(global.fetch_with_request(&req))
             .await
             .map_err(js)?
             .unchecked_into();
+        // A non-2xx HTTP status is a transport failure; a gRPC failure arrives as a 200 with a `grpc-status` header.
         if !resp.ok() {
             anyhow::bail!("gRPC-web HTTP {}", resp.status());
         }
+        // gRPC reports its status in a header (or a trailer frame), not in the HTTP status.
         let status = resp.headers().get("grpc-status").map_err(js)?;
         // Bound the body while it is read, not after: a faulty or hostile fullnode must not make the isolate buffer far more than the
         // limit (the content-length check alone misses chunked bodies). Over the limit, the stream is cancelled and the call fails.
@@ -75,7 +85,9 @@ impl Transport for WorkerTransport {
         let body = resp
             .body()
             .ok_or_else(|| anyhow::anyhow!("gRPC response has no body"))?;
+        // Read the body in chunks so the limit is enforced as it arrives, not after it is all in memory.
         let reader: web_sys::ReadableStreamDefaultReader = body.get_reader().unchecked_into();
+        // The bytes collected so far, never more than the limit.
         let mut out: Vec<u8> = Vec::new();
         loop {
             let chunk = JsFuture::from(reader.read()).await.map_err(js)?;
@@ -83,24 +95,29 @@ impl Transport for WorkerTransport {
                 .map_err(js)?
                 .as_bool()
                 .unwrap_or(true);
+            // `done` is true when the stream has ended.
             if done {
                 break;
             }
             let value = js_sys::Reflect::get(&chunk, &"value".into()).map_err(js)?;
             let part: js_sys::Uint8Array = value.unchecked_into();
             if out.len() + part.length() as usize > MAX_GRPC_MESSAGE_BYTES {
+                // Abort the fetch itself, so the connection closes at once instead of at the timeout.
                 controller.abort();
                 anyhow::bail!("gRPC response over {MAX_GRPC_MESSAGE_BYTES} bytes");
             }
             out.extend_from_slice(&part.to_vec());
         }
+        // The caller unframes the body and reads the status.
         Ok((status, out))
     }
 
+    /// Sleep using the Workers timer (a plain thread sleep does not exist in a Worker).
     async fn sleep_ms(&self, ms: u64) {
         worker::Delay::from(Duration::from_millis(ms)).await;
     }
 
+    /// Wall-clock milliseconds from the isolate (`Date.now`).
     fn now_ms(&self) -> u64 {
         js_sys::Date::now() as u64
     }

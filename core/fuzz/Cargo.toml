@@ -3,20 +3,25 @@
 # this directory its own workspace root and keeps it out of `cargo build --workspace`, `cargo test --workspace`,
 # `cargo deny` and every default CI job. Run it by hand or with .github/workflows/fuzz.yml (see README.md).
 [package]
+# Never published; the name only identifies the fuzz crate.
 name = "access-gate-gateway-core-fuzz"
 version = "0.0.0"
 edition = "2021"
 license = "0BSD"
 publish = false
 
+# Tells `cargo fuzz` that this directory holds fuzz targets.
 [package.metadata]
 cargo-fuzz = true
 
 [dependencies]
+# The fuzzing engine and the derive that turns raw bytes into structured inputs.
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
+# The same helpers the targets use to build inputs.
 base64 = "0.22"
 serde_json = "1"
+# The crate under test, from this checkout.
 access-gate-gateway-core = { path = ".." }
 
 [workspace]

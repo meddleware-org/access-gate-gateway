@@ -1,3 +1,5 @@
+// Tests of single-use redemption (src/redemption.ts) of the TypeScript Workers gateway against an in-memory store with the same owner-token
+// semantics as the Durable Object. The Rust twin is core/src/gateway.rs.
 import { describe, it, expect, vi } from 'vitest'
 import { redeemAndForward } from '../src/redemption.js'
 import type { Config } from '../src/config.js'
@@ -37,6 +39,7 @@ const cfg = { redemptionLeaseTtlSecs: 900, redemptionRetentionSecs: 3600 } as Co
 const ok = () => new Response('stored', { status: 200 })
 const body = async (r: Response) => (await r.json()) as { error?: string; code?: string }
 
+// Lease, forward, then commit or release, with the owner token deciding who may do which.
 describe('redeemAndForward (owner-bound lease)', () => {
   it('leases, forwards, commits; a second attempt is redeemed', async () => {
     const store = new MemoryStore()

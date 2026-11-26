@@ -1,3 +1,5 @@
+// Router-level tests of the TypeScript Workers gateway in workerd: routes, CORS, rate limits, loop detection, the public-path cache and the
+// shared response vectors. The Rust Worker's twin is worker/tests/router.test.mjs.
 import { describe, it, expect } from 'vitest'
 import { env, createExecutionContext } from 'cloudflare:test'
 import worker from '../src/index.js'
@@ -5,11 +7,15 @@ import type { Env } from '../src/config.js'
 import { decodeAccessProof } from '../src/wire.js'
 import vectors from '../../conformance/vectors.json'
 
+// The test environment from the vitest pool, typed as the Worker's `Env`.
 const e = env as unknown as Env
 
+// The one browser origin the test configuration allows.
 const ALLOWED_ORIGIN = 'https://allowed.example.com'
+// An origin that is not on the allow list.
 const DISALLOWED_ORIGIN = 'https://evil.example.com'
 
+/** Send a request through the Worker, as the platform would. */
 async function call(method: string, path: string, headers?: Record<string, string>): Promise<Response> {
   return worker.fetch(new Request('https://gw.example.com' + path, { method, headers }), e, createExecutionContext())
 }
@@ -110,6 +116,7 @@ describe('router', () => {
   })
 })
 
+// Behaviour under abuse: limits, loops, wrong methods and an unreachable upstream.
 describe('router hardening', () => {
   it('rate-limits GET /v1/challenge per client IP (parity with Rust), with CORS on the 429', async () => {
     const headers = { 'CF-Connecting-IP': '203.0.113.7', origin: ALLOWED_ORIGIN }
@@ -201,6 +208,7 @@ describe('router hardening', () => {
   })
 })
 
+// The cache for public paths: its key, its lifetime and the CORS policy on a hit.
 describe('public-path edge cache', () => {
   it('drops the query string from the cache key and the forwarded request', async () => {
     // Other tests also fill the edge cache for this path; start clean.
@@ -229,6 +237,7 @@ describe('public-path edge cache', () => {
 
 // The shared `responses` vectors, for the outcomes a request alone can reach (no chain or store fault
 // needed): the router really answers what the contract says. The rest are driven in conformance.test.ts.
+// The status and body the shared contract names for each outcome.
 describe('router answers the shared response vectors', () => {
   const stimuli: Record<string, () => Promise<Response>> = {
     'missing-proof': () => call('POST', '/v1/blob-upload'),

@@ -8,23 +8,29 @@ import { chunked, payload, rawRequest } from './lib/http.mjs'
 import { newWallet, proofToken } from './lib/proof.mjs'
 import { sleep } from './lib/worker.mjs'
 
+// A small body cap, so the tests can cross it with a few hundred bytes.
 const CAP = 1000
 let f
 let down
+// One wallet that the stub fullnode reports as an owner.
 const wallet = newWallet()
 
 const vars = {
   SINGLE_USE: 'false', // ownership mode: no consume needed, redemption has its own suite
   MAX_BODY_BYTES: String(CAP),
+  // A one-second deadline keeps the stall test short.
   UPSTREAM_TIMEOUT_SECS: '1',
+  // Limits are off here: they have their own tests, and this suite sends many requests.
   RATE_LIMIT_PER_MIN: '0',
   GATED_PREAUTH_RATE_LIMIT_PER_MIN: '0',
   CHALLENGE_RATE_LIMIT_PER_MIN: '0',
+  // A stand-in upstream credential, to see it set (and a client's copy replaced).
   UPSTREAM_AUTH_HEADERS: JSON.stringify([{ name: 'CF-Access-Client-Id', value: 'svc-id' }]),
 }
 
 before(async () => {
   f = await fixture({ name: 'proxy', vars })
+  // The stub node says this address holds a pass.
   f.rpc.state.owners.add(wallet.address)
   down = await fixture({ name: 'proxy-down', vars, upstreamUrl: 'http://127.0.0.1:1' })
   down.rpc.state.owners.add(wallet.address)
@@ -46,6 +52,7 @@ describe('forward body limit', () => {
     assert.equal(res.status, 413)
     assert.deepEqual(json(res), { error: 'request body too large' })
     await sleep(300)
+    // A body cut off by the cap must never arrive whole.
     assert.equal(f.up.seen.filter((r) => r.complete).length, 0) // the upstream never received a complete body
   })
 
@@ -67,6 +74,7 @@ describe('forward body limit', () => {
     assert.equal(res.status, 200)
     assert.equal(f.up.seen.length, 1)
     assert.ok(f.up.seen[0].buffer.equals(data))
+    // The upstream connection was not cut.
     assert.equal(f.up.seen[0].aborted, false)
   })
 
@@ -77,6 +85,7 @@ describe('forward body limit', () => {
     assert.equal(res.status, 200)
     assert.ok(f.up.seen[0].buffer.equals(data))
     assert.equal(f.up.seen[0].headers['content-length'], String(data.length))
+    // A declared length must stay a declared length: no chunked re-framing.
     assert.equal(f.up.seen[0].headers['transfer-encoding'], undefined)
   })
 
@@ -103,6 +112,7 @@ describe('forward redirects', () => {
     const res = await gated(f, { method: 'GET', path: '/v1/redirect' })
     assert.equal(res.status, 502)
     assert.equal(res.headers.location, undefined)
+    // One request only: the redirect was reported, not followed.
     assert.equal(f.up.seen.length, 1) // one request to the upstream, the Location target was never contacted
     assert.equal(f.up.seen[0].url, '/v1/redirect')
   })
@@ -114,6 +124,7 @@ describe('forward deadline', () => {
     const res = await gated(f, { method: 'GET', path: '/v1/stall' })
     assert.equal(res.status, 504)
     assert.deepEqual(json(res), { error: 'upstream timed out' })
+    // The answer came at the deadline, not after a hang.
     assert.ok(Date.now() - started < 5000)
   })
 })
@@ -146,6 +157,7 @@ describe('forward header policy', () => {
     // The client's `via` is dropped and replaced by the gateway's own hop marker (F43).
     assert.equal(sent.via, '1.1 access-gate-gateway')
     assert.equal(sent['x-keep-me'], 'yes')
+    // The gateway's configured value wins over the one the client sent.
     assert.equal(sent['cf-access-client-id'], 'svc-id') // the gateway's own credential, set last
   })
 
@@ -164,6 +176,7 @@ describe('forward header policy', () => {
     const res = await gated(f, { method: 'GET', path: '/v1/headers' })
     assert.equal(res.status, 200)
     for (const name of ['keep-alive', 'set-cookie', 'access-control-allow-credentials']) assert.equal(res.headers[name], undefined, name)
+    // The upstream's wildcard CORS must not reach the browser.
     assert.notEqual(res.headers['access-control-allow-origin'], '*')
     assert.equal(res.headers['x-relay'], 'kept')
   })
@@ -171,6 +184,7 @@ describe('forward header policy', () => {
   it('refuses a method outside the list and an unsafe path before contacting the upstream', async () => {
     f.up.reset()
     assert.equal((await gated(f, { method: 'DELETE', path: '/v1/x' })).status, 405)
+    // An encoded slash, an empty segment, an encoded backslash and an encoded NUL are all refused as unsafe paths.
     assert.equal((await gated(f, { method: 'GET', path: '/a%2fb' })).status, 400)
     assert.equal((await gated(f, { method: 'GET', path: '/a//b' })).status, 400)
     assert.equal((await gated(f, { method: 'GET', path: '/a%5Cb' })).status, 400)
@@ -207,6 +221,7 @@ export const VIA_TABLE = [
 
 describe('loop detection (Via)', () => {
   it('matches only our own received-by token', async () => {
+    // One request per row: a looped value is a 508, any other passes.
     for (const [via, looped] of VIA_TABLE) {
       const res = await f.call('GET', '/v1/challenge', { ...(via === null ? {} : { via }), 'CF-Connecting-IP': nextIp() })
       assert.equal(res.status, looped ? 508 : 200, String(via))
@@ -224,6 +239,7 @@ describe('loop detection (Via)', () => {
 describe('gated responses are never cached (F30)', () => {
   it('forwarding a gated request neither reads nor writes the edge cache', async () => {
     f.up.reset()
+    // A gated answer belongs to one caller, so it must never be served to another from the cache.
     // The upstream marks the answer cacheable; the Worker must still go back to it every time.
     const a = await gated(f, { method: 'GET', path: '/v1/blob-upload' })
     await sleep(200)

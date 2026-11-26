@@ -14,8 +14,10 @@ use libfuzzer_sys::fuzz_target;
 
 /// `zip215` in conformance/vectors.json.
 const ZIP215_ADDRESS: &str = "0x6e02ac5b501ce6f9a0ef3cb7026073505ce6b755f014f64738483f63c5d1b5c7";
+/// The serialised signature of the ZIP-215 vector: flag, the zero signature and the identity public key, in base64.
 const ZIP215_SIGNATURE: &str = "AAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
 
+/// What the fuzzer generates: a scheme flag, a body, a shape selector and the strings the entry point takes.
 #[derive(Debug, Arbitrary)]
 struct Input {
     /// The scheme flag byte of the serialized signature.
@@ -24,15 +26,20 @@ struct Input {
     body: Vec<u8>,
     /// 0: body as is; 1: exactly the scheme's length; 2: the scheme's length with a valid-looking SEC1 prefix.
     shape: u8,
+    /// The address string as received, unstructured.
     address: String,
+    /// The message the signature is checked against.
     message: Vec<u8>,
     /// The signature string as received, unstructured.
     raw_signature: String,
 }
 
+/// Shape the body for the flag: pad or cut it to the exact length of that scheme so verification is reached, or leave it as is.
 fn body_for(i: &Input) -> Vec<u8> {
     let want = match i.flag {
+        // Ed25519: 64 signature bytes and a 32-byte public key.
         0x00 => 96,
+        // Secp256k1 and secp256r1: a 64-byte signature and a 33-byte compressed public key.
         0x01 | 0x02 => 97,
         _ => return i.body.clone(),
     };
@@ -58,6 +65,7 @@ fuzz_target!(|i: Input| {
     let mut raw = vec![i.flag];
     raw.extend_from_slice(&body);
     let sig = BASE64_STANDARD.encode(&raw);
+    // The public key is the tail of the body, whose length depends on the scheme.
     let pk_len = if i.flag == 0 { 32 } else { 33 };
     let derived = body
         .len()
@@ -68,6 +76,7 @@ fuzz_target!(|i: Input| {
         .flatten()
     {
         let ok = verify_personal_message_signature(address, &i.message, &sig);
+        // Multisig, zkLogin and unknown flags are not supported: they must fail closed, never verify.
         if matches!(i.flag, 0x03 | 0x05) || i.flag > 0x02 {
             assert!(!ok, "flag {:#04x} must fail closed", i.flag);
         }

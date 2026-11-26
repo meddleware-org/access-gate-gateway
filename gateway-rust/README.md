@@ -26,7 +26,7 @@ is an **adapter** that supplies only I/O:
 | `src/config.rs` | `ServerConfig`: the shared `GatewayConfig` plus the listen address, connection limits, trusted-proxy count and Redis |
 | `src/challenge.rs`, `src/state.rs` | the nonce / redemption store (core's in-memory state machine, or Redis), the system clock and OS entropy, `NativeState: StateStore` |
 | `src/proxy.rs`, `src/headers.rs`, `src/http_client.rs` | `Upstream`: the buffered hyper-rustls client applying the core's header and forwarding policy |
-| `src/grpc.rs`, `src/sui_rpc.rs` | `HyperTransport`, the `Transport` the core's gRPC-web chain client runs over |
+| `src/grpc.rs`, `src/sui_rpc.rs` | `HyperTransport`, the `Transport` the core's gRPC-web chain client runs over (`src/sui_rpc_tests.rs` holds its tests, `src/router_tests.rs` the router's) |
 
 A change to what the gateway decides is a change in `core/`, made once; it reaches this gateway and the
 Rust Worker together.

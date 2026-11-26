@@ -155,7 +155,7 @@ bash scripts/check-versions.sh                       # one version for every art
 The Rust crates form one Cargo workspace at the repository root (`Cargo.toml`, `Cargo.lock`, `deny.toml`):
 `core/`, `gateway-rust/`, `worker/` (the Cloudflare Worker; rust-version 1.91 for this crate only) and `ci/` (the
 helper the deploy and origin-lock workflows call). The feasibility spike's findings are kept in
-[docs/SPIKE-FINDINGS.md](docs/SPIKE-FINDINGS.md).
+[docs/SPIKE-FINDINGS.md](docs/SPIKE-FINDINGS.md). How to propose a change, and the documentation rules every file follows, are in [CONTRIBUTING.md](CONTRIBUTING.md); changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

@@ -7,19 +7,26 @@ use wasm_bindgen::JsValue;
 
 /// A response body.
 pub enum Body {
+    /// No body.
     Empty,
+    /// A text body (the gateway's own JSON answers).
     Text(String),
     /// The upstream's body, passed through untouched (never buffered).
     Stream(web_sys::ReadableStream),
 }
 
+/// A response the Worker sends.
 pub struct Out {
+    /// The HTTP status.
     pub status: u16,
+    /// The headers.
     pub headers: web_sys::Headers,
+    /// The body.
     pub body: Body,
 }
 
 impl Out {
+    /// A response with a status and a body and no headers yet.
     fn new(status: u16, body: Body) -> Result<Self, JsValue> {
         Ok(Self {
             status,

@@ -12,6 +12,7 @@ after(async () => { await f.close() })
 describe('rate limits (F9, F30)', () => {
   it('rate-limits public paths per client IP, before the cache and the upstream', async () => {
     const ip = nextIp()
+    // Forget what the upstream saw so far.
     f.up.reset()
     const call = (addr) => f.call('GET', '/v1/tip-config', { 'CF-Connecting-IP': addr, origin: ALLOWED_ORIGIN })
     for (let i = 0; i < 120; i++) assert.equal((await call(ip)).status, 200) // PUBLIC_RATE_LIMIT_PER_MIN = 120

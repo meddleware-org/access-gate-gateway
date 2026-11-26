@@ -17,10 +17,14 @@ use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tower::ServiceExt;
 
+/// The first consume digest.
 const DIGEST: &str = "5Wq9tE4gXz8hEvFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdL";
+/// A second digest, for tests that spend two different consumes.
 const DIGEST_2: &str = "7Hk2pQ9mXz4vBnFhYt8KkTJb2Pp6qXqj8cRk3xN1mYdM";
+/// The consume event type the scripted node reports.
 const CONSUMED: &str = "0x1::access_gate::AccessConsumedEvent";
 
+/// The current time in epoch milliseconds, so the scripted consume event is recent.
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -86,6 +90,7 @@ enum Node {
     Down,
 }
 
+/// A scripted Sui node that answers the three methods the gateway calls according to `kind`.
 async fn node(kind: Node, sender: String) -> Stub {
     Stub::spawn(move |seen| {
         if matches!(kind, Node::Down) {
@@ -103,6 +108,7 @@ async fn node(kind: Node, sender: String) -> Stub {
     .await
 }
 
+/// The gateway under test, with the signing key of the address that owns the pass.
 struct Rig {
     app: Router,
     state: Arc<AppState>,
@@ -135,6 +141,7 @@ impl Rig {
         );
         let mut state = AppState::new(cfg, store, chain, http);
         // Generous budgets: these tests are about the dispatcher, not the limits.
+        // Rate limits get their own tests, so they are set high here.
         state.rates = MemoryRates::new(
             SystemClock::new(),
             RateBudgets {
@@ -152,6 +159,7 @@ impl Rig {
         }
     }
 
+    /// Send one request through the router and return its status, headers and body.
     async fn send(&self, req: axum::http::Request<Body>) -> (StatusCode, HeaderMap, Vec<u8>) {
         let resp = self.app.clone().oneshot(req).await.unwrap();
         let (parts, body) = resp.into_parts();
@@ -189,10 +197,12 @@ impl Rig {
     }
 }
 
+/// An upstream that stores whatever it is sent and says so.
 fn ok_upstream() -> impl Fn(&Seen) -> Reply {
     |_| Reply::ok("stored")
 }
 
+/// A spent or in flight consume is a coded 409.
 #[tokio::test]
 async fn a_spent_or_in_flight_consume_is_a_coded_409() {
     let node = node(Node::Healthy, test_signer().1).await;
@@ -233,6 +243,7 @@ async fn a_spent_or_in_flight_consume_is_a_coded_409() {
     assert_eq!(upstream.seen().len(), 1);
 }
 
+/// A failed upload releases the consume for a retry.
 #[tokio::test]
 async fn a_failed_upload_releases_the_consume_for_a_retry() {
     let node = node(Node::Healthy, test_signer().1).await;
@@ -262,6 +273,7 @@ async fn a_failed_upload_releases_the_consume_for_a_retry() {
     assert_eq!(status, StatusCode::OK);
 }
 
+/// A lease lost before the commit is a 502 not a success.
 #[tokio::test]
 async fn a_lease_lost_before_the_commit_is_a_502_not_a_success() {
     let node = node(Node::Healthy, test_signer().1).await;
@@ -282,6 +294,7 @@ async fn a_lease_lost_before_the_commit_is_a_502_not_a_success() {
     assert_eq!(body["error"], "redemption lease lost");
 }
 
+/// A broken state store is a 503 never a conflict.
 #[tokio::test]
 async fn a_broken_state_store_is_a_503_never_a_conflict() {
     let node = node(Node::Healthy, test_signer().1).await;
@@ -317,6 +330,7 @@ async fn a_broken_state_store_is_a_503_never_a_conflict() {
     redis.abort();
 }
 
+/// A failed or unreadable consume never reaches the upstream.
 #[tokio::test]
 async fn a_failed_or_unreadable_consume_never_reaches_the_upstream() {
     let upstream = Stub::spawn(ok_upstream()).await;
@@ -380,6 +394,7 @@ async fn owner_rig(upstream: &Stub, tweak: impl FnOnce(&mut GatewayConfig)) -> (
     (rig, node)
 }
 
+/// The upstream sees the request but no credential and its cors grants are dropped.
 #[tokio::test]
 async fn the_upstream_sees_the_request_but_no_credential_and_its_cors_grants_are_dropped() {
     let upstream = Stub::spawn(|_| {
@@ -403,6 +418,7 @@ async fn the_upstream_sees_the_request_but_no_credential_and_its_cors_grants_are
     assert_eq!(seen.body, b"payload");
 }
 
+/// An upstream redirect is refused and never followed.
 #[tokio::test]
 async fn an_upstream_redirect_is_refused_and_never_followed() {
     let elsewhere = Stub::spawn(ok_upstream()).await;
@@ -420,6 +436,7 @@ async fn an_upstream_redirect_is_refused_and_never_followed() {
     );
 }
 
+/// Unsafe paths and oversize or stalled bodies are refused before the upstream.
 #[tokio::test]
 async fn unsafe_paths_and_oversize_or_stalled_bodies_are_refused_before_the_upstream() {
     let upstream = Stub::spawn(ok_upstream()).await;
@@ -478,6 +495,7 @@ async fn unsafe_paths_and_oversize_or_stalled_bodies_are_refused_before_the_upst
     );
 }
 
+/// A stalled upstream is a 504 at its deadline.
 #[tokio::test]
 async fn a_stalled_upstream_is_a_504_at_its_deadline() {
     let upstream =
@@ -507,6 +525,7 @@ fn futures_stalled() -> impl futures_util::Stream<Item = Result<bytes::Bytes, st
         .chain(futures_util::stream::pending())
 }
 
+/// The upstream sees the via marker and a looped request is a 508 before any work.
 #[tokio::test]
 async fn the_upstream_sees_the_via_marker_and_a_looped_request_is_a_508_before_any_work() {
     let upstream = Stub::spawn(ok_upstream()).await;

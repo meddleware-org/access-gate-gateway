@@ -2357,3 +2357,5 @@ PROXY lens:
 - [x] Counts and versions re-measured 2026-10-10.
 - [x] Re-verification log entry added (2026-10-22, F58; 2026-10-22 close-out).
 - 2026-10-24 — identifier alignment (`docs/architecture/ADR-0004-identifier-alignment.md`): verifies `access-gate-gateway:access:v3` and refuses v2 (new test), loop marker `Via: 1.1 access-gate-gateway` (F43 table updated); 207 tests pass against client 0.0.21. Superseded; rollback only.
+
+- 2026-11-26 — Part B documentation pass over the whole repository (shared with the `worker` and `gateway-rust` audits); the lens inventories (RFC, IOP, PRIV, CONF, DOCS) and the findings F67 and F68 are in [`gateway-rust-worker-audit.md`](../../../worker/docs/audit/gateway-rust-worker-audit.md). F67 (a rejected `ALLOWED_ORIGINS` or `PUBLIC_PATHS` entry repeated in the error) was also fixed in `src/config.ts`, with a test. `@cloudflare/vitest-pool-workers` is renamed upstream (FU-0204); this Worker is retiring.

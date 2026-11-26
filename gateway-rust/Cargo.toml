@@ -1,3 +1,5 @@
+# The native gateway: an axum/hyper server that adapts the core to a process (environment configuration, Redis or
+# in-memory state, a shared HTTP client). Published as a crate and built into the container image.
 [package]
 name = "access-gate-gateway"
 version.workspace = true
@@ -11,15 +13,19 @@ readme = "README.md"
 keywords = ["nft", "sui", "gateway", "access-control", "reverse-proxy"]
 categories = ["network-programming", "web-programming::http-server", "authentication"]
 
+# The binary and where its entry point is.
 [[bin]]
 name = "access-gate-gateway"
 path = "src/main.rs"
 
 [dependencies]
+# The core, at exactly this workspace's version.
 access-gate-gateway-core = { version = "=0.0.33", path = "../core" }
+# The HTTP framework for the router.
 axum = "0.7"
 # In-flight request cap + load shedding (MAX_CONCURRENT_REQUESTS); same tower as axum 0.7.
 tower = { version = "0.5", features = ["limit", "load-shed"] }
+# The async runtime, with only the features the server uses.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
 # HTTP client: hyper 1.x + hyper-rustls instead of reqwest to avoid the
 # url → idna → icu_normalizer compile chain (~10 min on GHA).
@@ -28,15 +34,19 @@ hyper = { version = "1", features = ["http1", "client", "server"] }
 hyper-util = { version = "0.1", features = ["tokio", "client", "client-legacy", "http1", "server", "service"] }
 hyper-rustls = { version = "0.27", features = ["webpki-tokio", "http1"] }
 http-body-util = "0.1"
+# JSON for the gateway's own answers.
 serde_json = "1"
 # OsRng for nonce generation — much lighter than the full rand crate (no algorithms needed).
 rand_core = { version = "0.6", features = ["getrandom"] }
 # Shared TTL nonce store for horizontal scale-out (Redis protocol; works with Dragonfly).
 redis = { version = "0.27", default-features = false, features = ["tokio-comp", "connection-manager", "script"] }
+# Errors with context.
 anyhow = "1"
+# Structured logging and its output.
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# Needed only to test the crate.
 [dev-dependencies]
 # Test fixtures encode access proofs the way a client does.
 base64 = "0.22"
@@ -45,3 +55,7 @@ tokio = { version = "1", features = ["rt", "macros"] }
 ed25519-dalek = "3"
 # Streaming request bodies in the router tests (already in the graph via axum).
 futures-util = { version = "0.3", default-features = false }
+
+# The workspace lint levels (including the documentation lints).
+[lints]
+workspace = true

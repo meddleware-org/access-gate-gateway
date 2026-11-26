@@ -13,11 +13,15 @@ use access_gate_gateway_core::grpc::{
 };
 use libfuzzer_sys::fuzz_target;
 
+/// The consumed-event type the parsers are asked to match (a fixed, well-formed type).
 const TYPE: &str = "0x0000000000000000000000000000000000000000000000000000000000000001::access_gate::AccessConsumedEvent";
+/// The sender address the consume parser is asked to match.
 const ADDRESS: &str = "0x0000000000000000000000000000000000000000000000000000000000000002";
+/// The gate id the parsers are asked to match.
 const GATE: &str = "0x0000000000000000000000000000000000000000000000000000000000000003";
 
 fuzz_target!(|data: &[u8]| {
+    // The first byte selects a variant and the rest is the payload; an empty input has nothing to test.
     let Some((&sel, body)) = data.split_first() else {
         return;
     };
@@ -31,7 +35,9 @@ fuzz_target!(|data: &[u8]| {
         _ => Some("not-a-number"),
     };
     if let Ok(msg) = unframe(status, body) {
+        // The size bound the client promises must hold for every input.
         assert!(msg.len() <= MAX_GRPC_MESSAGE_BYTES);
+        // A decoded message can never be longer than the bytes it came from.
         assert!(msg.len() <= body.len());
     }
     // A framed message always comes back unchanged (the client sends exactly one frame).
@@ -49,16 +55,19 @@ fuzz_target!(|data: &[u8]| {
             assert!(b.len() <= body.len());
         }
     }
+    // The field numbers the Sui responses use, plus the `json` field (100).
     for n in [1u32, 2, 3, 4, 5, 6, 100] {
         let _ = field_bytes(body, n);
         let _ = field_str(body, n);
     }
+    // The look-ups the chain parsers rely on: they may return `None`, never panic.
     let _ = value_find_string(body, "gate_id");
     let _ = value_find_string(body, "timestamp_ms");
     let _ = value_field(body, "paused").and_then(value_as_bool);
     let _ = value_as_bool(body);
 
     // 3. the Sui parsers built on the decoder.
+    // The parsers read the decoder's output, so any input to the decoder is also an input to these.
     let _ = gate_blocks_access(body);
     let _ = response_gate_blocks_access(body);
     let _ = pass_is_usable(body);
