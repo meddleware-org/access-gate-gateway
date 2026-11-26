@@ -17,7 +17,9 @@ fn now_ms() -> u64 {
 }
 use crate::testkit::{gate_json, string_struct, string_value, struct_of, Reply, Stub};
 
+/// The pretend current time (epoch milliseconds) the fake chain data is built around.
 const NOW: u64 = 1_800_000_000_000;
+/// How old a consume event may be in these tests, in seconds.
 const MAX_AGE: u64 = 3600;
 
 /// An event / NFT json with a gate id (and, for events, a recent timestamp).
@@ -28,6 +30,7 @@ fn json_gate(gate: &str) -> Vec<u8> {
     ])
 }
 
+/// One transaction event with the given type, sender and gate id, encoded as the node returns it.
 fn event(etype: &str, sender: &str, gate: &str) -> Vec<u8> {
     let mut ev = ProtoWriter::new();
     ev.string_field(3, sender); // sender
@@ -62,8 +65,11 @@ fn tx_response(events: &[Vec<u8>]) -> Vec<u8> {
     tx_response_with_status(events, Some(true))
 }
 
+/// The fully written event type a consume emits.
 const CONSUMED: &str = "0xabc::access_gate::AccessConsumedEvent";
+/// A short owner address for readable assertions.
 const OWNER: &str = "0xa11ce";
+/// A short gate id for readable assertions.
 const GATE: &str = "0x6a7e";
 
 /// Matches a valid consume for sender and gate.
@@ -249,8 +255,10 @@ fn build_list_owned_encodes_the_page_token_only_when_continuing() {
 // These pin the wire format with LITERAL field numbers (not the constants above), so a changed
 // constant fails here, and they need no network and no historic transaction (audit F45).
 
+/// The pass type the scripted node is asked about.
 const PASS_TYPE: &str = "0xabc::access_gate::SoulboundAccessNFT";
 
+/// A chain client pointed at the scripted node, with the cache off and a five-second deadline.
 fn rpc_for(stub: &Stub) -> SuiRpc {
     new_sui_rpc(
         HttpClient::new().unwrap(),
@@ -275,7 +283,9 @@ fn owned_page(variants: &[&[(&str, &str)]], next: Option<&[u8]>) -> Vec<u8> {
     resp.into_bytes()
 }
 
+/// A single-use pass with no uses left: not usable.
 const EXHAUSTED: &[(&str, &str)] = &[("@variant", "SingleUse"), ("uses_remaining", "0")];
+/// An unlimited pass: always usable.
 const UNLIMITED: &[(&str, &str)] = &[("@variant", "UnlimitedPass")];
 
 /// The request fields of a `ListOwnedObjects` call, read with literal field numbers.
@@ -621,6 +631,7 @@ fn an_exhausted_receipt_is_not_ownership() {
 //   ACCESS_GATE_GATEWAY_LIVE_RPC      full-node URL (default https://fullnode.testnet.sui.io:443)
 // Unset DIGEST: the test says so and returns without asserting.
 
+/// A chain client for the live-node tests: the node named by `ACCESS_GATE_GATEWAY_LIVE_RPC`, or the public testnet full node.
 fn live_rpc() -> SuiRpc {
     new_sui_rpc(
         HttpClient::new().unwrap(),
