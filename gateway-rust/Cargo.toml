@@ -20,7 +20,7 @@ path = "src/main.rs"
 
 [dependencies]
 # The core, at exactly this workspace's version.
-access-gate-gateway-core = { version = "=0.0.34", path = "../core" }
+access-gate-gateway-core = { version = "=0.0.35", path = "../core" }
 # The HTTP framework for the router.
 axum = "0.7"
 # In-flight request cap + load shedding (MAX_CONCURRENT_REQUESTS); same tower as axum 0.7.

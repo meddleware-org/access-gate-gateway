@@ -6,6 +6,10 @@ release of the whole repository, is in [gateway-workers/CHANGELOG.md](gateway-wo
 
 ## Unreleased
 
+## 0.0.35 - 2026-11-27
+
+- The distroless base image of the gateway image is updated to the digest that fixes the libzstd advisory (0.0.34's image failed its scan and was not signed; the 0.0.34 crates and npm package are unchanged by this).
+
 ## 0.0.34 - 2026-11-27
 
 - The configuration errors for `ALLOWED_ORIGINS` and `PUBLIC_PATHS` name the entry by its position and no longer repeat it (the Rust core and the
