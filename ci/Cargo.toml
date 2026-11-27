@@ -20,7 +20,7 @@ path = "src/main.rs"
 
 [dependencies]
 # The core, at exactly this workspace's version, so the CI check and the Worker use the same parser.
-access-gate-gateway-core = { version = "=0.0.33", path = "../core" }
+access-gate-gateway-core = { version = "=0.0.34", path = "../core" }
 # Errors with context for the command line.
 anyhow = "1"
 

@@ -2,6 +2,12 @@
 
 All notable changes to `@meddleware/nft-gate-gateway` are documented here.
 
+## [0.0.34] - 2026-11-27
+
+### Changed
+
+- Version alignment only (one version for every artifact); the documentation pass and the changes listed in the repository CHANGELOG.
+
 ## [0.0.33] - 2026-10-30
 
 ### Changed

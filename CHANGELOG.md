@@ -6,6 +6,8 @@ release of the whole repository, is in [gateway-workers/CHANGELOG.md](gateway-wo
 
 ## Unreleased
 
+## 0.0.34 - 2026-11-27
+
 - The configuration errors for `ALLOWED_ORIGINS` and `PUBLIC_PATHS` name the entry by its position and no longer repeat it (the Rust core and the
   TypeScript Worker alike), so a list that was pasted with something sensitive in it is never echoed.
 - `access-gate-gateway-core` no longer exports `chain::_unused_now_ms`, a function that returned zero and had no caller.
