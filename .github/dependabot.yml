@@ -10,6 +10,7 @@ updates:
     # At most five open pull requests per ecosystem, so updates arrive at a pace that can be reviewed.
     open-pull-requests-limit: 5
     ignore:
+      # TypeScript majors are adopted deliberately, fleet-wide, not by a bot (D52; lifted with the TypeScript 7 wave).
       - dependency-name: "typescript"
         # Major versions are not proposed automatically: they are taken by hand.
         update-types: ["version-update:semver-major"]
@@ -35,20 +36,23 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     ignore:
+      # Major versions of axum, the Redis client and base64 are declined (D52); each is lifted deliberately, by hand, with the
+      # crate's changelog read and the repository's tests passing.
       - dependency-name: "axum"
         update-types: ["version-update:semver-major"]
-      # Same for the Redis client, and for base64 below.
+      # Same for the Redis client, and for base64 below (D52).
       - dependency-name: "redis"
         update-types: ["version-update:semver-major"]
       - dependency-name: "base64"
         update-types: ["version-update:semver-major"]
-      # A minor version of a 0.x crate can change its API (semver), so the signature crates' minor updates are taken by hand as well.
+      # A minor version of a 0.x crate can change its API (semver), so the signature crates' minor updates are taken by hand as well
+      # (D147; lifted for one crate by moving it deliberately, with the tests passing).
       - dependency-name: "k256"
         update-types: ["version-update:semver-minor"]
       - dependency-name: "p256"
         update-types: ["version-update:semver-minor"]
       # workers-rs, wasm-bindgen and worker-build are one pinned set (the wasm-bindgen CLI that worker-build
-      # fetches must equal the crate): bumped together by hand, see worker/README.md "Toolchain".
+      # fetches must equal the crate): bumped together by hand, see worker/README.md "Toolchain" (D147; lifted by the next set bump).
       - dependency-name: "worker"
       - dependency-name: "worker-*"
       - dependency-name: "wasm-bindgen"
